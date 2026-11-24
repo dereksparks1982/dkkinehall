@@ -1,6 +1,13 @@
 # DK Kinehall roadmap
 
-**Direction (November 2026):** DK Kinehall is a **Chromium-only** local media player, developed for Chromium and the separate DK NetNav Chromium browser project. Do not spend development time on other browser engines or compatibility shims. Do not add yt-dlp, download managers, media servers, direct-URL streaming forms, or saved-link libraries to DK Kinehall.
+**Direction (November 2026):** Two versions: a Chromium-targeted web player and a separate **native Linux Tk/libVLC player**. Both share the DK Kinehall appearance and feature goals. The native version is not a web wrapper. Do not add other browser-engine compatibility shims. Do not add yt-dlp, download managers, media servers, direct-URL streaming forms, or saved-link libraries to DK Kinehall.
+
+## Native standalone source rebuild (not yet a portable release)
+- Replace the old tabbed purple DK Media desktop front end with a single-screen red/gold DK Kinehall interface, still using the existing libVLC playback controller.
+- Source now includes local-file queue with large episode artwork rows, selection highlighting, remove controls, automatic next-file playback, 10-second skipping, resume, restore-last-file, playback speed, and 0–100% volume.
+- Native libVLC subtitle and audio track selection through the context menu, subtitles default off, SRT/VTT selection; fullscreen, picture-in-picture window, cursor/controls inactivity handling; English/Russian text. Added nearby artwork and optional TVmaze episode-still retrieval. Optional desktop drag-and-drop when bundled TkDnD is present.
+- Add a **maintainer-side** PyInstaller one-folder bundling procedure for Python/Tk, python-vlc, Pillow, TkDnD, libVLC and its plugins. This is not an AppImage, installer or end-user downloader. Do **not** call the portable release complete until the actual executable and full dependency closure have been built and published.
+- **Outstanding:** verified standalone executable on GitHub, libVLC plugin dependency closure, testing of native display/codec paths, movie poster metadata, hover video frame previews, and visual parity polish. No compile or runtime testing has been performed on the Surface Pro.
 
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.

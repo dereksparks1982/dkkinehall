@@ -18,7 +18,7 @@ class VLCMediaController:
             import vlc  # type: ignore
         except Exception as exc:
             raise VLCUnavailable(
-                "python-vlc could not load libVLC. Install 'vlc' and 'python3-vlc'."
+                "DK Kinehall cannot load libVLC. The portable bundle may be incomplete."
             ) from exc
         self.vlc = vlc
         self.instance = vlc.Instance("--no-video-title-show", "--quiet")
@@ -98,7 +98,7 @@ class VLCMediaController:
         return self.set_time_ms(self.get_time_ms() + int(milliseconds))
 
     def set_volume(self, value: int) -> None:
-        self.player.audio_set_volume(max(0, min(200, int(value))))
+        self.player.audio_set_volume(max(0, min(100, int(value))))
 
     def set_rate(self, rate: float) -> None:
         self.player.set_rate(float(rate))

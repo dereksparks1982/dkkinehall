@@ -12,7 +12,7 @@ def _show_startup_error(message: str) -> None:
 
         root = tk.Tk()
         root.withdraw()
-        messagebox.showerror("DK Media", message)
+        messagebox.showerror("DK Kinehall", message)
         root.destroy()
     except Exception:
         print(message)
@@ -23,5 +23,5 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception:
         detail = traceback.format_exc()
-        _show_startup_error("DK Media failed to start.\n\n" + detail)
+        _show_startup_error("DK Kinehall failed to start.\n\n" + detail)
         raise

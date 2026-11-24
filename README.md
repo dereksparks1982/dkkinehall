@@ -43,7 +43,7 @@ If you choose to restore a previously opened file, Chromium may ask you to grant
 
 ## Availability
 
-DK Kinehall's current player is designed for **Chromium-based browsers**, including the separate **DK NetNav** browser. Use the **[web player](https://dereksparks1982.github.io/dkkinehall/)** without installing the historical desktop edition.
+DK Kinehall has a web player for **Chromium-based browsers** and a separate native Linux player using libVLC. The native player uses the same Kinehall branding and is being prepared for a portable, double-click release. **A self-contained Linux executable is not yet published.** Until then, use the **[web player](https://dereksparks1982.github.io/dkkinehall/)**.
 
 ## License
 

@@ -33,10 +33,16 @@ Check all dynamically loaded VLC plugins and their transitive shared library
 dependencies. The Linux distribution's base graphical and C runtime remain
 necessary, as with any native Linux program.
 
-## Not yet complete
+## Current GitHub binary status
 
-This commit is desktop **source progress**, not a verified portable binary
-release. The native queue has still artwork and basic TVmaze episode lookup.
-Web-style hover-frame previews, mouse file drag-and-drop, richer movie
-metadata, and exhaustive desktop/web layout parity remain unfinished.
-No dependency-free executable has been uploaded to GitHub yet.
+The Linux executable and its bundled runtime are committed to
+`portable/DK Kinehall/` on the repository's main branch. The build job
+completed successfully on an Ubuntu 24.04 runner. The `_internal` directory
+contains Python, Tcl/Tk, Pillow, TkDnD, libVLC and VLC plugin libraries.
+
+This confirms packaging, **not** successful end-user playback. Graphical
+launch, codec behavior, file manager execution, and full desktop/web feature
+parity have not yet been confirmed on a clean Ubuntu desktop.
+
+Still outstanding: hover-video-frame previews, richer movie metadata,
+native UI polish, and display/codec runtime verification.

@@ -126,6 +126,7 @@ class Kinehall(NativeTk):
         self.pip_host: tk.Frame | None = None
         self._thumbs: dict[str, object] = {}
         self._art_pending: set[str] = set()
+        self._art_failed: set[str] = set()
         self._workers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="kinehall-art")
         self._cursor_job: str | None = None
         self._controls_job: str | None = None
@@ -316,7 +317,7 @@ class Kinehall(NativeTk):
         label.pack(side="left",padx=(4,8))
         if path in self._thumbs:
             label.configure(image=self._thumbs[path],text="",width=170,height=96)
-        elif path not in self._art_pending:
+        elif path not in self._art_pending and path not in self._art_failed:
             self._art_pending.add(path)
             try:
                 future=self._workers.submit(artwork_for,path)
@@ -342,6 +343,10 @@ class Kinehall(NativeTk):
             image=self._image(result,170,96)
             if image is not None:
                 self._thumbs[path]=image
+            else:
+                self._art_failed.add(path)
+        else:
+            self._art_failed.add(path)
         if path in self.queue:
             self._render_queue()
 

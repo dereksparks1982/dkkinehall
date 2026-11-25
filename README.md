@@ -10,7 +10,7 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 
 - **Play your own files.** Open local videos and music, choose a remembered folder, or drag files into the player. Media files remain on your device.
 - **Up Next queue.** Organize videos, move between episodes, keep watched items in the list, and remove entries when you choose.
-- **Movie and episode artwork.** Display artwork and available episode information, with automatic image fallbacks.
+- **Movie posters and episode artwork.** Automatically find film posters through the keyless Apple movie catalog and episode stills through TVmaze; use series artwork, embedded MKV cover art, or local video frames when preferred artwork is unavailable. No personal API token required.
 - **Playback controls.** Play, pause, stop, previous, next, 10-second rewind and forward, timeline seeking, volume, mute, playback speed, fullscreen, and picture-in-picture.
 - **Preview the timeline.** Hover over the progress bar to preview a scene when the video format allows it.
 - **Resume watching.** Remember playback position and, where Chromium permissions allow, reopen your last selected local file.
@@ -18,6 +18,28 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Audio tracks.** Switch Chromium-native tracks when exposed, or select supported embedded MKV AAC/Opus tracks using WebCodecs and WebAudio. Playback and synchronization depend on actual codec support.
 - **Embedded bitmap subtitles.** Local PGS and basic DVD VobSub bitmap subtitle decoding in MKV files, with subtitle selection from the existing right-click menu. Unsupported DVD display commands and encodings are reported rather than faked.
 - **English and Russian.** Switch the interface between English and Русский.
+
+## Movie poster and episode artwork repair
+
+Older versions intentionally skipped movie artwork entirely unless a private
+TMDb token was configured. This defect is fixed. For recognized movie names,
+Kinehall requests the matching movie poster from the Apple catalog without
+requiring user credentials. Matching requires the actual title and, when
+available, its release year to avoid confusing remakes. Television episodes
+prefer verified TVmaze episode stills, falling back to series art.
+
+Up Next shows the **actual poster image**, not the movie filename as a fake
+picture. Movie posters fit within the existing tall sidebar thumbnails without
+cropping. When a provider is unavailable or a title cannot be matched, Kinehall
+can use an embedded Matroska cover or local video frame as a visual fallback,
+where the local video format is decodable. Titles may be looked up online;
+the media files themselves never leave your device.
+
+Only approved remote artwork links (not image bytes) are remembered locally
+for faster display after reloading or changing the queue. Links are retried
+if an image expires. The display remains dependent on metadata availability,
+network access and the provider's catalog. Artwork credits and provider links
+remain visible beneath Up Next.
 
 ## Build 3: MKV audio and subtitle playback
 

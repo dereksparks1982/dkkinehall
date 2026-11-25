@@ -41,6 +41,15 @@
 - Include Node tests for AAC/Opus configuration, no-lacing and Xiph/fixed/EBML Matroska block lacing, DVD subpicture RLE/palette and decoder safety limits, MKV private metadata and PGS regressions. Also check WebCodecs capability and subtitle canvas rendering in a Linux Electron window.
 - The fallback does **not** add decoding of unsupported video codecs or all MKV audio profiles. Final sync/codec coverage must be verified using real user movies; do not claim universal Matroska support. Expanded format compatibility remains Build 4.
 
+## Movie poster and episode still repair (November 2026)
+- Root cause: `metadata-ui.js` had a branch that skipped **every movie file**, while `episode-metadata.js` required an optional TMDb token for movie lookup. The shipped interface supplied no token, so movies could never display online posters.
+- Remove the episode-only restriction and add keyless, automatically requested movie artwork from the public Apple movie catalog. Match normalized titles and release years; do not display unrelated posters for ambiguous remakes. Retain TVmaze still-first lookup and series poster fallback for episodes.
+- Use original approved Matroska cover attachments when present, and local muted video-frame previews if a public poster is unavailable; label those as local previews, not as posters. Limit concurrent decoding and only process relevant visible queue entries. Never upload full files or local paths.
+- Reattach actual artwork images when the queue is rerendered; retain recently verified remote artwork **URLs only** across sessions. Retry bad image links and temporary failures. Do not persist remote image bytes.
+- Preserve the existing Up Next card width and height. Show portrait posters without cutting off film titles; TV episode stills continue to fill the rectangular area.
+- Include tests for matched movie poster, year-mismatch rejection, episode still/series fallback, failed image recovery, persistent URL cache, queue DOM redraw, and actual image load in Linux Chromium/Electron. Public provider availability is outside the player's control.
+- Keep the same player on GitHub Pages and in the root Linux executable, then remove the temporary test workflow.
+
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.
 - Original golden emblem, Open files, Restore last file and drag-and-drop, with a local-file-only welcome sentence.
@@ -51,7 +60,7 @@
 - Initial source support for local MKV PGS bitmap subtitles (S_HDMV/PGS): Matroska packet reading, palette and RLE decoding, multiple composition objects, timestamps, clear frames, canvas overlay, responsive geometry and off/switch controls. Source-only fixtures added; not validated in a browser. VobSub and unhandled encodings remain unavailable.
 - MKV audio descriptor scanning (track number, language, codec, name, channel count, sample rate and bit depth); distinguish informational MKV tracks from browser-switchable tracks in the video context menu. Select and remember real native audio tracks per local file when Chromium exposes a working track API. No claim of complete MKV demuxer audio switching or extra codecs.
 - Corrected playlist media-file retention so on-demand MKV subtitle extraction receives the actual local `File` object rather than an undefined value.
-- Hover seek frames, muted video previews, TVmaze episode artwork and image fallback/retries, no user token required.
+- Hover seek frames, muted video previews, automatic keyless movie posters, TVmaze episode stills and series fallbacks, bounded local thumbnails, artwork URL caching and retry.
 - Cyrillic-only Russian interface.
 - Outward-facing Kinehall name in both languages, browser tabs, GitHub Pages, home-screen manifests and desktop launchers; original icon and legacy internal file/state identifiers are unchanged.
 

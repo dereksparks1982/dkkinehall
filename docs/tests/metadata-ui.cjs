@@ -1,79 +1,106 @@
 "use strict";
-/* Minimal browser-like regression test for artwork replacement and auto-retry.
- * No browser install or network calls required.
+/* Tests visible movie posters, TV still -> series fallback, cache, queue redraw.
+ * Simulates <img> load success/failure and DOM replacement, not just API JSON.
  */
 const assert=require("node:assert/strict");
-const fs=require("node:fs");
-const path=require("node:path");
-const vm=require("node:vm");
-const source=fs.readFileSync(path.join(__dirname,"../metadata-ui.js"),"utf8");
-const observers=[],timers=[];
-class Element{
-  constructor(){this.children=[];this.handlers={};this.dataset={};this.style={};
-    this.hidden=false;this.isConnected=true;this.classList={values:new Set(),
-      add:v=>this.classList.values.add(v),remove:v=>this.classList.values.delete(v),
-      contains:v=>this.classList.values.has(v)};}
-  addEventListener(type,fn){this.handlers[type]=fn;}
-  append(node){this.children.push(node);node.parent=this;}
-  replaceChildren(...nodes){this.children=[...nodes];nodes.forEach(n=>n.parent=this);}
-  setAttribute(k,v){this[k]=v;}
-  matches(s){return s==="li";}
-  querySelector(q){
-    if(q===".queue-artwork-fallback")return this.children.find(x=>x.className===q.slice(1))||null;
-    return null;
-  }
+const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm");
+const src=fs.readFileSync(path.join(__dirname,"../metadata-ui.js"),"utf8");
+const observerFns=[],timers=[],persist=new Map();
+class El{
+ constructor(className=""){
+  this.className=className;this.children=[];this.parent=null;this.dataset={};
+  this.isConnected=true;this.hidden=false;this.title="";this.attributes={};
+  this.classList={s:new Set(),add:x=>this.classList.s.add(x),
+    remove:x=>this.classList.s.delete(x),contains:x=>this.classList.s.has(x)};
+ }
+ append(node){this.children.push(node);node.parent=this;}
+ replaceChildren(...nodes){this.children=[...nodes];for(const n of nodes)n.parent=this;}
+ remove(){if(this.parent)this.parent.children=this.parent.children.filter(x=>x!==this);}
+ setAttribute(k,v){this.attributes[k]=v;}
+ querySelector(q){
+  if(q===".queue-artwork-fallback")return this.children.find(x=>x.className==="queue-artwork-fallback")||null;
+  if(q===".item-title")return this.name?{textContent:this.name}:null;
+  if(q===".queue-artwork")return this.box||null;
+  if(q===".queue-artwork-image:not([hidden])")
+   return this.children.find(x=>x.className==="queue-artwork-image"&&!x.hidden)||null;
+  return null;
+ }
+ querySelectorAll(q){return q===".queue-artwork-image"?
+   this.children.filter(x=>x.className==="queue-artwork-image") : [];}
+ matches(q){return q==="li";}
+ closest(q){return q==="li"?this.parent:null;}
 }
-const box=new Element(),listItem=new Element(),queue=new Element(),enabledBox=new Element();
-const tokenBox=new Element(),apply=new Element(),clear=new Element();
-listItem.dataset={queueKind:"file",queueAudio:"0"};
-listItem.classList.contains=()=>false;
-listItem.querySelector=q=>q===".queue-artwork"?box:q===".item-title"?
- {textContent:"Mike.Judges.Beavis.and.Butthead.S01E04.mkv"}:null;
-box.closest=()=>listItem;queue.children=[listItem];
-let attempts=0,cacheClears=0;
-const imageURL="https://static.tvmaze.com/episode.jpg";
-const fallbackURL="https://static.tvmaze.com/poster.jpg";
+function item(name){
+ const li=new El();li.name=name;li.dataset={queueKind:"file",queueAudio:"0"};
+ li.box=new El("queue-artwork");li.box.parent=li;
+ return li;
+}
+const queue=new El("queue");
+let movie=item("The.Matrix.1999.1080p.mkv"),episode=item("Example.Show.S01E02.mkv");
+queue.children=[movie,episode];
+const movieURL="https://is1-ssl.mzstatic.com/image/thumb/Video/a/400x600bb.jpg";
+const stillURL="https://static.tvmaze.com/failed-still.jpg";
+const seriesURL="https://static.tvmaze.com/series-poster.jpg";
+const requests=[];
 const ctx={
- window:{DKMediaMetadata:{
-    parseFilename:()=>({type:"episode",season:1,episode:4}),
-    create:()=>({
-      find:async()=>++attempts===1?null:{
-        url:imageURL,fallbackUrl:fallbackURL,provider:"TVmaze",title:"Beekeepers"},
-      clear:()=>{cacheClears++}
-    })},
-  DKJellyfinArtwork:{choose:()=>null}},
- document:{documentElement:{lang:"en"},getElementById:id=>({
-  queue,autoArtwork:enabledBox,tmdbToken:tokenBox,applyTmdbToken:apply,clearTmdbToken:clear
- })[id],createElement(tag){
-   const el=new Element();
-   el.className="";
+ window:{
+  DKMediaMetadata:{
+   parseFilename:name=>name.startsWith("The.Matrix")?
+     {type:"movie",title:"The Matrix",year:1999}:
+     {type:"episode",series:"Example Show",season:1,episode:2},
+   create:()=>({
+    find:async name=>{
+     requests.push(name);
+     return name.startsWith("The.Matrix")?
+      {url:movieURL,provider:"Apple",title:"The Matrix"}:
+      {url:stillURL,fallbackUrl:seriesURL,provider:"TVmaze",title:"Episode 2"};
+    },clear(){}
+   })
+  }
+ },
+ document:{
+  documentElement:{lang:"en"},
+  getElementById:id=>id==="queue"?queue:null,
+  createElement(tag){
+   const el=new El();
    if(tag==="img")Object.defineProperty(el,"src",{
-      set(value){this.currentSrc=value;
-        Promise.resolve().then(()=>{if(value===imageURL){this.onerror?.()}else{this.onload?.()}})},
-      get(){return this.currentSrc}
+    set(url){this.currentSrc=url;
+     Promise.resolve().then(()=>{if(url===stillURL)this.onerror?.();else this.onload?.();});
+    },get(){return this.currentSrc;}
    });
    return el;
- }},
- MutationObserver:class{constructor(fn){this.fn=fn;observers.push(this)}observe(){}},
- localStorage:{getItem:()=>null,setItem(){}},
- sessionStorage:{getItem:()=>null,setItem(){},removeItem(){}},
+  }
+ },
+ MutationObserver:class{constructor(fn){observerFns.push(fn);}observe(){}},
+ localStorage:{getItem:k=>persist.get(k)||null,setItem:(k,v)=>persist.set(k,v)},
  setTimeout:fn=>{timers.push(fn);return timers.length},
  clearTimeout:()=>{},
- console};
-vm.runInNewContext(source,ctx,{filename:"metadata-ui.js"});
+ console,Date,Promise
+};
+vm.runInNewContext(src,ctx,{filename:"metadata-ui.js"});
+const flush=async()=>{for(let i=0;i<14;i++)await Promise.resolve();};
 (async()=>{
-  for(let i=0;i<6;i++)await Promise.resolve();
-  assert.equal(attempts,1);
-  assert.equal(box.dataset.artworkStatus,"retrying");
-  assert.equal(timers.length,1);
-  timers[0]();
-  for(let i=0;i<12;i++)await Promise.resolve();
-  assert.equal(attempts,2);
-  assert.equal(box.dataset.artworkStatus,"loaded");
-  assert.equal(box.classList.contains("has-art"),true);
-  const image=box.children.find(x=>x.className==="queue-artwork-image");
-  assert.equal(image.src,fallbackURL,"Broken episode still uses series image");
-  assert.ok(cacheClears>0,"Retry invalidates failed metadata search");
-  assert.equal(enabledBox.checked,true);
-  console.log("PASS: playlist metadata auto-retry, series image fallback, visibility");
+ await flush();
+ assert.equal(requests.length,2,"Movie AND episode must request artwork");
+ assert.equal(movie.box.dataset.artworkStatus,"loaded","Movie poster should load");
+ assert.equal(movie.dataset.artworkType,"movie");
+ assert.equal(movie.box.classList.contains("has-art"),true);
+ const poster=movie.box.children.find(x=>x.className==="queue-artwork-image");
+ assert.equal(poster.src,movieURL);
+ assert.equal(episode.box.dataset.artworkStatus,"loaded","Series poster should replace missing still");
+ assert.equal(episode.dataset.artworkType,"episode");
+ assert.equal(episode.box.children.find(x=>x.className==="queue-artwork-image").src,seriesURL);
+ assert.ok([...persist.values()].some(v=>v.includes(movieURL)),"Poster URL should survive reload");
+
+ // Queue redraws occur on every playback change. Artwork must reappear in
+ // fresh <li> nodes instead of disappearing with the old DOM.
+ const replacement=item("The.Matrix.1999.1080p.mkv");
+ queue.children=[replacement,episode];
+ observerFns[0]();
+ await flush();
+ assert.equal(replacement.box.dataset.artworkStatus,"loaded");
+ assert.equal(requests.filter(x=>x.startsWith("The.Matrix")).length,1,
+   "Re-render must use existing metadata, not refetch the movie");
+ console.log("PASS: movie poster and episode still->series fallback rendered as real images");
+ console.log("PASS: cached poster links and image re-render after queue replacement");
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -1,0 +1,152 @@
+name: DK Kinehall movie posters and episode artwork repair
+on:
+  push:
+    paths:
+      - .github/workflows/kinehall-artwork-repair.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kinehall-artwork-repair
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Prepare build machine and X11 window manager
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            golang-go xvfb xauth openbox unzip libnss3 libasound2t64 libgbm1 libgtk-3-0t64
+
+      - name: Verify movie posters, episode art, queue rendering, and existing player features
+        run: |
+          set -euo pipefail
+          node --check docs/player.js
+          node --check docs/queue-autoplay.js
+          node --check docs/folder-access.js
+          node --check docs/mkv-audio.js
+          node --check docs/mkv-tracks.js
+          node --check docs/mkv-subtitles.js
+          node --check docs/pgs-subtitles.js
+          node --check docs/vobsub.js
+          node --check docs/episode-metadata.js
+          node --check docs/metadata-ui.js
+          node --check docs/queue-artwork.js
+          node --check docs/mkv-cover.js
+          node docs/tests/queue-autoplay.cjs
+          node docs/tests/folder-access.cjs
+          node docs/tests/language.cjs
+          node docs/tests/audio-tracks.cjs
+          node docs/tests/mkv-audio.cjs
+          node docs/tests/mkv-tracks.cjs
+          node docs/tests/mkv-subtitles.cjs
+          node docs/tests/pgs-subtitles.cjs
+          node docs/tests/vobsub.cjs
+          node docs/tests/episode-metadata.cjs
+          node docs/tests/metadata-ui.cjs
+          node docs/tests/queue-artwork.cjs
+          node docs/tests/mkv-cover.cjs
+          node docs/tests/web-player-smoke.cjs
+
+      - name: Download verified Chromium-Electron runtime
+        run: |
+          set -euo pipefail
+          curl -fL --retry 3 --retry-delay 3 \
+            https://github.com/electron/electron/releases/download/v45.4.1/electron-v45.4.1-linux-x64.zip \
+            -o "$RUNNER_TEMP/electron.zip"
+          curl -fL --retry 3 --retry-delay 3 \
+            https://github.com/electron/electron/releases/download/v45.4.1/SHASUMS256.txt \
+            -o "$RUNNER_TEMP/electron-checksums.txt"
+          expected="$(grep -F 'electron-v45.4.1-linux-x64.zip' "$RUNNER_TEMP/electron-checksums.txt" | head -n1 | cut -c1-64)"
+          test -n "$expected"
+          printf '%s  %s\n' "$expected" "$RUNNER_TEMP/electron.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/kinehall-runtime"
+          unzip -q "$RUNNER_TEMP/electron.zip" -d "$RUNNER_TEMP/kinehall-runtime"
+          test -x "$RUNNER_TEMP/kinehall-runtime/electron"
+
+      - name: Bundle identical web player and native fullscreen bridge
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/kinehall-runtime/resources/app"
+          mkdir -p "$app"
+          cp standalone/main.cjs standalone/preload.cjs standalone/queue-smoke.js \
+            standalone/folder-smoke.js standalone/codec-smoke.js \
+            standalone/artwork-smoke.js standalone/package.json "$app/"
+          cp -a docs "$app/docs"
+          test -s "$app/docs/index.html"
+          test -s "$app/docs/player.js"
+          test -s "$app/docs/queue-autoplay.js"
+          test -s "$app/docs/folder-access.js"
+          test -s "$app/folder-smoke.js"
+          test -s "$app/codec-smoke.js"
+          test -s "$app/docs/vobsub.js"
+          test -s "$app/artwork-smoke.js"
+          test -s "$app/docs/episode-metadata.js"
+          test -s "$app/docs/metadata-ui.js"
+          test -s "$app/docs/queue-artwork.js"
+          test -s "$app/docs/mkv-cover.js"
+          test -s "$app/docs/player.css"
+          test -s "$app/docs/icons/dk-media-player-512.png"
+          test -s "$app/queue-smoke.js"
+          test -s "$app/preload.cjs"
+
+      - name: Verify real movie poster image in live Chromium plus player regressions
+        run: |
+          set -euo pipefail
+          xvfb-run -a -s '-screen 0 1600x1000x24' bash -c \
+            'openbox --sm-disable >/dev/null 2>&1 & sleep 2; DK_KINEHALL_SMOKE=1 DK_KINEHALL_ARTWORK_LIVE=1 timeout 115s "$1" --no-sandbox --disable-gpu' \
+            _ "$RUNNER_TEMP/kinehall-runtime/electron"
+
+      - name: Rebuild root standalone with movie poster and local cover fallback
+        run: |
+          set -euo pipefail
+          rm -rf _internal
+          mkdir _internal
+          tar -h -czf "$RUNNER_TEMP/kinehall-runtime.tar.gz" \
+            -C "$RUNNER_TEMP/kinehall-runtime" .
+          id="$(sha256sum "$RUNNER_TEMP/kinehall-runtime.tar.gz" | cut -d' ' -f1)"
+          split -b 70M -d -a 3 "$RUNNER_TEMP/kinehall-runtime.tar.gz" _internal/runtime.tar.gz.
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -trimpath -ldflags="-s -w -X main.bundleID=$id" \
+            -o 'DK Kinehall' standalone/launcher.go
+          chmod +x 'DK Kinehall'
+          test -x 'DK Kinehall'
+          test -s _internal/runtime.tar.gz.000
+          if find _internal -type f -size +95M -print -quit | grep -q .; then
+            echo 'Runtime part exceeds GitHub file limit'
+            exit 1
+          fi
+
+      - name: Verify rebuilt executable, thumbnail modules and Ubuntu icon
+        run: |
+          set -euo pipefail
+          rm -rf "$HOME/.cache/dk-kinehall"
+          xvfb-run -a -s '-screen 0 1600x1000x24' bash -c \
+            'openbox --sm-disable >/dev/null 2>&1 & sleep 2; DK_KINEHALL_SMOKE=1 timeout 100s "$1" --disable-gpu' \
+            _ './DK Kinehall'
+          # This is generated automatically by the executable for the current
+          # user. It binds the GNOME dock icon to the actual app/window class.
+          entry="$HOME/.local/share/applications/dk-kinehall.desktop"
+          test -s "$entry"
+          grep -Fx 'Name=DK Kinehall' "$entry"
+          grep -Fx 'StartupWMClass=dk-kinehall' "$entry"
+          grep -Fx "Icon=$PWD/docs/icons/dk-media-player-512.png" "$entry"
+          grep -F 'Exec="' "$entry"
+
+      - name: Publish verified root executable on main
+        run: |
+          set -euo pipefail
+          git config user.name 'DK Kinehall build'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -f 'DK Kinehall' _internal
+          git diff --cached --quiet && { echo 'Nothing staged'; exit 1; }
+          git commit -m 'Publish fixed Kinehall movie posters and episode artwork [skip ci]'
+          git push origin HEAD:main

@@ -160,6 +160,14 @@ function openWindow() {
         if (!codecState || codecState.passed !== true)
           throw new Error("MKV codec/subtitle smoke test did not pass");
         console.log("DK_KINEHALL_MKV_CODECS_PASS", JSON.stringify(codecState));
+        if (process.env.DK_KINEHALL_ARTWORK_LIVE === "1") {
+          const artworkTest = require("node:fs").readFileSync(
+            path.join(__dirname, "artwork-smoke.js"), "utf8");
+          const artworkState = await win.webContents.executeJavaScript(artworkTest);
+          if (!artworkState || artworkState.passed !== true)
+            throw new Error("Live movie poster rendering test did not pass");
+          console.log("DK_KINEHALL_MOVIE_POSTER_LIVE_PASS", JSON.stringify(artworkState));
+        }
         app.exit(0);
       } catch (error) {
         console.error("DK_KINEHALL_SMOKE_FAILED", String(error));

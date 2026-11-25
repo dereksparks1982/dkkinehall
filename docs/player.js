@@ -439,6 +439,9 @@
     byId("queueCount").textContent = pending.length ? pending.length + (pending.length === 1 ? " item" : " items") : "";
     pending.forEach((item, index) => {
       const li = document.createElement("li");
+      // The artwork controller needs this precise local item to read optional
+      // embedded covers or preview frames, never a file path or remote upload.
+      li.dkQueueItem = item;
       li.dataset.queueKind = item.kind;
       li.dataset.queueAudio = item.audio ? "1" : "0";
       if (index === state.current) {
@@ -547,6 +550,12 @@
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
     if (autoplay) playCurrent();
   };
+  const releaseArtwork = item => {
+    if(item?.thumbnailBlob && item.thumbnail){
+      try { URL.revokeObjectURL(item.thumbnail); } catch (_) {}
+      item.thumbnail=null;item.thumbnailBlob=false;
+    }
+  };
   const removeItem = index => {
     if (index < 0 || index >= state.queue.length) return;
     const wasCurrent = state.current === index;
@@ -559,6 +568,7 @@
       if (index < state.current) state.current--;
       renderQueue();
     }
+    releaseArtwork(old);
     if (old.kind === "file") URL.revokeObjectURL(old.src);
   };
   // Open files selects a movie to watch now unless another is playing.
@@ -860,6 +870,7 @@
     // Clearing Up Next should not interrupt the episode currently on screen.
     const old = state.queue.splice(state.current + 1);
     old.forEach(item => {
+      releaseArtwork(item);
       if (item.kind === "file") URL.revokeObjectURL(item.src);
     });
     renderQueue();
@@ -1559,7 +1570,7 @@
     clearTimeout(cursorIdleTimer);
     rememberPosition();
     clearSubtitles();
-    state.queue.forEach(item => { if (item.kind === "file") URL.revokeObjectURL(item.src); });
+    state.queue.forEach(item => { releaseArtwork(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
   });
   idle();
   // A restored file stays paused until the user presses Play.

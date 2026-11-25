@@ -552,3 +552,13 @@ html.dk-desktop-fullscreen body {
   color:var(--muted);
   overflow-wrap:anywhere;
 }
+
+/* Posters are portrait artwork, not 16:9 episode stills. Keep the approved
+   Up Next card size, but display the full poster without cropping its title. */
+.queue li[data-artwork-type="movie"] .queue-artwork-image {
+  object-fit:contain;
+  background:#10121a;
+}
+.queue li[data-artwork-type="episode"] .queue-artwork-image {
+  object-fit:cover;
+}

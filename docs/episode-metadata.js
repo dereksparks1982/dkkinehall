@@ -12,6 +12,7 @@
  "use strict";
  const TV="https://api.tvmaze.com";
  const TM="https://api.themoviedb.org/3";
+ const APPLE="https://itunes.apple.com/search";
  const MAX_BODY=3*1024*1024;
  function normalize(value){
    return String(value||"").normalize("NFKD")
@@ -37,8 +38,9 @@
        return {type:"episode",series,season,episode,year};
      return null;
    }
-   const movie=/^(.+?)\s+((?:19|20)\d{2})(?:\s|$)/.exec(text);
-   let title=movie?movie[1].trim():text.replace(/\s+(?:1080p|720p|2160p|bluray|brrip|webrip|web-dl|h264|h265|x264|x265).*$/i,"").trim();
+   const withoutTags=text.replace(/\s+(?:2160p|1080p|720p|480p|4k|uhd|hdr10?|dv|bluray|blu ray|brrip|bdrip|dvdrip|webrip|web dl|web rip|h26[45]|x26[45]|hevc|av1|ddp|dts|aac|ac3)(?:\b.*)?$/i,"").trim();
+   const movie=/^(.+?)\s+((?:19|20)\d{2})(?:\s|$)/.exec(withoutTags);
+   let title=movie?movie[1].trim():withoutTags;
    if(title.length<2)return null;
    return {type:"movie",title:title.slice(0,120),year:movie?Number(movie[2]):null};
  }
@@ -73,7 +75,10 @@
      const parsed=new URL(url);
      const hosts=provider==="TVmaze"?["static.tvmaze.com","images.tvmaze.com"]:
        provider==="TMDb"?["image.tmdb.org"]:[];
-     return parsed.protocol==="https:"&&hosts.includes(parsed.hostname)?parsed.href:null;
+     const apple=provider==="Apple" &&
+       /^(?:is\d+-ssl|a\d+|is\d+)\.mzstatic\.com$/.test(parsed.hostname);
+     return parsed.protocol==="https:"&&(hosts.includes(parsed.hostname)||apple)?
+       parsed.href:null;
    }catch(_){return null;}
  }
  function allowedCredit(url,provider){
@@ -81,15 +86,89 @@
    try{
      const parsed=new URL(url);
      const hosts=provider==="TVmaze"?["www.tvmaze.com","tvmaze.com"]:
-       provider==="TMDb"?["www.themoviedb.org","themoviedb.org"]:[];
+       provider==="TMDb"?["www.themoviedb.org","themoviedb.org"]:
+       provider==="Apple"?["itunes.apple.com","tv.apple.com"]:[];
      return parsed.protocol==="https:"&&hosts.includes(parsed.hostname)?parsed.href:null;
    }catch(_){return null;}
  }
+ // Apple movie posters are available without a TMDb token. Its public
+ // Search API explicitly supports cross-site JSONP, including file://
+ // Chromium applications where ordinary CORS fetch may be restricted.
+ let jsonpSerial=0;
+ function appleJSONP(url){
+   if(typeof document==="undefined"||!document.createElement)return Promise.resolve(null);
+   return new Promise(resolve=>{
+     const callback="__dkKinehallApple"+(++jsonpSerial);
+     const script=document.createElement("script");
+     let finished=false;
+     const finish=value=>{
+       if(finished)return;
+       finished=true;
+       clearTimeout(timer);
+       delete globalThis[callback];
+       script.remove();
+       resolve(value);
+     };
+     globalThis[callback]=value=>finish(value);
+     script.async=true;
+     script.referrerPolicy="no-referrer";
+     script.onerror=()=>finish(null);
+     const timer=setTimeout(()=>finish(null),9500);
+     script.src=url+(url.includes("?")?"&":"?")+"callback="+callback;
+     document.head.append(script);
+   });
+ }
+ function applePoster(url){
+   const source=allowedImage(url,"Apple");
+   if(!source)return null;
+   // Apple's URLs are 100px thumbnails by default. Request a poster-sized
+   // asset from the same trusted CDN without storing image bytes locally.
+   const large=source.replace(/\/100x100(?:bb|-75)(\.(?:jpe?g|png|webp))(?:\?.*)?$/i,
+     "/400x600bb$1");
+   return allowedImage(large,"Apple");
+ }
+ function pickAppleMovie(info,rows){
+   const title=normalize(info.title);
+   const candidates=(Array.isArray(rows)?rows:[]).filter(row=>{
+     if(!row||row.kind!=="feature-movie"||
+        normalize(row.trackName||"")!==title)return false;
+     return !!applePoster(row.artworkUrl100);
+   });
+   if(!candidates.length)return null;
+   const year=Number(info.year)||null;
+   // No poster for an ambiguous remake: a search match needs to agree
+   // with the year when the filename identifies one.
+   const dated=year?candidates.filter(row=>
+     String(row.releaseDate||"").slice(0,4)===String(year)):[];
+   const chosen=year?(dated[0]||(
+     candidates.length===1&&!candidates[0].releaseDate?candidates[0]:null)):
+     candidates[0];
+   if(!chosen)return null;
+   return {still:applePoster(chosen.artworkUrl100),series:null,
+     title:chosen.trackName||info.title,provider:"Apple",
+     credit:allowedCredit(chosen.trackViewUrl,"Apple")||"https://itunes.apple.com"};
+ }
  function create({fetchJSON=typeof fetch==="function"?fetch.bind(globalThis):null,
                   selectImage=null,token=()=>"",enabled=()=>true,
+                  appleSearch=typeof document!=="undefined"?appleJSONP:null,
                   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){
    const searchTV=new Map(),episodesTV=new Map();
-   const searchTM=new Map();
+   const searchTM=new Map(),searchApple=new Map();
+   let appleGate=Promise.resolve(),lastAppleRequest=0;
+   const queuedApple = url => {
+     const task=appleGate.catch(()=>{}).then(async()=>{
+       // The public catalog recommends at most ~20 requests per minute.
+       // Visible images are prioritized by the sidebar's observer.
+       const remaining=Math.max(0,3150-(Date.now()-lastAppleRequest));
+       if(remaining)await sleep(remaining);
+       lastAppleRequest=Date.now();
+       let result=appleSearch?await appleSearch(url):null;
+       if(!result)result=await request(url);
+       return result;
+     });
+     appleGate=task.then(()=>undefined,()=>undefined);
+     return task;
+   };
    let gate=Promise.resolve(),lastRequest=0;
    // One request at a time and at least 650ms apart: well below TVmaze's
    // documented rate limit. Requests for a series share in-flight promises.
@@ -194,6 +273,19 @@
        credit:"https://www.themoviedb.org/tv/"+found.id+
          "/season/"+info.season+"/episode/"+info.episode};
    }
+   async function appleMovie(info){
+     const key=normalize(info.title)+":"+(info.year||"");
+     if(!searchApple.has(key)){
+       const params=new URLSearchParams({
+         term:info.title,country:"US",media:"movie",entity:"movie",
+         attribute:"movieTerm",limit:"25"
+       });
+       const url=APPLE+"?"+params.toString();
+       searchApple.set(key,queuedApple(url)
+         .then(data=>pickAppleMovie(info,data?.results)));
+     }
+     return searchApple.get(key);
+   }
    async function tmdbMovie(info){
      const found=await tmdbSearch("movie",info.title,info.year);
      if(!found)return null;
@@ -224,8 +316,10 @@
      const info=parseFilename(filename);
      if(!info)return null;
      if(info.type==="movie"){
-       if(!token())return null;
-       return choose(await tmdbMovie(info));
+       // Prefer a configured TMDb movie poster where available, otherwise
+       // use the keyless Apple catalog instead of hiding all movie artwork.
+       const tm=token()?await tmdbMovie(info):null;
+       return choose(tm||await appleMovie(info));
      }
      const tv=await tvEpisode(info);
      if(tv?.still)return choose({...tv,type:"episode"});
@@ -238,9 +332,9 @@
      return choose(tv?{...tv,type:"episode"}:null);
    }
    function clear(){
-     searchTV.clear();episodesTV.clear();searchTM.clear();
+     searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();
    }
    return {find,clear};
  }
- return {normalize,parseFilename,findExact,findShow,allowedImage,allowedCredit,create};
+ return {normalize,parseFilename,findExact,findShow,allowedImage,allowedCredit,applePoster,pickAppleMovie,create};
 });

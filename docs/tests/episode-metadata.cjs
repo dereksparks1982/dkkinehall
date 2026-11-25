@@ -15,6 +15,27 @@ assert.equal(meta.allowedImage("http://static.tvmaze.com/uploads/abc.jpg","TVmaz
 assert.equal(meta.allowedImage("https://evil.test/remote.jpg","TVmaze"),null);
 assert.equal(meta.allowedImage("https://image.tmdb.org/t/p/w300/still.jpg","TMDb"),
   "https://image.tmdb.org/t/p/w300/still.jpg");
+const appleURL="https://is1-ssl.mzstatic.com/image/thumb/Video123/v4/a.jpg/100x100bb.jpg";
+assert.equal(meta.applePoster(appleURL),
+  "https://is1-ssl.mzstatic.com/image/thumb/Video123/v4/a.jpg/400x600bb.jpg");
+assert.equal(meta.applePoster("https://malicious.example/movie.jpg"),null);
+assert.equal(meta.allowedCredit("https://itunes.apple.com/us/movie/id100","Apple"),
+  "https://itunes.apple.com/us/movie/id100");
+const appleRows=[
+  {kind:"feature-movie",trackName:"The Matrix",releaseDate:"1999-03-31T00:00:00Z",
+    artworkUrl100:appleURL,trackViewUrl:"https://itunes.apple.com/us/movie/id100"},
+  {kind:"feature-movie",trackName:"The Matrix",releaseDate:"2024-05-01T00:00:00Z",
+    artworkUrl100:"https://is2-ssl.mzstatic.com/image/thumb/Video123/v4/b.jpg/100x100bb.jpg"}
+];
+assert.equal(meta.pickAppleMovie({title:"The Matrix",year:1999},appleRows).still,
+  meta.applePoster(appleURL));
+assert.equal(meta.pickAppleMovie({title:"The Matrix",year:2001},appleRows),null);
+assert.equal(meta.pickAppleMovie({title:"The Matrix",year:1999},
+  [{kind:"feature-movie",trackName:"Unrelated Movie",artworkUrl100:appleURL}]),null);
+assert.deepEqual(meta.parseFilename("Alien.Romulus.2024.2160p.WEB-DL.mkv"),
+  {type:"movie",title:"Alien Romulus",year:2024});
+assert.deepEqual(meta.parseFilename("The_Matrix_1999_1080p.mkv"),
+  {type:"movie",title:"The Matrix",year:1999});
 assert.equal(jelly.choose({Type:"Episode",ImageTags:{Thumb:"https://static.tvmaze.com/ep.jpg"},
   SeriesThumbImageTag:"https://static.tvmaze.com/series.jpg"}).url,
   "https://static.tvmaze.com/ep.jpg");
@@ -57,6 +78,8 @@ const api=meta.create({
       image:{medium:"https://static.tvmaze.com/uploads/images/medium_landscape/1/4.jpg"},
       url:"https://www.tvmaze.com/episodes/124/second"}
    ]);
+   if(url.startsWith("https://itunes.apple.com/search?"))
+     return response({results:appleRows});
    throw Error("Unexpected network request "+url);
  }
 });
@@ -72,8 +95,15 @@ async function run(){
  assert.equal(requested.length,2,"One show search and one episode list fetch");
  assert.ok(requested.every(x=>x.options.credentials==="omit"));
  assert.ok(requested.every(x=>!x.url.includes(".mkv")));
+ const poster=await api.find("The.Matrix.1999.1080p.mkv");
+ assert.equal(poster.url,meta.applePoster(appleURL));
+ assert.equal(poster.provider,"Apple");
+ assert.equal(poster.kind,"Primary");
+ assert.equal(requested.length,3,"Movie poster must trigger a keyless API lookup");
+ assert.ok(requested[2].url.includes("media=movie"));
+ assert.ok(requested[2].url.includes("entity=movie"));
  assert.equal(await api.find("An.Unmatched.Title.2021.mkv"),null,
-   "Movies need an optional TMDb token");
+   "Unmatched titles do not receive unrelated posters");
  const noProvider=meta.create({enabled:()=>false,fetchJSON:()=>{throw Error("Should not fetch")}});
  assert.equal(await noProvider.find("Example.Show.S01E01.mkv"),null);
  // A missing episode still uses verified series artwork. Simulate TVmaze 429
@@ -130,6 +160,7 @@ async function run(){
  const recovered=await alternativeApi.find("Mike.Judges.Beavis.and.Butthead.S01E04.mkv");
  assert.equal(recovered.url,"https://static.tvmaze.com/episode.jpg");
  assert.equal(queryCount,2);
+ console.log("PASS: keyless movie posters, title/year matching and safe image sources");
  console.log("PASS: TVmaze title variants, bounded 429 retry and series fallback");
  console.log("PASS: TVmaze episode art, ambiguity handling, Jellyfin priority and privacy");
 }

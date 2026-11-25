@@ -29,7 +29,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Getting started
 
-Choose the **Web App** link above to play media in a browser, or use the standalone Linux edition for native playback. Open a local movie or music file, then use **Up Next** to queue more.
+Choose the **Web App** link above to play media in a browser, or use the standalone Linux edition for native playback. Open a local movie or music file, then use **Up Next** to queue more. You can also drop files directly onto the player: they play automatically when nothing is loaded, or join **Up Next** without interrupting the loaded movie.
 
 ## License
 

@@ -1106,8 +1106,14 @@
     event.preventDefault();
     screen.classList.remove("dragging");
   });
-  screen.addEventListener("drop", event =>
-    addFiles(event.dataTransfer && event.dataTransfer.files, [], "open"));
+  screen.addEventListener("drop", event => {
+    const files = event.dataTransfer && event.dataTransfer.files;
+    if (!files || !files.length) return;
+    // Only one drop target: the picture itself. Start playback when empty;
+    // otherwise add all dropped media to Up Next without interrupting
+    // the movie, even if it is paused or stopped.
+    addFiles(files, [], current() ? "queue" : "open");
+  });
   byId("clearQueue").addEventListener("click", () => {
     // Clearing Up Next should not interrupt the episode currently on screen.
     const old = state.queue.splice(state.current + 1);

@@ -3,6 +3,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QCollator>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -14,11 +15,13 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
+#include <QFont>
 #include <QHBoxLayout>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QListWidget>
+#include <QListWidgetItem>
 #include <QMenu>
 #include <QMimeData>
 #include <QPixmap>
@@ -26,6 +29,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSlider>
+#include <QSizePolicy>
 #include <QToolButton>
 #include <QTimer>
 #include <QUrl>

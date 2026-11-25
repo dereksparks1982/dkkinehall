@@ -60,9 +60,12 @@ cmake --build build/native --parallel 2
 
 A release must package the resulting **DK Kinehall** native executable with
 its required shared libraries and applicable notices, so users are not
-required to install codecs separately. **No compiled native executable has
-been built, run or verified in this work session.** Do not treat the source
-commits as a ready-to-launch release.
+required to install codecs separately. **A native Linux x86-64 release candidate has been compiled and packaged**
+on November 25, 2026. See
+[the successful build](https://github.com/dereksparks1982/dkkinehall/actions/runs/45644468833).
+Its bundled binary passed a virtual X11 startup check, but real user movie
+and embedded-MKV-subtitle playback still require verification before final
+acceptance.
 
 ## Licensing
 

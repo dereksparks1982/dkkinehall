@@ -7,8 +7,8 @@ through the app module.
 
 ## End-user distribution contract
 
-Publish the **entire** build folder produced by the release builder.
-Inside it, the user double-clicks the executable named **DK Kinehall**.
+Publish the **entire repository folder** with the built executable at its top level.
+The user double-clicks **DK Kinehall** in that main folder.
 Do not publish an installer, AppImage, shell launcher requiring system
 Python, or an archive that fetches runtime dependencies on launch.
 
@@ -36,7 +36,8 @@ necessary, as with any native Linux program.
 ## Current GitHub binary status
 
 The Linux executable and its bundled runtime are committed to
-`portable/DK Kinehall/` on the repository's main branch. The build job
+the **repository's main folder** as `DK Kinehall` (executable) and
+`_internal/` (bundled runtime) on `main`. The build job
 completed successfully on an Ubuntu 24.04 runner. The `_internal` directory
 contains Python, Tcl/Tk, Pillow, TkDnD, libVLC and VLC plugin libraries.
 

@@ -45,7 +45,7 @@ If you choose to restore a previously opened file, Chromium may ask you to grant
 
 DK Kinehall comes in two versions: a Chromium-based web player and a standalone Linux player using libVLC.
 
-**Standalone Linux:** [Download the repository](https://github.com/dereksparks1982/dkkinehall/archive/refs/heads/main.zip), extract it, open the `portable/DK Kinehall` folder, and double-click the **DK Kinehall** executable. Keep the adjacent `_internal` folder together with the executable. No installer or separate VLC/Python dependency download is intended. The bundled release was built on Ubuntu 24.04; graphical launch and codec behavior on other Ubuntu releases have not yet been verified.
+**Standalone Linux:** [Download the repository](https://github.com/dereksparks1982/dkkinehall/archive/refs/heads/main.zip), extract it, and double-click the **DK Kinehall** executable in the main folder. Keep the adjacent `_internal` folder together with the executable. No installer or separate VLC/Python dependency download is intended. The bundled release was built on Ubuntu 24.04; graphical launch and codec behavior on other Ubuntu releases have not yet been verified.
 
 **Web player:** [Open DK Kinehall online](https://dereksparks1982.github.io/dkkinehall/).
 

@@ -14,7 +14,8 @@
     subtitlePreference: "dkmedia.web.subtitle-preference.v1",
     audioPreferences: "dkmedia.web.audio-preferences.v1",
     embeddedSubtitlePreferences: "dkmedia.web.mkv-subtitle-preferences.v1",
-    folderName: "dkmedia.web.folder-name.v1"
+    folderName: "dkmedia.web.folder-name.v1",
+    playbackSettings: "dkmedia.web.playback-settings.v1"
   };
   const read = (key, fallback) => {
     try {
@@ -52,6 +53,33 @@
       } : {mode: "off"};
     })()
   };
+  const validPlaybackFormats = ["auto","original","mp4","webm"];
+  const savedPlayback = read(store.playbackSettings, {});
+  const playbackSettings = {
+    format: validPlaybackFormats.includes(savedPlayback?.format) ? savedPlayback.format : "auto",
+    hardware: savedPlayback?.hardware !== false,
+    remember: savedPlayback?.remember !== false
+  };
+  const playbackFormatInput = byId("playbackFormat");
+  const hardwareInput = byId("playbackHardware");
+  const rememberInput = byId("playbackRemember");
+  playbackFormatInput.value = playbackSettings.format;
+  hardwareInput.checked = playbackSettings.hardware;
+  rememberInput.checked = playbackSettings.remember;
+  const updatePlaybackSettings = () => {
+    playbackSettings.format = playbackFormatInput.value;
+    playbackSettings.hardware = hardwareInput.checked;
+    playbackSettings.remember = rememberInput.checked;
+    try {
+      if (playbackSettings.remember) write(store.playbackSettings, playbackSettings);
+      else localStorage.removeItem(store.playbackSettings);
+    } catch (_) {}
+    byId("playbackFormatNote").textContent = playbackSettings.format === "original"
+      ? "Original playback skips remuxing. Changes apply to the next opened file."
+      : "MP4/WebM require compatible codecs; full transcoding and GPU switching are not implemented. Changes apply to the next opened file.";
+  };
+  for (const control of [playbackFormatInput,hardwareInput,rememberInput])
+    control.addEventListener("change",updatePlaybackSettings);
   const current = () => state.queue[state.current] || null;
 
   // FileSystemFileHandle objects can be structured-cloned into IndexedDB.
@@ -536,7 +564,9 @@
     const item = current();
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
-    media.src = item.compatSrc || item.src;
+    item.requestedFormat = playbackSettings.format;
+    const forcingContainer = item.requestedFormat === "mp4" || item.requestedFormat === "webm";
+    media.src = item.requestedFormat === "auto" ? (item.compatSrc || item.src) : item.src;
     media.load();
     screen.classList.remove("empty", "stopped");
     screen.classList.toggle("audio", item.audio);
@@ -550,7 +580,16 @@
     status("");
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
-    if (autoplay) playCurrent();
+    if (forcingContainer && /\\.mkv$/i.test(item.name) && item.file) {
+      media.pause();
+      if(item.mkvInspection === "pending") {
+        item.compatPending = true;
+        status("Checking MKV for the requested format…");
+      } else void tryCompatibleFallback(item);
+    } else if (forcingContainer && !item.name.toLowerCase().endsWith("." + item.requestedFormat)) {
+      media.pause();
+      status("Requested format is not available for this file. It has not been converted.");
+    } else if (autoplay) playCurrent();
   };
   // When Chromium rejects an MKV container, repackage compatible EBML
   // metadata as WebM without touching its compressed frames or sound.
@@ -570,7 +609,8 @@
       // A queued item may become current while the lightweight rewrite runs.
       // Do not interrupt a successfully playing native MKV.
       if(current()===item && !state.stopped &&
-         media.error && (media.error.code===3||media.error.code===4)){
+         (item.requestedFormat === "webm" ||
+          (media.error && (media.error.code===3||media.error.code===4)))){
         media.src=item.compatSrc;
         media.load();
         if(item.autoplayRequested)playCurrent();
@@ -597,8 +637,9 @@
       if(!media.canPlayType(output.mime))
         throw Error("Chromium cannot decode this H.264/AAC profile");
       item.compatSrc=URL.createObjectURL(output.blob);
-      if(current()===item&&!state.stopped&&media.error &&
-        (media.error.code===3||media.error.code===4)){
+      if(current()===item&&!state.stopped&&
+        (item.requestedFormat === "mp4" ||
+         (media.error && (media.error.code===3||media.error.code===4)))){
         media.src=item.compatSrc;media.load();
         if(item.autoplayRequested)playCurrent();
         status("Playing H.264/AAC MKV through an MP4 container.",true);
@@ -611,11 +652,20 @@
     }
   };
   const tryCompatibleFallback = async item => {
+    if(!item?.file || item.requestedFormat === "original") return false;
     const info=compatibleInfo(item);
-    if(window.DKMkvWebM?.eligible(info,item.file))
-      return retryAsWebM(item);
-    if(window.DKMkvMP4?.eligible(info,item.file))
-      return retryAsMP4(item);
+    if(item.requestedFormat === "mp4") {
+      if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
+      status("MP4 requires transcoding for this source; unavailable in this build.");
+      return false;
+    }
+    if(item.requestedFormat === "webm") {
+      if(window.DKMkvWebM?.eligible(info,item.file)) return retryAsWebM(item);
+      status("WebM requires transcoding for this source; unavailable in this build.");
+      return false;
+    }
+    if(window.DKMkvWebM?.eligible(info,item.file)) return retryAsWebM(item);
+    if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
     return false;
   };
   const releaseCompatible = item => {
@@ -1134,13 +1184,15 @@
     const code = media.error.code;
     const item=current();
     if((code===3||code===4)&&item?.file && /\.mkv$/i.test(item.name) &&
-       !item.compatAttempted && (window.DKMkvWebM||window.DKMkvMP4)){
+       !item.compatAttempted && item.requestedFormat !== "original" &&
+       (window.DKMkvWebM||window.DKMkvMP4)){
       if(item.mkvInspection==="pending"){
         item.compatPending=true;
         status("Checking MKV container compatibility…");
         return;
       }
-      if(window.DKMkvWebM?.eligible(compatibleInfo(item),item.file) ||
+      if(item.requestedFormat === "mp4" || item.requestedFormat === "webm" ||
+         window.DKMkvWebM?.eligible(compatibleInfo(item),item.file) ||
          window.DKMkvMP4?.eligible(compatibleInfo(item),item.file)){
         void tryCompatibleFallback(item);
         return;

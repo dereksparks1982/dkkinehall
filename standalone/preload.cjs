@@ -11,3 +11,15 @@ contextBridge.exposeInMainWorld("DKStandalone", Object.freeze({
     });
   }
 }));
+
+window.addEventListener("error", event => {
+  ipcRenderer.send("dk-kinehall:renderer-error", {
+    message: event.message, file: event.filename, line: event.lineno, col: event.colno,
+    stack: String(event.error && event.error.stack || "")
+  });
+}, true);
+window.addEventListener("unhandledrejection", event => {
+  ipcRenderer.send("dk-kinehall:renderer-error", {
+    message: "Unhandled rejection", stack: String(event.reason && event.reason.stack || event.reason)
+  });
+});

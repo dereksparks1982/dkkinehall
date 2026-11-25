@@ -53,11 +53,19 @@ function openWindow() {
   win.on("closed", () => ipcMain.removeHandler("dk-kinehall:set-fullscreen"));
 
   // Artwork links open the system browser, never an arbitrary page in player.
-  win.webContents.on("console-message", (_event, details, level, sourceId) => {
-    const message = typeof details === "object" ? details.message : String(details);
-    if (message) console.error("DK_KINEHALL_RENDERER_LOG", message,
-      typeof details === "object" ? details.sourceId : sourceId,
-      typeof details === "object" ? details.lineNumber : "");
+  win.webContents.on("console-message", (...args) => {
+    console.error("DK_RENDERER_LOG", args.slice(1).map(x => {
+      if (x && typeof x === "object") {
+        return JSON.stringify({message:x.message,level:x.level,line:x.lineNumber,
+          source:x.sourceId});
+      }
+      return String(x);
+    }).join(" | "));
+  });
+  ipcMain.on("dk-kinehall:renderer-error", (event, payload) => {
+    if (event.sender === win.webContents) {
+      console.error("DK_KINEHALL_RENDERER_EXCEPTION", JSON.stringify(payload));
+    }
   });
   win.webContents.on("preload-error", (_event, preloadPath, error) => {
     console.error("DK_KINEHALL_PRELOAD_ERROR", preloadPath, String(error));

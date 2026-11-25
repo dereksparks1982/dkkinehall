@@ -69,7 +69,7 @@ function showImage(box,art,requestedGeneration,source="provider"){
     if(box.dataset.artworkStatus==="folder-loaded"&&source!=="folder"){
       image.remove();return;
     }
-    if(source==="local"&&["loaded","folder-loaded"].includes(box.dataset.artworkStatus){
+    if(source==="local"&&["loaded","folder-loaded"].includes(box.dataset.artworkStatus)){
       image.remove();return;
     }
     for(const previous of box.querySelectorAll(".queue-artwork-image"))

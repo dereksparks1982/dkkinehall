@@ -209,6 +209,8 @@ QVector<MediaTrack> MpvWidget::tracks(const QString &type) const {
           else if (key == QStringLiteral("codec")) track.codec = text;
         } else if (key == QStringLiteral("selected") && value.format == MPV_FORMAT_FLAG)
           track.selected = value.u.flag != 0;
+        else if (key == QStringLiteral("external") && value.format == MPV_FORMAT_FLAG)
+          track.external = value.u.flag != 0;
       }
       if (track.type == type) out.push_back(track);
     }
@@ -224,13 +226,17 @@ void MpvWidget::poll() {
     if (event->event_id == MPV_EVENT_END_FILE && event->data) {
       const auto *end = static_cast<mpv_event_end_file *>(event->data);
       if (end->reason == MPV_END_FILE_REASON_EOF) emit finished();
+      else if (end->reason == MPV_END_FILE_REASON_ERROR)
+        emit playbackError(QStringLiteral("This media file could not be decoded."));
     } else if (event->event_id == MPV_EVENT_FILE_LOADED) {
       emit fileLoaded();
     } else if (event->event_id == MPV_EVENT_LOG_MESSAGE) {
       // libmpv logs are optional; no browser console or remote service.
     }
   }
-  const bool playing = !paused();
+  int idle = 1;
+  mpv_get_property(mpv_, "idle-active", MPV_FORMAT_FLAG, &idle);
+  const bool playing = !paused() && idle == 0;
   if (playing != lastPlaying_) {
     lastPlaying_ = playing;
     emit playbackStateChanged(playing);

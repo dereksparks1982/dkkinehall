@@ -103,9 +103,10 @@
     }
     return result;
   };
-  // Matroska stores three Vorbis setup packets in Xiph-laced CodecPrivate.
-  // WebCodecs expects Ogg's page_segments, segment_table, then those bytes.
-  // Header type and bounds are checked before allocating decoder memory.
+  // Chromium's FFmpeg/Symphonia decoder consumes Matroska-style Xiph
+  // extradata: byte 2 (three headers), two Xiph-laced header sizes, then
+  // identification/comment/setup packets. Validate this before handing it to
+  // WebCodecs. Ogg page-segment conversion breaks Chromium configure().
   const vorbisDescription=privateData=>{
     const bytes=privateData instanceof Uint8Array?privateData:new Uint8Array(privateData||[]);
     if(bytes.length<12||bytes[0]!==2||bytes.length>65536)
@@ -121,28 +122,15 @@
       }
       sizes.push(size);
     }
-    const third=bytes.length-at-sizes[0]-sizes[1];
-    sizes.push(third);
+    sizes.push(bytes.length-at-sizes[0]-sizes[1]);
     if(sizes.some(n=>n<7))throw new Error("Incomplete Vorbis headers");
     let pos=at;
-    const ids=[1,3,5];
-    for(let i=0;i<3;i++){
-      if(bytes[pos]!==ids[i]||String.fromCharCode(...bytes.subarray(pos+1,pos+7))!=="vorbis")
+    for(const id of [1,3,5]){
+      if(bytes[pos]!==id||String.fromCharCode(...bytes.subarray(pos+1,pos+7))!=="vorbis")
         throw new Error("Incorrect Vorbis header packet");
-      pos+=sizes[i];
+      pos+=sizes[[1,3,5].indexOf(id)];
     }
-    const segments=[];
-    for(const size of sizes){
-      let remaining=size;
-      while(remaining>=255){segments.push(255);remaining-=255;}
-      segments.push(remaining);
-    }
-    if(segments.length>255)throw new Error("Vorbis setup requires too many segments");
-    const result=new Uint8Array(1+segments.length+bytes.length-at);
-    result[0]=segments.length;
-    result.set(segments,1);
-    result.set(bytes.subarray(at),1+segments.length);
-    return result;
+    return bytes.slice();
   };
   const flacDescription=privateData=>{
     const bytes=privateData instanceof Uint8Array?privateData:new Uint8Array(privateData||[]);

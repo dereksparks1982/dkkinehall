@@ -1,4 +1,4 @@
-name: DK Kinehall expanded MKV audio and video format diagnostics (Vorbis)
+name: DK Kinehall expanded MKV audio and video format diagnostics (Xiph Vorbis)
 on:
   push:
     paths:

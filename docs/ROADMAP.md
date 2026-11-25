@@ -56,8 +56,8 @@
   existing local MKV demuxer and WebAudio synchronization with the video;
   no download, external player or separately installed codec library.
 - Parse FLAC `fLaC` STREAMINFO metadata and Matroska Vorbis/Xiph laced
-  identification/comment/setup packets. Convert them to correct WebCodecs
-  initialization bytes, reject missing/invalid headers, and check decoder
+  identification/comment/setup packets. Validate Chromium-compatible
+  Xiph-packed initialization bytes, reject missing/invalid headers, and check decoder
   support before enabling output. MP3/FLAC packet lengths receive codec-aware
   estimates when no Matroska default duration is present.
 - Extend the local Matroska header inspector with actual video CodecID and

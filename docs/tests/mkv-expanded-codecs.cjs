@@ -30,10 +30,9 @@ const priv=Uint8Array.from([2,packets[0].length,packets[1].length,
   ...packets[0],...packets[1],...packets[2]]);
 const vorbis=codec.configFor({...shared,codec:"A_VORBIS",privateData:priv});
 assert.equal(vorbis.codec,"vorbis");
-assert.deepEqual([...vorbis.description.slice(0,4)],[3,30,28,60]);
-assert.equal(vorbis.description[4],1);
-assert.equal(vorbis.description[4+30],3);
-assert.equal(vorbis.description[4+30+28],5);
+assert.deepEqual([...vorbis.description.slice(0,4)],[2,30,28,1]);
+assert.equal(vorbis.description[3+30],3);
+assert.equal(vorbis.description[3+30+28],5);
 assert.throws(()=>codec.vorbisDescription(Uint8Array.of(0)),/Vorbis/);
 assert.throws(()=>codec.vorbisDescription(Uint8Array.from([2,7,7,...Array(25).fill(0)])),/Vorbis/);
 assert.throws(()=>codec.configFor({...shared,codec:"A_AC3"}),/no supported/);

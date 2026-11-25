@@ -9,6 +9,10 @@
 
 struct mpv_handle;
 struct mpv_render_context;
+class QMouseEvent;
+class QWheelEvent;
+class QContextMenuEvent;
+class QEvent;
 
 struct MediaTrack {
   qint64 id = -1;

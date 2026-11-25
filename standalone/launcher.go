@@ -167,11 +167,7 @@ func main() {
   // Chrome's setuid sandbox helper. This player is not a general web browser:
   // the Electron host permits only the local DK Kinehall page.
   // No user installation, system privileges or additional downloads.
-  // Tell the bundled Electron host to use the root docs/ files. That keeps
-  // the standalone player byte-for-byte identical to the web edition after
-  // new player source commits, without repacking Chromium for every change.
-  // Only the launcher supplies this flag; it isn't read from the web page.
-  args := append([]string{runtime, "--no-sandbox", "--dk-kinehall-root=" + base}, os.Args[1:]...)
+  args := append([]string{runtime, "--no-sandbox"}, os.Args[1:]...)
   if err := syscall.Exec(runtime, args, os.Environ()); err != nil {
     fmt.Fprintln(os.Stderr, "DK Kinehall could not launch:", err)
     os.Exit(1)

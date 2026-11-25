@@ -61,6 +61,7 @@
     remember: savedPlayback?.remember !== false,
     removeWatched: savedPlayback?.removeWatched !== false
   };
+  let reapplyCurrentFormat = null;
   const playbackFormatInput = byId("playbackFormat");
   const hardwareInput = byId("playbackHardware");
   const rememberInput = byId("playbackRemember");
@@ -69,7 +70,8 @@
   hardwareInput.checked = playbackSettings.hardware;
   rememberInput.checked = playbackSettings.remember;
   removeWatchedInput.checked = playbackSettings.removeWatched;
-  const updatePlaybackSettings = () => {
+  const updatePlaybackSettings = event => {
+    const formatChanged = event?.target === playbackFormatInput;
     playbackSettings.format = playbackFormatInput.value;
     playbackSettings.hardware = hardwareInput.checked;
     playbackSettings.remember = rememberInput.checked;
@@ -79,8 +81,9 @@
       else localStorage.removeItem(store.playbackSettings);
     } catch (_) {}
     byId("playbackFormatNote").textContent = playbackSettings.format === "original"
-      ? "Original playback skips remuxing. Changes apply to the next opened file."
-      : "MP4/WebM require compatible codecs; full transcoding and GPU switching are not implemented. Changes apply to the next opened file.";
+      ? "Original mode skips conversion and keeps the local source unchanged."
+      : "Supported MKV files can be remuxed without re-encoding. Full transcoding and GPU switching are not installed.";
+    if (formatChanged && reapplyCurrentFormat) reapplyCurrentFormat();
   };
   for (const control of [playbackFormatInput,hardwareInput,rememberInput,removeWatchedInput])
     control.addEventListener("change",updatePlaybackSettings);
@@ -568,9 +571,27 @@
     const item = current();
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
+    // Reset stale conversion attempts when revisiting a file or selecting a
+    // different format. An old asynchronous remux may not replace a new load.
+    item.playbackEpoch = (item.playbackEpoch || 0) + 1;
+    item.compatAttempted = false;
+    item.compatPending = false;
     item.requestedFormat = playbackSettings.format;
+    item.playbackMethod = "Original source";
     const forcingContainer = item.requestedFormat === "mp4" || item.requestedFormat === "webm";
-    media.src = item.requestedFormat === "auto" ? (item.compatSrc || item.src) : item.src;
+    if (item.compatSrc && (forcingContainer || item.requestedFormat === "original")) {
+      URL.revokeObjectURL(item.compatSrc);
+      item.compatSrc = null;
+    }
+    const directFormat = item.name.toLowerCase().endsWith("." + item.requestedFormat);
+    const needsRemux = forcingContainer && !directFormat && /\.mkv$/i.test(item.name) && !!item.file;
+    const cannotConvert = forcingContainer && !directFormat && !needsRemux;
+    if (needsRemux || cannotConvert) {
+      // Do not play an MKV under an MP4/WebM label before remuxing finishes.
+      media.removeAttribute("src");
+    } else {
+      media.src = item.requestedFormat === "auto" ? (item.compatSrc || item.src) : item.src;
+    }
     media.load();
     screen.classList.remove("empty", "stopped");
     screen.classList.toggle("audio", item.audio);
@@ -584,16 +605,24 @@
     status("");
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
-    if (forcingContainer && /\.mkv$/i.test(item.name) && item.file) {
-      media.pause();
-      if(item.mkvInspection === "pending") {
+    if (needsRemux) {
+      item.playbackMethod = "Preparing " + item.requestedFormat.toUpperCase();
+      if (item.mkvInspection === "pending") {
         item.compatPending = true;
         status("Checking MKV for the requested format…");
       } else void tryCompatibleFallback(item);
-    } else if (forcingContainer && !item.name.toLowerCase().endsWith("." + item.requestedFormat)) {
-      media.pause();
+    } else if (cannotConvert) {
+      item.playbackMethod = "Unsupported conversion";
       status("Requested format is not available for this file. It has not been converted.");
-    } else if (autoplay) playCurrent();
+    } else if (autoplay) {
+      playCurrent();
+    }
+  };
+  reapplyCurrentFormat = () => {
+    if (!current()) return;
+    const index = state.current;
+    const autoplay = !media.paused && !media.ended && !state.stopped;
+    load(index, autoplay);
   };
   // When Chromium rejects an MKV container, repackage compatible EBML
   // metadata as WebM without touching its compressed frames or sound.
@@ -604,13 +633,21 @@
     const info={videoTracks:item.embeddedVideo,
       audioTracks:item.embeddedAudio,tracks:item.embeddedSubtitles};
     const compatible=window.DKMkvWebM.eligible(info,item.file);
-    if(!compatible || !media.canPlayType(compatible.mime))return false;
+    if(!compatible || !media.canPlayType(compatible.mime)){
+      if(item.requestedFormat==="webm" && current()===item)
+        status("Chromium cannot play this WebM codec combination.");
+      return false;
+    }
+    const epoch=item.playbackEpoch;
     item.compatAttempted=true;
     try {
       const output=await window.DKMkvWebM.wrap(item.file,info);
-      if(!state.queue.includes(item))return false;
+      if(!state.queue.includes(item) || current()!==item ||
+         item.playbackEpoch!==epoch || state.stopped)return false;
+      if(item.compatSrc)URL.revokeObjectURL(item.compatSrc);
       item.compatSrc=URL.createObjectURL(output.blob);
-      // A queued item may become current while the lightweight rewrite runs.
+      item.playbackMethod="WebM lossless remux";
+      // Another selected item must never inherit this source.
       // Do not interrupt a successfully playing native MKV.
       if(current()===item && !state.stopped &&
          (item.requestedFormat === "webm" ||
@@ -633,14 +670,18 @@
   const retryAsMP4 = async item => {
     if(!item?.file||item.compatAttempted||!window.DKMkvMP4 ||
        !window.DKMkvMP4.eligible(compatibleInfo(item),item.file))return false;
+    const epoch=item.playbackEpoch;
     item.compatAttempted=true;
     status("Preparing H.264 and AAC video for Chromium…");
     try{
       const output=await window.DKMkvMP4.remux(item.file,compatibleInfo(item));
-      if(!state.queue.includes(item))return false;
+      if(!state.queue.includes(item) || current()!==item ||
+         item.playbackEpoch!==epoch || state.stopped)return false;
       if(!media.canPlayType(output.mime))
         throw Error("Chromium cannot decode this H.264/AAC profile");
+      if(item.compatSrc)URL.revokeObjectURL(item.compatSrc);
       item.compatSrc=URL.createObjectURL(output.blob);
+      item.playbackMethod="MP4 lossless remux";
       if(current()===item&&!state.stopped&&
         (item.requestedFormat === "mp4" ||
          (media.error && (media.error.code===3||media.error.code===4)))){
@@ -1645,6 +1686,10 @@
     };
     addDetail("Title", item.name);
     addDetail("Source", item.kind === "file" ? "Local file" : "Direct stream URL");
+    addDetail("Requested playback format",item.requestedFormat || "auto");
+    addDetail("Actual playback method",item.playbackMethod || "Original source");
+    addDetail("Hardware acceleration preference",playbackSettings.hardware
+      ? "Enabled (actual GPU use is controlled by Chromium)" : "Disabled preference (Chromium controls GPU use)");
     if (item.size !== undefined) addDetail("Size", (item.size / 1048576).toFixed(1) + " MiB");
     if (item.mime) addDetail("Format", item.mime);
     if (media.videoWidth && media.videoHeight)

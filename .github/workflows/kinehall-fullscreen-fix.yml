@@ -1,4 +1,4 @@
-name: Build and verify Kinehall fullscreen executable
+name: Build and verify Kinehall fullscreen executable (diagnostics)
 on:
   push:
     paths:

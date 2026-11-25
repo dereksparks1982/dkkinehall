@@ -1,22 +1,14 @@
 # Third-party notices
 
-DK Media uses system-installed software and does not vendor these projects in the public preservation source package:
+DK Kinehall's **standalone Linux distribution** includes Electron,
+Chromium, Node.js and their associated third-party libraries under their
+respective open-source licenses. Upstream licenses and notices ship inside
+the bundled Electron runtime, including Chromium's LICENSES file.
+The portable runtime is distributed without charging for DK Softworks code.
 
-- VLC / libVLC
-- python-vlc
-- FFmpeg / FFprobe
-- yt-dlp
-- aria2
-- Python
-- Tk
-- zenity (native file picker helper when available)
+The Chromium-based web player remains available without installing anything
+and includes the third-party notices already carried in its own assets.
 
-Each project remains governed by its own upstream license. The DK Media source is licensed separately under GPL-3.0-or-later.
-
-
-## Future native portable distribution
-
-When a self-contained Linux folder is published, it must carry the applicable
-licenses and attributions for its bundled Python/Tk, Pillow, TkDnD, libVLC,
-VLC codec plugins, and other shared libraries. Bundling has not been completed
-or validated in the present source-only commit.
+DK Softworks-owned original source is governed by the repository's
+DK Softworks Original Work License. That license does not override the
+separate license terms of the third-party runtime.

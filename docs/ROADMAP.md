@@ -1,13 +1,14 @@
 # DK Kinehall roadmap
 
-**Direction (November 2026):** Two versions: a Chromium-targeted web player and a separate **native Linux Tk/libVLC player**. Both share the DK Kinehall appearance and feature goals. The native version is not a web wrapper. Do not add other browser-engine compatibility shims. Do not add yt-dlp, download managers, media servers, direct-URL streaming forms, or saved-link libraries to DK Kinehall.
+**Direction (November 2026):** The web player is the single interface for both GitHub Pages and the standalone Linux desktop release. The desktop launcher embeds Chromium and loads the original `docs/` assets **unchanged**, rather than recreating them in a second toolkit. Do not add yt-dlp, download managers, media servers, direct-URL streaming forms, or saved-link libraries to DK Kinehall.
 
-## Native standalone source and portable Linux distribution
-- Replace the old tabbed purple DK Media desktop front end with a single-screen red/gold DK Kinehall interface, still using the existing libVLC playback controller.
-- Source now includes local-file queue with large episode artwork rows, selection highlighting, remove controls, automatic next-file playback, 10-second skipping, resume, restore-last-file, playback speed, and 0–100% volume.
-- Native libVLC subtitle and audio track selection through the context menu, subtitles default off, SRT/VTT selection; fullscreen, picture-in-picture window, cursor/controls inactivity handling; English/Russian text. Added nearby artwork and optional TVmaze episode-still retrieval. Optional desktop drag-and-drop when bundled TkDnD is present.
-- Add a **maintainer-side** PyInstaller one-folder bundling procedure for Python/Tk, python-vlc, Pillow, TkDnD, libVLC and its plugins. This is not an AppImage, installer or end-user downloader. Do **not** call the portable release complete until the actual executable and full dependency closure have been built and published.
-- **GitHub build:** Ubuntu 24.04 packaging successfully produced the portable executable and bundled libraries in the main repository folder (`DK Kinehall` and `_internal/`) on `main`. **Outstanding:** clean-Ubuntu runtime validation (including actual dependency closure and double-click execution), media playback/codec tests, movie metadata, hover video previews and visual parity. The Surface Pro has not yet been used for runtime validation.
+## Exact-web standalone Linux version (replaces rejected Tkinter redesign)
+- The **web player itself** in `docs/` is the desktop UI. No separate Tkinter player or approximate visual recreation.
+- The portable x86-64 launcher **DK Kinehall** is a Linux executable in the root folder, with its bundled Chromium/Electron runtime stored in `_internal/` for GitHub-safe delivery. On launch, it extracts the included runtime to a local user cache and opens the existing `docs/index.html` using the exact CSS and JavaScript.
+- No AppImage, installer, browser download, VLC dependency download, or end-user build step.
+- A desktop smoke test verifies the original web player, styles, buttons, and queue load in Electron on Ubuntu 24.04. Full local media playback and per-machine double-click behavior require user-side confirmation.
+- The rejected Tkinter/libVLC standalone source and packaging were removed. Retain the web version unchanged.
+- Electron relies on a bundled Chromium engine and is larger than the web player alone; this is required for identical browser rendering without a separately installed browser.
 
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.

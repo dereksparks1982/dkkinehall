@@ -43,9 +43,9 @@ If you choose to restore a previously opened file, Chromium may ask you to grant
 
 ## Availability
 
-DK Kinehall comes in two versions: a Chromium-based web player and a standalone Linux player using libVLC.
+DK Kinehall runs in a browser or as a standalone Linux desktop application. Both use **the same HTML, CSS, JavaScript, and player interface**.
 
-**Standalone Linux:** [Download the repository](https://github.com/dereksparks1982/dkkinehall/archive/refs/heads/main.zip), extract it, and double-click the **DK Kinehall** executable in the main folder. Keep the adjacent `_internal` folder together with the executable. No installer or separate VLC/Python dependency download is intended. The bundled release was built on Ubuntu 24.04; graphical launch and codec behavior on other Ubuntu releases have not yet been verified.
+**Standalone Linux:** [Download the repository](https://github.com/dereksparks1982/dkkinehall/archive/refs/heads/main.zip), extract it, and double-click **DK Kinehall** in the main folder. Keep the supplied `_internal` folder alongside it. This is the **exact same web player**, running in its own Chromium desktop window; the desktop package uses the existing `docs/index.html`, `docs/player.css`, and `docs/player.js` directly. No separately installed browser, Python, VLC, installer, AppImage, or runtime download is needed. The executable unpacks its bundled runtime to the user's cache on first launch. Supported target: Ubuntu x86-64.
 
 **Web player:** [Open DK Kinehall online](https://dereksparks1982.github.io/dkkinehall/).
 

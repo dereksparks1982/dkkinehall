@@ -545,6 +545,10 @@
   const playCurrent = () => {
     if (!current()) { status("Open a video or music file first."); return; }
     if (state.stopped) {
+      if(current().nativeStreamStopped){
+        load(state.current,true);
+        return;
+      }
       state.stopped = false;
       screen.classList.remove("empty", "stopped");
       syncPgsOverlay();
@@ -566,6 +570,10 @@
       previous.remuxAbort.abort();
       previous.remuxAbort=null;
     }
+    if(previous?.nativeSession){
+      previous.nativeSession.stop();
+      previous.nativeSession=null;
+    }
     if (seekPreview) seekPreview.reset();
     if (!state.stopped) rememberPosition();
     state.stopped = false;
@@ -576,6 +584,7 @@
     const item = current();
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
+    item.nativeStreamStopped = false;
     // Reset stale conversion attempts when revisiting a file or selecting a
     // different format. An old asynchronous remux may not replace a new load.
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
@@ -721,24 +730,74 @@
       if(item.remuxAbort===controller)item.remuxAbort=null;
     }
   };
+  // A bundled FFmpeg may provide real format conversion for the standalone
+  // window. Browser-only installations do not gain native process access.
+  const tryNativeTranscode = async (item,format) => {
+    if(!item?.file || !window.DKNativeTranscode ||
+       !["mp4","webm"].includes(format))return false;
+    const epoch=item.playbackEpoch;
+    status("Checking native conversion support…");
+    const available=await window.DKNativeTranscode.capabilities();
+    if(current()!==item || item.playbackEpoch!==epoch || state.stopped)return false;
+    if(!available.available || !available.formats.includes(format))return false;
+    try{
+      const session=await window.DKNativeTranscode.start(item.file,{
+        format,hardware:playbackSettings.hardware,
+        hasAudio:(item.embeddedAudio||[]).length>0,
+        onStatus:message=>{
+          if(current()===item && item.playbackEpoch===epoch && !state.stopped)
+            status(message);
+        }
+      });
+      if(current()!==item || item.playbackEpoch!==epoch || state.stopped){
+        session.stop();
+        return false;
+      }
+      item.nativeSession=session;
+      item.compatAttempted=true;
+      item.playbackMethod="Live "+format.toUpperCase()+" transcoding";
+      media.src=session.url;
+      media.load();
+      session.finished.catch(error=>{
+        if(current()===item && item.playbackEpoch===epoch && !state.stopped)
+          status("Live conversion stopped: "+String(error?.message||error));
+      });
+      if(item.autoplayRequested)playCurrent();
+      status("Converting MKV locally to "+format.toUpperCase()+" while playing.",true);
+      return true;
+    }catch(error){
+      if(current()===item && item.playbackEpoch===epoch)
+        status("Native conversion unavailable: "+String(error?.message||error));
+      return false;
+    }
+  };
   const tryCompatibleFallback = async item => {
     if(!item?.file || item.requestedFormat === "original") return false;
     const info=compatibleInfo(item);
     if(item.requestedFormat === "mp4") {
       if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
-      status("MP4 requires transcoding for this source; unavailable in this build.");
+      if(await tryNativeTranscode(item,"mp4"))return true;
+      if(current()===item && !item.nativeSession)
+        status("MP4 requires a bundled native transcoder for these MKV codecs.");
       return false;
     }
     if(item.requestedFormat === "webm") {
       if(window.DKMkvWebM?.eligible(info,item.file)) return retryAsWebM(item);
-      status("WebM requires transcoding for this source; unavailable in this build.");
+      if(await tryNativeTranscode(item,"webm"))return true;
+      if(current()===item && !item.nativeSession)
+        status("WebM requires a bundled native transcoder for these MKV codecs.");
       return false;
     }
     if(window.DKMkvWebM?.eligible(info,item.file)) return retryAsWebM(item);
     if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
+    if(await tryNativeTranscode(item,"mp4"))return true;
     return false;
   };
   const releaseCompatible = item => {
+    if(item?.nativeSession){
+      item.nativeSession.stop();
+      item.nativeSession=null;
+    }
     if(item?.remuxAbort){
       item.remuxAbort.abort();
       item.remuxAbort=null;
@@ -1212,6 +1271,11 @@
       item.remuxAbort.abort();
       item.remuxAbort=null;
     }
+    if(item.nativeSession){
+      item.nativeSession.stop();
+      item.nativeSession=null;
+      item.nativeStreamStopped=true;
+    }
     if (mkvAudio) mkvAudio.stop();
     delete state.resume[item.key];
     write(store.resume, state.resume);
@@ -1314,7 +1378,7 @@
     const item=current();
     if((code===3||code===4)&&item?.file && /\.mkv$/i.test(item.name) &&
        !item.compatAttempted && item.requestedFormat !== "original" &&
-       (window.DKMkvWebM||window.DKMkvMP4)){
+       (window.DKMkvWebM||window.DKMkvMP4||window.DKNativeTranscode)){
       if(item.mkvInspection==="pending"){
         item.compatPending=true;
         status("Checking MKV container compatibility…");
@@ -1322,7 +1386,8 @@
       }
       if(item.requestedFormat === "mp4" || item.requestedFormat === "webm" ||
          window.DKMkvWebM?.eligible(compatibleInfo(item),item.file) ||
-         window.DKMkvMP4?.eligible(compatibleInfo(item),item.file)){
+         window.DKMkvMP4?.eligible(compatibleInfo(item),item.file) ||
+         window.DKNativeTranscode){
         void tryCompatibleFallback(item);
         return;
       }
@@ -1761,6 +1826,8 @@
     addDetail("Source", item.kind === "file" ? "Local file" : "Direct stream URL");
     addDetail("Requested playback format",item.requestedFormat || "auto");
     addDetail("Actual playback method",item.playbackMethod || "Original source");
+    if(item.nativeSession)
+      addDetail("Seek support","Only buffered playback; arbitrary seeking requires a future streaming index");
     addDetail("Hardware acceleration preference",playbackSettings.hardware
       ? "Enabled (actual GPU use is controlled by Chromium)" : "Disabled preference (Chromium controls GPU use)");
     if (item.size !== undefined) addDetail("Size", (item.size / 1048576).toFixed(1) + " MiB");

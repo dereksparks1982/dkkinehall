@@ -1,5 +1,7 @@
 /* DK Kinehall: bounded, lossless AVC/AAC Matroska -> MP4 fallback.
- * Supports one H.264 AVC track without B-frame reordering and one AAC track.
+ * Supports one H.264 AVC track without B-frame reordering plus optional
+ * selected AAC audio. Additional source tracks (including subtitles) remain
+ * in the unchanged original MKV; the MP4 only carries selected tracks.
  * No transcoding, server, codec downloads or original-file mutation.
  * Uses File slices for encoded samples; only MP4 tables are allocated.
  */
@@ -74,11 +76,13 @@ async function small(r,e,limit=65536){
 function eligible(info,file){
  if(!file||!/\.mkv$/i.test(String(file.name||""))||
     file.size>MAX_SIZE||typeof file.slice!=="function")return null;
- const videos=info?.videoTracks||[],audios=info?.audioTracks||[],
-  subtitles=info?.tracks||info?.subtitles||[];
- if(videos.length!==1||videos[0].codec!==VIDEO||audios.length!==1||
-    !audios[0].codec.startsWith(AUDIO)||subtitles.length)return null;
- return {video:videos[0],audio:audios[0]};
+ const videos=info?.videoTracks||[],audios=info?.audioTracks||[];
+ if(videos.length!==1||videos[0].codec!==VIDEO)return null;
+ const selected=audios.find(track=>String(track.codec||"").startsWith(AUDIO));
+ if(audios.length&&!selected)return null;
+ return {video:videos[0],audio:selected||null,
+   ignoredAudio:audios.length-(selected?1:0),
+   ignoredSubtitles:(info?.tracks||info?.subtitles||[]).length};
 }
 async function descriptors(r,segment){
  let scale=1000000,tracks=[],infoSeen=false;
@@ -304,15 +308,14 @@ function audioEntry(t){
  return box("mp4a",base,full("esds",0,0,desc));
 }
 function movie(tracks,offsets){
- const video=tracks[0],audio=tracks[1];
- const last=Math.max(video.samples[video.samples.length-1].pts,
-  audio.samples[audio.samples.length-1].pts)+1500;
+ const last=Math.max(...tracks.map(track=>
+  track.samples[track.samples.length-1].pts))+1500;
  const duration=Math.ceil(last);
  const mvhd=full("mvhd",0,0,u32(0),u32(0),u32(1000),
   u32(duration),u32(65536),u16(256),u16(0),
-  new Uint8Array(8),matrix,new Uint8Array(24),u32(3));
- return box("moov",mvhd,mp4Tables(video,1,offsets[0],duration),
-  mp4Tables(audio,2,offsets[1],duration));
+  new Uint8Array(8),matrix,new Uint8Array(24),u32(tracks.length+1));
+ return box("moov",mvhd,...tracks.map((track,i)=>
+  mp4Tables(track,i+1,offsets[i],duration)));
 }
 async function remux(file,info,options={}){
  if(!eligible(info,file))throw Error("Only H.264 + AAC MKV is eligible");
@@ -322,28 +325,40 @@ async function remux(file,info,options={}){
   if(e.id===0x18538067){segment=e;break;}
  if(!segment)throw Error("Missing Matroska Segment");
  const {tracks,scale}=await descriptors(r,segment);
- const video=tracks.find(t=>t.type===1),audio=tracks.find(t=>t.type===2);
- if(tracks.length!==2||video?.codec!==VIDEO||!audio?.codec.startsWith(AUDIO))
-  throw Error("Unsupported Matroska tracks");
- const samples=await collect(file,r,segment,[video,audio],scale);
+ const videos=tracks.filter(track=>track.type===1);
+ const audios=tracks.filter(track=>track.type===2);
+ const video=videos[0];
+ if(videos.length!==1||video.codec!==VIDEO)
+  throw Error("An MKV with exactly one supported H.264 video track is required");
+ const audio=audios.find(track=>String(track.codec||"").startsWith(AUDIO))||null;
+ if(audios.length&&!audio)
+  throw Error("No AAC soundtrack exists in this MKV");
+ const selected=[video,...(audio?[audio]:[])];
+ const samples=await collect(file,r,segment,selected,scale);
  const [v,a]=samples;
- if(v.samples.length<2||a.samples.length<2)throw Error("Insufficient video or audio samples");
+ if(v.samples.length<2||(a&&a.samples.length<2))
+  throw Error("Insufficient video or audio samples");
  if(!v.samples[0].sync)throw Error("First H.264 frame must be keyframe");
  const ftyp=box("ftyp",ascii("isom"),u32(0x200),ascii("iso2"),ascii("avc1"),ascii("mp41"));
  const totalV=v.samples.reduce((x,s)=>x+s.size,0);
- const totalA=a.samples.reduce((x,s)=>x+s.size,0);
+ const totalA=a?a.samples.reduce((x,s)=>x+s.size,0):0;
  if(totalV+totalA>MAX_SIZE)throw Error("Media exceeds MP4 fallback cap");
- let moov=movie([v,a],[0,0]);
- const offsets=[ftyp.length+moov.length+8,ftyp.length+moov.length+8+totalV];
- moov=movie([v,a],offsets);
+ let moov=movie(samples,samples.map(()=>0));
+ const first=ftyp.length+moov.length+8;
+ const offsets=a?[first,first+totalV]:[first];
+ moov=movie(samples,offsets);
  const mdatHeader=u32(totalV+totalA+8);
- const encoded=[...v.samples,...a.samples].map(s=>file.slice(s.position,s.position+s.size));
+ const encoded=[...v.samples,...(a?a.samples:[])].map(s=>
+   file.slice(s.position,s.position+s.size));
  const blob=new Blob([ftyp,moov,mdatHeader,ascii("mdat"),...encoded],
   {type:"video/mp4"});
+ const videoCodec="avc1."+Array.from(video.privateData.slice(1,4)).map(
+   v=>v.toString(16).padStart(2,"0")).join("");
  return {blob,mime:'video/mp4; codecs="'+
-  ["avc1."+Array.from(video.privateData.slice(1,4)).map(
-    v=>v.toString(16).padStart(2,"0")).join(""),"mp4a.40.2"].join(", ")+'"',
-  frames:v.samples.length,audioPackets:a.samples.length};
+   [videoCodec,...(a?["mp4a.40.2"]:[])].join(", ")+'"',
+   frames:v.samples.length,audioPackets:a?.samples.length||0,
+   copiedAudioTrack:audio?.number||null,
+   skippedTrackCount:tracks.length-selected.length};
 }
 return {eligible,remux};
 });

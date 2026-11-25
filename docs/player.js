@@ -561,6 +561,11 @@
   };
   const load = (index, autoplay = true) => {
     if (index < 0 || index >= state.queue.length) return;
+    const previous=current();
+    if(previous?.remuxAbort){
+      previous.remuxAbort.abort();
+      previous.remuxAbort=null;
+    }
     if (seekPreview) seekPreview.reset();
     if (!state.stopped) rememberPosition();
     state.stopped = false;
@@ -674,9 +679,17 @@
        !window.DKMkvMP4.eligible(compatibleInfo(item),item.file))return false;
     const epoch=item.playbackEpoch;
     item.compatAttempted=true;
+    const controller=new AbortController();
+    item.remuxAbort=controller;
     status("Preparing H.264 and AAC video for Chromium…");
     try{
-      const output=await window.DKMkvMP4.remux(item.file,compatibleInfo(item));
+      const output=await window.DKMkvMP4.remux(item.file,compatibleInfo(item),{
+        signal:controller.signal,
+        onProgress:percent=>{
+          if(current()===item && item.playbackEpoch===epoch && !state.stopped)
+            status("Preparing MP4: "+percent+"% scanned…");
+        }
+      });
       if(!state.queue.includes(item) || current()!==item ||
          item.playbackEpoch!==epoch || state.stopped)return false;
       if(!media.canPlayType(output.mime))
@@ -697,10 +710,15 @@
       }
       return true;
     }catch(error){
-      if(current()===item && item.playbackEpoch===epoch)
+      if(error?.name==="AbortError")return false;
+      if(current()===item && item.playbackEpoch===epoch) {
+        item.playbackMethod="Unsupported conversion";
         status("H.264/AAC container fallback unavailable: "+
           (error?.message||"unsupported stream"));
+      }
       return false;
+    }finally{
+      if(item.remuxAbort===controller)item.remuxAbort=null;
     }
   };
   const tryCompatibleFallback = async item => {
@@ -721,6 +739,10 @@
     return false;
   };
   const releaseCompatible = item => {
+    if(item?.remuxAbort){
+      item.remuxAbort.abort();
+      item.remuxAbort=null;
+    }
     if(item?.compatSrc){
       try{URL.revokeObjectURL(item.compatSrc);}catch(_){}
       item.compatSrc=null;
@@ -1186,6 +1208,10 @@
     if (!item) return;
     cancelVideoClick();
     media.pause();
+    if(item.remuxAbort){
+      item.remuxAbort.abort();
+      item.remuxAbort=null;
+    }
     if (mkvAudio) mkvAudio.stop();
     delete state.resume[item.key];
     write(store.resume, state.resume);

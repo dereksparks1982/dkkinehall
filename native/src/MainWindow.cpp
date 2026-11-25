@@ -622,10 +622,10 @@ void MainWindow::populateSubtitleMenu(QMenu *menu) {
     }
   }
   menu->addSeparator();
-  QAction *external=menu->addAction(t("Add external subtitle file…",
+  QAction *externalAction=menu->addAction(t("Add external subtitle file…",
     "Добавить внешний файл субтитров…"));
   // This is deliberately the ONLY subtitle action that opens QFileDialog.
-  connect(external,&QAction::triggered,this,&MainWindow::addExternalSubtitle);
+  connect(externalAction,&QAction::triggered,this,&MainWindow::addExternalSubtitle);
 }
 void MainWindow::openSubtitleMenu(const QPoint &pos) {
   QMenu menu(this);

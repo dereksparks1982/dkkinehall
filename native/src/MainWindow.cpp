@@ -571,7 +571,12 @@ void MainWindow::populateSubtitleMenu(QMenu *menu) {
     refreshTrackIndicator();
   });
   menu->addSeparator();
-  const auto embedded=player_->tracks(QStringLiteral("sub"));
+  const auto allTracks=player_->tracks(QStringLiteral("sub"));
+  QVector<MediaTrack> embedded;
+  QVector<MediaTrack> external;
+  for(const MediaTrack &track:allTracks)
+    if(track.external)external.push_back(track);
+    else embedded.push_back(track);
   if(embedded.isEmpty()) {
     QAction *none=menu->addAction(t("No embedded subtitles detected",
       "Встроенные субтитры не найдены"));
@@ -583,6 +588,25 @@ void MainWindow::populateSubtitleMenu(QMenu *menu) {
         (track.title.isEmpty()?t("Track","Дорожка")+QStringLiteral(" ")+QString::number(track.id):track.title)+
         (track.codec.isEmpty()?QString():QStringLiteral(" · ")+track.codec);
       QAction *item=menu->addAction(description);
+      item->setCheckable(true);
+      item->setChecked(track.id==selectedSubtitle_);
+      const qint64 id=track.id;
+      connect(item,&QAction::triggered,this,[this,id]{
+        player_->selectSubtitles(id);
+        selectedSubtitle_=id;
+        refreshTrackIndicator();
+      });
+    }
+  }
+  if(!external.isEmpty()){
+    menu->addSeparator();
+    QAction *heading=menu->addAction(t("Previously added external tracks",
+      "Ранее добавленные внешние дорожки"));
+    heading->setEnabled(false);
+    for(const MediaTrack &track:external) {
+      QAction *item=menu->addAction(track.title.isEmpty()?
+        t("External track","Внешняя дорожка")+QStringLiteral(" ")+
+        QString::number(track.id):track.title);
       item->setCheckable(true);
       item->setChecked(track.id==selectedSubtitle_);
       const qint64 id=track.id;
@@ -657,7 +681,10 @@ void MainWindow::addExternalSubtitle() {
   showStatus(t("External subtitles selected","Выбраны внешние субтитры"));
 }
 void MainWindow::refreshTrackIndicator() {
-  const auto embedded=player_->tracks(QStringLiteral("sub"));
+  const auto tracks=player_->tracks(QStringLiteral("sub"));
+  int embeddedCount=0;
+  for(const MediaTrack &track:tracks)
+    if(!track.external)++embeddedCount;
   if(current_<0) {
     subtitleLabel_->setText(t("No movie selected","Фильм не выбран"));
     return;
@@ -666,10 +693,10 @@ void MainWindow::refreshTrackIndicator() {
     subtitleLabel_->setText(t("Subtitle track selected","Выбрана дорожка субтитров"));
     return;
   }
-  subtitleLabel_->setText(embedded.isEmpty()?
+  subtitleLabel_->setText(embeddedCount==0?
     t("No embedded subtitle tracks","Встроенные субтитры не найдены"):
     t("Subtitles off · ","Субтитры выключены · ")+
-      QString::number(embedded.size())+
+      QString::number(embeddedCount)+
       t(" embedded track(s)"," встроенных дорожек"));
 }
 void MainWindow::toggleFullscreen() {

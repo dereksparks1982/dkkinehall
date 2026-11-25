@@ -1828,7 +1828,22 @@
   document.addEventListener("fullscreenchange", updateFullscreenButton);
   document.addEventListener("fullscreenchange", () => requestAnimationFrame(syncPgsOverlay));
   updateFullscreenButton();
-  byId("addSubtitles").addEventListener("click", () => byId("subtitlePicker").click());
+  // Embedded MKV tracks use the existing menu; SRT/VTT loading is explicit.
+  byId("addSubtitles").addEventListener("click", () => {
+    if (!current()) return;
+    cancelVideoClick();
+    buildContextMenu();
+    if (window.DKLocale) window.DKLocale.apply();
+    contextMenu.hidden = false;
+    menuOpen = true;
+    keepControlsVisible();
+    const bounds = screen.getBoundingClientRect();
+    const button = byId("addSubtitles").getBoundingClientRect();
+    contextAnchor = {x: button.left - bounds.left, y: button.top - bounds.top};
+    const subtitleSection = contextMenu.querySelectorAll(".context-section-toggle")[1];
+    if (subtitleSection) subtitleSection.click();
+    else fitContextMenu();
+  });
   byId("subtitlePicker").addEventListener("change", async event => {
     const file = event.target.files && event.target.files[0];
     event.target.value = "";

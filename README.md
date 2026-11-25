@@ -177,6 +177,31 @@ Add a **Playback Format** setting in the existing player settings, shared by the
 - Preserve play/pause, seeking, subtitles, audio selection, fullscreen, and Up Next behavior wherever the selected playback pipeline supports those features.
 - Treat this as **roadmap only** until an explicit build instruction. No feature implementation, compilation, tests, or downloadable package is authorized by this entry.
 
+## Build 7: Playback Format selector
+
+The shared web and standalone player now has a **Playback settings** menu.
+Its initial settings are **Automatic** playback, **Prefer hardware
+acceleration** enabled, and **Remember format preference** enabled. The
+format choices are Automatic, Original (no conversion), MP4 (H.264/AAC),
+and WebM (VP9/Opus). Preferences are stored locally when remembering is
+enabled and take effect for the next opened file.
+
+- **Automatic** continues normal Chromium playback and existing compatible
+  Matroska fallbacks.
+- **Original** plays without the MKV container-remux fallback.
+- **MP4/WebM** try the corresponding existing *lossless* remuxer for
+  supported MKV tracks. If the source needs re-encoding, the player
+  reports the limitation rather than claiming it has transcoded the file.
+- **Hardware acceleration** is a saved preference in this build, **not yet
+  a switch for Chromium's actual GPU pipeline**. Hardware-specific
+  decoding/encoding and arbitrary on-the-fly transcoding remain planned.
+- Playback remains local; originals are not replaced or uploaded. The
+  standalone application and web page use the same player source.
+
+**Limitations:** Forced formats are not arbitrary file converters. Existing
+MKV remux restrictions still apply, including codec/profile and file-size
+limits. Non-MKV container conversion is not yet supported.
+
 ## Getting started
 
 1. Open **[DK Kinehall](https://dereksparks1982.github.io/dkkinehall/)** in Chromium or DK NetNav.

@@ -1,4 +1,4 @@
-name: DK Kinehall H264 and AAC Matroska fallback build (format7 test)
+name: DK Kinehall H264 and AAC Matroska fallback build (final release)
 on:
   push:
     paths:

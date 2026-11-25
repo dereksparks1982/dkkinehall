@@ -37,7 +37,7 @@ for(const [name,base64] of Object.entries(fixtures)){
       if(errors.length)throw new Error(name+" WebCodecs: "+errors.join("; "));
       if(!state.decodedFrames)throw new Error(name+" produced no decoded audio");
     }finally{
-      decoder.close();
+      if(decoder.state!=="closed")decoder.close();
     }
   }
   result.codecs[name]=state;

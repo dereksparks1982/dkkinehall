@@ -4,27 +4,7 @@
 // No Tkinter interface, forked CSS, or replacement playback controls.
 const { app, BrowserWindow, Menu, shell, ipcMain } = require("electron");
 const path = require("node:path");
-const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
-
-// The portable launcher passes the ORIGINAL repository root. After one
-// runtime refresh, subsequent source-only updates to root docs/ are used by
-// both GitHub Pages and the native window, without repacking Chromium.
-function selectedPlayerRoot() {
-  const flag = process.argv.find(value =>
-    typeof value === "string" && value.startsWith("--dk-kinehall-root="));
-  if (!flag) return __dirname;
-  const supplied = flag.slice("--dk-kinehall-root=".length);
-  if (!path.isAbsolute(supplied)) return __dirname;
-  try {
-    const base = fs.realpathSync(supplied);
-    const html = path.join(base, "docs", "index.html");
-    const file = fs.statSync(html);
-    if (file.isFile() && fs.statSync(path.join(base, "docs", "player.js")).isFile())
-      return base;
-  } catch (_) { /* Keep bundled sources available as a safe fallback. */ }
-  return __dirname;
-}
 
 app.setName("DK Kinehall");
 // Linux dock icons are matched by the installed desktop-entry filename and
@@ -39,15 +19,9 @@ if (process.platform === "linux") {
 app.setAppUserModelId("org.dksoftworks.dk-kinehall");
 
 function openWindow() {
-  const playerRoot = selectedPlayerRoot();
-  const player = path.join(playerRoot, "docs", "index.html");
+  const player = path.join(__dirname, "docs", "index.html");
   const playerURL = pathToFileURL(player).href;
-  const icon = path.join(playerRoot, "docs", "icons", "dk-media-player-512.png");
-  const sourcePreload = path.join(playerRoot, "standalone", "preload.cjs");
-  const preload = fs.existsSync(sourcePreload) ? sourcePreload :
-    path.join(__dirname, "preload.cjs");
-  console.log("DK_KINEHALL_PLAYER_SOURCE",
-    playerRoot === __dirname ? "bundled" : "repository", player);
+  const icon = path.join(__dirname, "docs", "icons", "dk-media-player-512.png");
 
   const win = new BrowserWindow({
     width: 1450,
@@ -60,7 +34,7 @@ function openWindow() {
     title: "DK Kinehall",
     icon,
     webPreferences: {
-      preload,
+      preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -69,19 +43,6 @@ function openWindow() {
     }
   });
   Menu.setApplicationMenu(null);
-  // The renderer only sees a narrowly-scoped IPC bridge. The optional
-  // transcoder accepts File bytes, not arbitrary disk paths or network URLs.
-  const sourceTranscoder = path.join(playerRoot, "standalone", "transcoder.cjs");
-  const bundledTranscoder = path.join(__dirname, "transcoder.cjs");
-  const selectedTranscoder = fs.existsSync(sourceTranscoder) ?
-    sourceTranscoder : bundledTranscoder;
-  if (fs.existsSync(selectedTranscoder)) {
-    try {
-      require(selectedTranscoder).install({win, ipcMain, repositoryRoot:playerRoot});
-    } catch (error) {
-      console.error("DK_KINEHALL_TRANSCODER_UNAVAILABLE",String(error));
-    }
-  }
   win.once("ready-to-show", () => win.show());
 
   const broadcastFullscreen = () => {

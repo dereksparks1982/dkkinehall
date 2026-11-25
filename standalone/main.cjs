@@ -4,7 +4,27 @@
 // No Tkinter interface, forked CSS, or replacement playback controls.
 const { app, BrowserWindow, Menu, shell, ipcMain } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
 const { pathToFileURL } = require("node:url");
+
+// The portable launcher passes the ORIGINAL repository root. After one
+// runtime refresh, subsequent source-only updates to root docs/ are used by
+// both GitHub Pages and the native window, without repacking Chromium.
+function selectedPlayerRoot() {
+  const flag = process.argv.find(value =>
+    typeof value === "string" && value.startsWith("--dk-kinehall-root="));
+  if (!flag) return __dirname;
+  const supplied = flag.slice("--dk-kinehall-root=".length);
+  if (!path.isAbsolute(supplied)) return __dirname;
+  try {
+    const base = fs.realpathSync(supplied);
+    const html = path.join(base, "docs", "index.html");
+    const file = fs.statSync(html);
+    if (file.isFile() && fs.statSync(path.join(base, "docs", "player.js")).isFile())
+      return base;
+  } catch (_) { /* Keep bundled sources available as a safe fallback. */ }
+  return __dirname;
+}
 
 app.setName("DK Kinehall");
 // Linux dock icons are matched by the installed desktop-entry filename and
@@ -19,9 +39,12 @@ if (process.platform === "linux") {
 app.setAppUserModelId("org.dksoftworks.dk-kinehall");
 
 function openWindow() {
-  const player = path.join(__dirname, "docs", "index.html");
+  const playerRoot = selectedPlayerRoot();
+  const player = path.join(playerRoot, "docs", "index.html");
   const playerURL = pathToFileURL(player).href;
-  const icon = path.join(__dirname, "docs", "icons", "dk-media-player-512.png");
+  const icon = path.join(playerRoot, "docs", "icons", "dk-media-player-512.png");
+  console.log("DK_KINEHALL_PLAYER_SOURCE",
+    playerRoot === __dirname ? "bundled" : "repository", player);
 
   const win = new BrowserWindow({
     width: 1450,

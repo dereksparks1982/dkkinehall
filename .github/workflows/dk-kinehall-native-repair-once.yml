@@ -1,4 +1,4 @@
-name: One-time DK Kinehall portable crash repair
+name: One-time DK Kinehall bundled-dependency release
 # Temporary workflow: run the actual distributed executable before release.
 on:
   push:

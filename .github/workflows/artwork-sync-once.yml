@@ -1,4 +1,5 @@
 name: One-time original DK Kinehall artwork update
+# Retry after correcting the source syntax caught by validation.
 on:
   push:
     branches: [main]

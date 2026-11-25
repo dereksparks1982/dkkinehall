@@ -577,7 +577,8 @@
     item.compatAttempted = false;
     item.compatPending = false;
     item.requestedFormat = playbackSettings.format;
-    item.playbackMethod = "Original source";
+    item.playbackMethod = (item.compatSrc && item.requestedFormat === "auto")
+      ? "Cached lossless remux" : "Original source";
     const forcingContainer = item.requestedFormat === "mp4" || item.requestedFormat === "webm";
     if (item.compatSrc && (forcingContainer || item.requestedFormat === "original")) {
       URL.revokeObjectURL(item.compatSrc);
@@ -659,7 +660,8 @@
       }
       return true;
     } catch(error){
-      status("MKV container fallback failed: "+(error?.message||"invalid header"));
+      if(current()===item && item.playbackEpoch===epoch)
+        status("MKV container fallback failed: "+(error?.message||"invalid header"));
       return false;
     }
   };
@@ -691,8 +693,9 @@
       }
       return true;
     }catch(error){
-      status("H.264/AAC container fallback unavailable: "+
-        (error?.message||"unsupported stream"));
+      if(current()===item && item.playbackEpoch===epoch)
+        status("H.264/AAC container fallback unavailable: "+
+          (error?.message||"unsupported stream"));
       return false;
     }
   };
@@ -772,7 +775,8 @@
             if(item.compatPending){
               item.compatPending=false;
               void tryCompatibleFallback(item).then(ok=>{
-                if(!ok&&current()===item&&!item.compatAttempted)
+                if(!ok&&current()===item&&!item.compatAttempted &&
+                   item.requestedFormat === "auto")
                   status("This MKV video codec or container is not supported.");
               });
             }
@@ -1565,6 +1569,16 @@
       {disabled: !current() || !Number.isFinite(media.duration) || state.stopped});
     addMenuItem("↷  Forward 10 seconds", () => skipTen(10),
       {disabled: !current() || !Number.isFinite(media.duration) || state.stopped});
+
+    addMenuHeading("Playback format");
+    for (const [value,label] of [["auto","Automatic"],["original","Original (no conversion)"],
+      ["mp4","MP4 (H.264/AAC)"],["webm","WebM (VP9/Opus)"]]) {
+      addMenuItem(label, () => {
+        if(playbackFormatInput.value===value)return;
+        playbackFormatInput.value=value;
+        playbackFormatInput.dispatchEvent(new Event("change",{bubbles:true}));
+      }, {checked: playbackSettings.format===value});
+    }
 
     addMenuHeading("Subtitles");
     const tracks = subtitleTracks();

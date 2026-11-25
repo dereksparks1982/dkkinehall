@@ -806,6 +806,7 @@
           item.mkvInspection = result.truncated ? "partial" : "complete";
           if (current() === item) {
             updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item);
+            refreshOpenSubtitleMenu();
             if(item.compatPending){
               item.compatPending=false;
               void tryCompatibleFallback(item).then(ok=>{
@@ -819,6 +820,7 @@
           item.mkvInspection = "unavailable";
           if (current() === item) {
             updateSubtitleStatus();
+            refreshOpenSubtitleMenu();
             if(item.compatPending)status("This MKV file could not be inspected.");
           }
         });
@@ -1482,6 +1484,8 @@
     toggle.setAttribute("role", "menuitem");
     toggle.setAttribute("aria-expanded", "false");
     toggle.textContent = label;
+    // Stable internal section name, unaffected by Russian UI translations.
+    toggle.dataset.menuSection = label;
     const group = document.createElement("div");
     group.className = "context-section-items";
     group.hidden = true;
@@ -1648,7 +1652,8 @@
     addMenuHeading("Subtitles");
     const tracks = subtitleTracks();
     addMenuItem("Subtitles off", () => switchSubtitles(-1),
-      {checked: !state.activePgsTrack && !state.mkvSubtitlePending &&
+      {checked: !state.activePgsTrack && state.activeEmbeddedTrack === null &&
+        !state.mkvSubtitlePending &&
         tracks.every(track => track.mode !== "showing")});
     tracks.forEach((track, index) => addMenuItem(
       track.label || track.language || "Subtitle track " + (index + 1),
@@ -1680,6 +1685,10 @@
         });
       } else if (item.mkvInspection === "pending") {
         addMenuItem("Checking MKV subtitle tracks…", () => {}, {disabled: true});
+      } else {
+        addMenuItem(item.mkvInspection === "unavailable" ?
+          "Could not inspect embedded MKV tracks" :
+          "No embedded subtitle tracks found", () => {}, {disabled: true});
       }
     }
     addMenuItem("＋ Load SRT / VTT…", () => byId("subtitlePicker").click());
@@ -1750,6 +1759,23 @@
     // Direct action, not a deeply nested row.
     activeMenuSection = contextMenu;
     addMenuItem("Media information", openMediaInfo);
+  };
+  // If Matroska inspection finishes while the Subtitles section is open,
+  // replace its temporary "Checking..." row with the actual embedded tracks.
+  // Keep the section expanded and never launch the external file chooser.
+  const refreshOpenSubtitleMenu = () => {
+    if (!menuOpen || contextMenu.hidden) return;
+    const existing = contextMenu.querySelector(
+      '.context-section-toggle[data-menu-section="Subtitles"]');
+    if (!existing || existing.getAttribute("aria-expanded") !== "true") return;
+    const scrollTop = contextMenu.scrollTop;
+    buildContextMenu();
+    if (window.DKLocale) window.DKLocale.apply();
+    const section = contextMenu.querySelector(
+      '.context-section-toggle[data-menu-section="Subtitles"]');
+    if (section) section.click();
+    contextMenu.scrollTop = scrollTop;
+    fitContextMenu();
   };
   const openMediaInfo = () => {
     const item = current();
@@ -1846,7 +1872,8 @@
     const bounds = screen.getBoundingClientRect();
     const button = byId("addSubtitles").getBoundingClientRect();
     contextAnchor = {x: button.left - bounds.left, y: button.top - bounds.top};
-    const subtitleSection = contextMenu.querySelectorAll(".context-section-toggle")[1];
+    const subtitleSection = contextMenu.querySelector(
+      '.context-section-toggle[data-menu-section="Subtitles"]');
     if (subtitleSection) subtitleSection.click();
     else fitContextMenu();
   });

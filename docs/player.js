@@ -580,7 +580,7 @@
     status("");
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
-    if (forcingContainer && /\\.mkv$/i.test(item.name) && item.file) {
+    if (forcingContainer && /\.mkv$/i.test(item.name) && item.file) {
       media.pause();
       if(item.mkvInspection === "pending") {
         item.compatPending = true;

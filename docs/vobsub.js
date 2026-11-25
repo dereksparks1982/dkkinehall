@@ -38,11 +38,12 @@
       offset++;
       return value;
     };
+    // DVD 2-bit RLE is 1–4 nibbles. A single nibble >=4 is already
+    // a complete code; only a value below the current threshold continues.
     const code=()=>{
-      let n=nibble();
-      if(n<4)n=(n<<4)|nibble();
-      if(n<16)n=(n<<4)|nibble();
-      if(n<64)n=(n<<4)|nibble();
+      let n=0;
+      for(let threshold=1;n<threshold&&threshold<=0x40;threshold*=4)
+        n=(n<<4)|nibble();
       return n;
     };
     return {code,align:()=>{if(offset&1)offset++;}};

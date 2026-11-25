@@ -1,4 +1,4 @@
-name: DK Kinehall MKV audio and subtitle build
+name: DK Kinehall MKV audio and subtitle build (DVD RLE correction)
 on:
   push:
     paths:

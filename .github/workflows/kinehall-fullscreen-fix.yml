@@ -1,4 +1,4 @@
-name: Build and verify Kinehall fullscreen executable (renderer errors)
+name: Build and verify Kinehall fullscreen executable (startup fix)
 on:
   push:
     paths:

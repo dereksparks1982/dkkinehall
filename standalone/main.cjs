@@ -98,6 +98,10 @@ function openWindow() {
           throw new Error("Original web player or desktop bridge failed to load: " + JSON.stringify(initial));
         }
         console.log("DK_KINEHALL_WEB_PLAYER_LOADED", JSON.stringify(initial));
+        const initialized = await win.webContents.executeJavaScript(
+          'document.getElementById("fullscreen").getAttribute("aria-pressed") === "false"');
+        if (!initialized) throw new Error("Player JavaScript initialization did not finish");
+
         const wait = () => new Promise(resolve => setTimeout(resolve, 700));
         const assertMode = async (label, expected) => {
           await wait();

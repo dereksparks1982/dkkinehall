@@ -775,7 +775,8 @@
   for (const eventName of ["play", "pause", "ended", "emptied"]) media.addEventListener(eventName, updateButtons);
   media.addEventListener("durationchange", updateTime);
   media.addEventListener("loadeddata", applySubtitlePreference);
-  media.addEventListener("loadeddata",restoreAudioPreference);
+  // Register lazily: restoreAudioPreference is defined later in this module.
+  media.addEventListener("loadeddata", () => restoreAudioPreference());
   media.addEventListener("seeking", () => { if (mkvAudio) mkvAudio.restart(); });
   media.addEventListener("ratechange", () => { if (mkvAudio) mkvAudio.restart(); });
   if (media.audioTracks && typeof media.audioTracks.addEventListener === "function") {

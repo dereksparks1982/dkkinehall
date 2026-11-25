@@ -178,6 +178,22 @@ Add a **Playback Format** setting in the existing player settings, shared by the
 - Preserve play/pause, seeking, subtitles, audio selection, fullscreen, and Up Next behavior wherever the selected playback pipeline supports those features.
 - Treat this as **roadmap only** until an explicit build instruction. No feature implementation, compilation, tests, or downloadable package is authorized by this entry.
 
+## Build 12: cancellable MP4 preparation with progress
+
+The lossless H.264/AAC MKV-to-MP4 preparation process now provides
+bounded scan-progress updates for long, supported MKV files. Switching
+media, choosing a different playback format, stopping playback, or
+removing an item cancels its ongoing MP4 scan via an AbortController
+instead of allowing stale conversion work to continue indefinitely.
+
+- Scan progress reports how far through the original MKV the remuxer has
+  inspected; it is **not** percentage of a re-encode or an estimate of
+  remaining time.
+- Cancellation preserves original files. A cancelled or obsolete remux
+  must not replace the active video or display a misleading codec error.
+- The original MKV-to-MP4 compatibility limits still apply. Progressive
+  output during scanning and full transcoding are **not yet implemented**.
+
 ## Build 11: more useful H.264 MKV to MP4 remuxing
 
 The existing bounded, lossless MP4 remuxer can now accept an MKV with

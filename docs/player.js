@@ -723,6 +723,10 @@
     }
   };
   const releaseArtwork = item => {
+    if(item?.folderArtworkSrc){
+      try{URL.revokeObjectURL(item.folderArtworkSrc);}catch(_){}
+      item.folderArtworkSrc=null;
+    }
     if(item?.thumbnailBlob && item.thumbnail){
       try { URL.revokeObjectURL(item.thumbnail); } catch (_) {}
       item.thumbnail=null;item.thumbnailBlob=false;
@@ -747,17 +751,21 @@
   // Open files selects a movie to watch now unless another is playing.
   // The Up Next button queues without ever interrupting current playback.
   // Restore reopens the previous file paused at its remembered position.
-  const addFiles = (files, handles = [], mode = "open") => {
+  const addFiles = (files, handles = [], mode = "open", artData = null) => {
+    const posterMap = artData && window.DKLocalArtwork
+      ? window.DKLocalArtwork.match(artData.media, artData.artwork) : new Map();
     const accepted = Array.from(files || []).map((file, index) => ({
-      file, handle: handles[index] || null
+      file, handle: handles[index] || null,
+      path: artData?.media?.[index]?.path || file.webkitRelativePath || file.name
     })).filter(entry => fileIsMedia(entry.file));
     if (!accepted.length) { status("No supported media file selected. Choose a video or audio file."); return; }
     const playing = Boolean(current()) && !state.stopped && !media.paused && !media.ended;
     const plan = window.DKQueueAutoplay.plan(mode, state.current, state.queue.length, playing);
     const newItems = [];
-    for (const {file, handle} of accepted) {
+    for (const {file, handle, path} of accepted) {
       const item = {kind: "file", name: file.name, audio: fileIsAudio(file),
         file, src: URL.createObjectURL(file), handle,
+        path, folderArtwork: posterMap.get(path) || null,
         size: file.size, mime: file.type || "",
         key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
         embeddedSubtitles: [], embeddedAudio: [], embeddedVideo: [], mkvInspection: "not-mkv"};
@@ -829,7 +837,22 @@
         }
       }
       if (selections.length) addFiles(selections.map(e => e.file),
-        selections.map(e => e.handle), "queue");
+        selections.map(e => e.handle), "queue",
+        {media:selections,artwork:result.artwork});
+      // Opening a folder can also supply artwork for a movie that was
+      // already opened manually before the folder was selected.
+      if (window.DKLocalArtwork && result.artwork?.length) {
+        const posters=window.DKLocalArtwork.match(result.files,result.artwork);
+        let updated=false;
+        for(const entry of result.files){
+          const existing=state.queue.find(item=>item.key===mediaKeyFor(entry.file));
+          if(existing&&!existing.folderArtwork&&posters.has(entry.path)){
+            existing.folderArtwork=posters.get(entry.path);
+            updated=true;
+          }
+        }
+        if(updated)renderQueue();
+      }
       // A previously watched file can be recovered through a still-approved
       // directory handle even if its individual file handle expired.
       if (reason === "startup" && !current()) {
@@ -938,12 +961,18 @@
   folderReconnectButton.addEventListener("click", () => { void reopenFolder(); });
   folderForgetButton.addEventListener("click", () => { void forgetFolder(); });
   folderInput.addEventListener("change", event => {
-    const entries = Array.from(event.target.files || []).slice(0, folderLimit);
-    event.target.value = "";
-    if (!entries.length) return;
-    const name = String(entries[0].webkitRelativePath || "").split("/")[0];
-    if (name) updateFolderUI("Session folder: " + name);
-    addFiles(entries, [], "queue");
+    const entries=Array.from(event.target.files||[]);
+    event.target.value="";
+    if(!entries.length)return;
+    const name=String(entries[0].webkitRelativePath||"").split("/")[0];
+    if(name)updateFolderUI("Session folder: "+name);
+    const mediaFiles=entries.filter(fileIsMedia).slice(0,folderLimit);
+    const artwork=entries.filter(file=>/\.(?:jpe?g|png|webp)$/i.test(file.name))
+      .slice(0,1000).map(file=>({file,path:file.webkitRelativePath||file.name}));
+    addFiles(mediaFiles,[],"queue",{
+      media:mediaFiles.map(file=>({file,path:file.webkitRelativePath||file.name})),
+      artwork
+    });
     status("Folder available for this session. Choose it again next time.", true);
   });
 

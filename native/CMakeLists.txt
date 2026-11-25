@@ -11,7 +11,6 @@ add_executable(dk-kinehall
   src/main.cpp
   src/MainWindow.h src/MainWindow.cpp
   src/MpvWidget.h src/MpvWidget.cpp
-  src/TranscodePipe.h src/TranscodePipe.cpp
 )
 target_compile_definitions(dk-kinehall PRIVATE
   QT_NO_CAST_FROM_ASCII QT_NO_CAST_TO_ASCII)

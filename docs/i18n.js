@@ -126,8 +126,8 @@
     "Detected MKV video codec":"Обнаруженный видеокодек МКВ",
     "Checking MKV container compatibility…":"Проверка совместимости контейнера МКВ…",
     "Playing MKV using compatible WebM container.":"Воспроизведение МКВ через совместимый контейнер ВебМ.",
-    "Preparing H.264 and AAC video for Chromium…":"Подготовка видео H.264 и звука AAC для Хромиум…",
-    "Playing H.264/AAC MKV through an MP4 container.":"Воспроизведение МКВ H.264/AAC через контейнер МП4.",
+    "Preparing H.264 and AAC video for Chromium…":"Подготовка видео Эйч.264 и звука ААС для Хромиум…",
+    "Playing H.264/AAC MKV through an MP4 container.":"Воспроизведение МКВ Эйч.264/ААС через контейнер МП4.",
     "This MKV video codec or container is not supported.":"Этот видеокодек или контейнер МКВ не поддерживается.",
     "This MKV file could not be inspected.":"Не удалось проверить файл МКВ.",
     "This format is not supported by the included Chromium audio decoder.":"Этот формат не поддерживается встроенным аудиодекодером Хромиум.",
@@ -271,7 +271,7 @@
     if (translated === null && (m = /^Audio track selected: (.+)$/.exec(plain)))
       translated = "Выбрана аудиодорожка: " + m[1];
     if (translated === null && (m = /^H\.264\/AAC container fallback unavailable: (.+)$/.exec(plain)))
-      translated = "Не удалось использовать контейнер МП4 для H.264/AAC: " + m[1];
+      translated = "Не удалось использовать контейнер МП4 для Эйч.264/ААС: " + m[1];
     if (translated === null && (m = /^MKV container fallback failed: (.+)$/.exec(plain)))
       translated = "Не удалось применить совместимый контейнер МКВ: " + m[1];
     if (translated === null && (m = /^Chromium cannot play this MKV video codec: (.+)\.$/.exec(plain)))

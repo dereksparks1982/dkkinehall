@@ -15,9 +15,34 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Preview the timeline.** Hover over the progress bar to preview a scene when the video format allows it.
 - **Resume watching.** Remember playback position and, where Chromium permissions allow, reopen your last selected local file.
 - **Subtitles.** Load SRT/VTT, select supported text, PGS or DVD VobSub tracks embedded in MKV files, and turn subtitles off. New files start with subtitles off; selected embedded tracks can be remembered per file.
+- **Compatible MKV video.** Automatically retry VP8/VP9/AV1 and Opus/Vorbis Matroska video in a lossless WebM-compatible wrapper where Chromium supports its codecs.
 - **Audio tracks.** Switch Chromium-native audio tracks when exposed, or select supported MKV AAC, Opus, MP3, FLAC, and Vorbis streams using WebCodecs and WebAudio. Availability depends on the specific codec/profile and Chromium installation.
 - **Embedded bitmap subtitles.** Local PGS and basic DVD VobSub bitmap subtitle decoding in MKV files, with subtitle selection from the existing right-click menu. Unsupported DVD display commands and encodings are reported rather than faked.
 - **English and Russian.** Switch the interface between English and Русский.
+
+## Build 5: play WebM-compatible MKV video without transcoding
+
+Chromium sometimes refuses an MKV file because its container announces
+`matroska`, even though it already decodes the **VP8, VP9, or AV1 video**
+and **Opus or Vorbis audio** inside it. DK Kinehall now detects this precise
+case and attempts a **lossless, local container fallback** when native
+playback rejects the file. The original MKV is never modified, uploaded,
+transcoded, or copied into memory in its entirety. Only the small EBML
+header is rewritten in a temporary browser Blob, preserving all encoded
+video/audio bytes and their offsets.
+
+The fallback checks the actual video/audio track metadata first and
+refuses unsupported codecs or subtitle tracks. A video plays through the
+existing Chromium <video> element, preserving the approved interface,
+play/pause, seeking, volume, fullscreen, and Up Next behavior. If the
+embedded codecs or Matroska features cannot be handled by WebM/Chromium,
+the user receives a format error rather than a false success.
+
+This is a **targeted MKV compatibility improvement**, not H.264/H.265
+transcoding. HEVC, MPEG-2, AC3/E-AC3 and DTS still need independently
+licensed decoders, a complete demuxer, or other video/audio pathways.
+The build verifies actual moving VP9+Opus video with Chromium using
+a synthetic MKV created locally in GitHub Actions.
 
 ## Build 4: additional MKV audio codecs and honest format diagnostics
 

@@ -50,6 +50,24 @@
 - Include tests for matched movie poster, year-mismatch rejection, episode still/series fallback, failed image recovery, persistent URL cache, queue DOM redraw, and actual image load in Linux Chromium/Electron. Public provider availability is outside the player's control.
 - Keep the same player on GitHub Pages and in the root Linux executable, then remove the temporary test workflow.
 
+## Build 5: lossless WebM-compatible Matroska video playback (November 2026)
+- Implement a bounded EBML header rewrite for files that **only** contain
+  WebM-compatible VP8/VP9/AV1 video, Opus/Vorbis audio, and optional WebM
+  subtitles. Replace Matroska's DocType with WebM and fill the remaining
+  header bytes with a valid EBML Void element, preserving size and offsets.
+- Only try this on actual native player decode/source failure; keep native
+  playback first. Never change files on disk or upload them. Create a
+  local Blob from a tiny modified header plus the original File's slices.
+  Reuse the existing <video> playback pipeline, controls, audio, queue
+  and resume, with URL cleanup when a file is removed.
+- Reject H.264/H.265, MPEG-2, AC3/E-AC3, DTS and unsupported subtitle
+  tracks rather than implying any of those codecs can play in WebM.
+- Generate short VP9+Opus Matroska fixtures on the GitHub build runner.
+  Run EBML size/integrity checks and verify moving picture in actual Linux
+  Chromium/Electron. Test the installed root executable, not only source.
+- No new installer, codec pack, server, video player, branch, or persistent
+  GitHub Actions workflow.
+
 ## Build 4: expanded Matroska audio codec paths and diagnostics (November 2026)
 - Added experimental Chromium WebCodecs audio-track paths for `A_MPEG/L3` (MP3),
   `A_FLAC`, and `A_VORBIS`, retaining existing AAC and Opus. All use the

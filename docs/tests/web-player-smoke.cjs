@@ -235,3 +235,14 @@ assert.match(js,/Chromium cannot play this MKV video codec/);
 assert.match(js,/Detected MKV video codec/);
 require("./mkv-expanded-codecs.cjs");
 console.log("PASS: Build 4 expanded MKV audio and clear video-codec diagnostics");
+
+/* Build 5: native compatible WebM playback fallback, not metadata-only. */
+const compatSource=fs.readFileSync(path.join(root,"mkv-webm.js"),"utf8");
+new Function(compatSource);
+assert.match(html, /mkv-webm\.js\?v=20261125-webm5/);
+assert.match(html, /player\.js\?v=20261125-webm5/);
+assert.match(js, /const retryAsWebM = async item =>/);
+assert.match(js, /window\.DKMkvWebM\.wrap\(item\.file,info\)/);
+assert.match(js, /item\.compatSrc \|\| item\.src/);
+assert.match(js, /releaseCompatible\(item\)/);
+console.log("PASS: Build 5 MKV to native WebM compatibility wiring");

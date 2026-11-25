@@ -517,6 +517,7 @@
       try { media.currentTime = 0; } catch (_) {}
       restoreAudioPreference();
     }
+    current().autoplayRequested = true;
     const result = media.play();
     if (result && typeof result.catch === "function") result.catch(err => {
       if (err && err.name === "NotAllowedError") status("Tap Play to start playback on this device.");
@@ -534,7 +535,8 @@
     state.current = index;
     const item = current();
     rememberSelectedMedia(item);
-    media.src = item.src;
+    item.autoplayRequested = autoplay;
+    media.src = item.compatSrc || item.src;
     media.load();
     screen.classList.remove("empty", "stopped");
     screen.classList.toggle("audio", item.audio);
@@ -549,6 +551,42 @@
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
     if (autoplay) playCurrent();
+  };
+  // When Chromium rejects an MKV container, repackage compatible EBML
+  // metadata as WebM without touching its compressed frames or sound.
+  // This ONLY applies to VP8/VP9/AV1 plus WebM-permitted audio codecs.
+  const retryAsWebM = async item => {
+    if (!item || !item.file || item.compatAttempted ||
+        !window.DKMkvWebM) return false;
+    const info={videoTracks:item.embeddedVideo,
+      audioTracks:item.embeddedAudio,tracks:item.embeddedSubtitles};
+    const compatible=window.DKMkvWebM.eligible(info,item.file);
+    if(!compatible || !media.canPlayType(compatible.mime))return false;
+    item.compatAttempted=true;
+    try {
+      const output=await window.DKMkvWebM.wrap(item.file,info);
+      if(!state.queue.includes(item))return false;
+      item.compatSrc=URL.createObjectURL(output.blob);
+      // A queued item may become current while the lightweight rewrite runs.
+      // Do not interrupt a successfully playing native MKV.
+      if(current()===item && !state.stopped &&
+         media.error && (media.error.code===3||media.error.code===4)){
+        media.src=item.compatSrc;
+        media.load();
+        if(item.autoplayRequested)playCurrent();
+        status("Playing MKV using compatible WebM container.",true);
+      }
+      return true;
+    } catch(error){
+      status("MKV container fallback failed: "+(error?.message||"invalid header"));
+      return false;
+    }
+  };
+  const releaseCompatible = item => {
+    if(item?.compatSrc){
+      try{URL.revokeObjectURL(item.compatSrc);}catch(_){}
+      item.compatSrc=null;
+    }
   };
   const releaseArtwork = item => {
     if(item?.thumbnailBlob && item.thumbnail){
@@ -569,6 +607,7 @@
       renderQueue();
     }
     releaseArtwork(old);
+    releaseCompatible(old);
     if (old.kind === "file") URL.revokeObjectURL(old.src);
   };
   // Open files selects a movie to watch now unless another is playing.
@@ -597,10 +636,26 @@
           item.embeddedAudio = result.audioTracks || [];
           item.embeddedVideo = result.videoTracks || [];
           item.mkvInspection = result.truncated ? "partial" : "complete";
-          if (current() === item) { updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item); }
+          if (current() === item) {
+            updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item);
+            if(item.compatPending){
+              item.compatPending=false;
+              if(window.DKMkvWebM?.eligible({
+                videoTracks:item.embeddedVideo,audioTracks:item.embeddedAudio,
+                tracks:item.embeddedSubtitles},item.file))
+                void retryAsWebM(item).then(ok=>{
+                  if(!ok && current()===item)
+                    status("This MKV video codec or container is not supported.");
+                });
+              else status("This MKV video codec or container is not supported.");
+            }
+          }
         }).catch(() => {
           item.mkvInspection = "unavailable";
-          if (current() === item) updateSubtitleStatus();
+          if (current() === item) {
+            updateSubtitleStatus();
+            if(item.compatPending)status("This MKV file could not be inspected.");
+          }
         });
       }
     }
@@ -872,6 +927,7 @@
     const old = state.queue.splice(state.current + 1);
     old.forEach(item => {
       releaseArtwork(item);
+      releaseCompatible(item);
       if (item.kind === "file") URL.revokeObjectURL(item.src);
     });
     renderQueue();
@@ -1044,6 +1100,24 @@
   media.addEventListener("error", () => {
     if (!current() || !media.error) return;
     const code = media.error.code;
+    const item=current();
+    if((code===3||code===4)&&item?.file && /.mkv$/i.test(item.name) &&
+       !item.compatAttempted && window.DKMkvWebM){
+      if(item.mkvInspection==="pending"){
+        item.compatPending=true;
+        status("Checking MKV container compatibility…");
+        return;
+      }
+      if(window.DKMkvWebM.eligible({
+        videoTracks:item.embeddedVideo,audioTracks:item.embeddedAudio,
+        tracks:item.embeddedSubtitles},item.file)){
+        void retryAsWebM(item).then(ok=>{
+          if(!ok && current()===item)
+            status("This MKV video codec or container is not supported.");
+        });
+        return;
+      }
+    }
     const mkvVideo = current().embeddedVideo?.[0]?.codec || null;
     const message = code === 4 && mkvVideo ?
       "Chromium cannot play this MKV video codec: " + mkvVideo + "." :
@@ -1577,7 +1651,7 @@
     clearTimeout(cursorIdleTimer);
     rememberPosition();
     clearSubtitles();
-    state.queue.forEach(item => { releaseArtwork(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
+    state.queue.forEach(item => { releaseArtwork(item); releaseCompatible(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
   });
   idle();
   // A restored file stays paused until the user presses Play.

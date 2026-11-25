@@ -47,6 +47,8 @@ const expectations = [
   ["Reading embedded VobSub graphics…","Чтение встроенных графических субтитров ВобСаб…"],
   ["Embedded VobSub subtitles loaded locally.","Встроенные субтитры ВобСаб загружены с устройства."],
   ["VobSub","ВобСаб"],
+  ["Checking MKV container compatibility…","Проверка совместимости контейнера МКВ…"],
+  ["Playing MKV using compatible WebM container.","Воспроизведение МКВ через совместимый контейнер ВебМ."],
   ["No saved links yet.", "Пока нет сохранённых ссылок."]
 ];
 for (const [english, russian] of expectations)

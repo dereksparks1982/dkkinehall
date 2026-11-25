@@ -124,6 +124,10 @@
     "This subtitle codec is not yet supported by the player.":"Этот формат субтитров пока не поддерживается проигрывателем.",
     "VobSub":"ВобСаб",
     "Detected MKV video codec":"Обнаруженный видеокодек МКВ",
+    "Checking MKV container compatibility…":"Проверка совместимости контейнера МКВ…",
+    "Playing MKV using compatible WebM container.":"Воспроизведение МКВ через совместимый контейнер ВебМ.",
+    "This MKV video codec or container is not supported.":"Этот видеокодек или контейнер МКВ не поддерживается.",
+    "This MKV file could not be inspected.":"Не удалось проверить файл МКВ.",
     "This format is not supported by the included Chromium audio decoder.":"Этот формат не поддерживается встроенным аудиодекодером Хромиум.",
     "PGS bitmap subtitle track":"Графическая дорожка ПГС",
     "This subtitle codec still requires a decoder (for example VobSub).":"Для этого формата субтитров по-прежнему необходим декодер.",
@@ -264,6 +268,8 @@
       translated = "Аудиодорожка " + m[1];
     if (translated === null && (m = /^Audio track selected: (.+)$/.exec(plain)))
       translated = "Выбрана аудиодорожка: " + m[1];
+    if (translated === null && (m = /^MKV container fallback failed: (.+)$/.exec(plain)))
+      translated = "Не удалось применить совместимый контейнер МКВ: " + m[1];
     if (translated === null && (m = /^Chromium cannot play this MKV video codec: (.+)\.$/.exec(plain)))
       translated = "Хромиум не может воспроизвести этот видеокодек МКВ: " + m[1] + ".";
     if (translated === null && (m = /^Couldn't decode VobSub subtitles: (.+)$/.exec(plain)))

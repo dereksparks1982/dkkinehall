@@ -170,6 +170,20 @@ function openWindow() {
           throw new Error("MKV codec/subtitle smoke test did not pass");
         console.log("DK_KINEHALL_MKV_CODECS_PASS", JSON.stringify(codecState));
 
+        if (process.env.DK_KINEHALL_WEBM_FIXTURE) {
+          const fs = require("node:fs");
+          const data = fs.readFileSync(process.env.DK_KINEHALL_WEBM_FIXTURE)
+            .toString("base64");
+          const script = fs.readFileSync(path.join(__dirname,
+            "webm-video-smoke.js"),"utf8")
+            .replace("__DK_WEBM_B64__",JSON.stringify(data));
+          const played = await win.webContents.executeJavaScript(script);
+          if (!played?.passed)
+            throw new Error("Real WebM-compatible MKV video did not play");
+          console.log("DK_KINEHALL_WEBM_MKV_VIDEO_PASS",JSON.stringify(played));
+        }
+
+
         if (process.env.DK_KINEHALL_FIXTURE_DIR) {
           // Only CI sets this path. The release does not ship fixtures.
           const fs = require("node:fs");

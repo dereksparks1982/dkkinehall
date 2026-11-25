@@ -59,3 +59,12 @@ among others; it does not guarantee AC3/E-AC3/DTS. Likewise an HEVC decoder
 capability probe does not provide MPEG-TS/MKV demuxing or synced rendering.
 Do not describe this build as universal MKV playback. Source documentation:
 https://www.w3.org/TR/webcodecs-codec-registry/
+
+## Build 5: WebM-compatible MKV fallback
+
+Lossless EBML DocType rewriting is permitted only for Matroska tracks whose
+video/audio codecs are WebM-compatible and supported by Chromium. In other
+cases no remuxing or decoding is claimed; a full Matroska media pipeline is
+still required. This fallback is in the shared docs player, with no desktop-
+only implementation. It preserves local file bytes, seeking controls,
+subtitles off defaults, queue semantics, and original permissions.

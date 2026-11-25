@@ -86,3 +86,11 @@ by the actual decoder and media file at runtime; unsupported tracks remain
 unavailable. The user installs nothing. Some movie video codecs such as HEVC
 and MPEG-2 still require container handling/decoders not included in this
 build, and AC3/E-AC3/DTS are not yet decoded by DK Kinehall.
+
+## Lossless WebM-compatible MKV playback
+
+Some MKVs with VP8/VP9/AV1 video and Opus/Vorbis audio can play after
+conversion of the small Matroska EBML document header to WebM. The original
+file remains untouched; the player creates a temporary local Blob using
+original File slices. Unsupported codecs are not converted or decoded.
+The same functionality runs in the browser and standalone edition.

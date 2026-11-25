@@ -177,6 +177,21 @@ Add a **Playback Format** setting in the existing player settings, shared by the
 - Preserve play/pause, seeking, subtitles, audio selection, fullscreen, and Up Next behavior wherever the selected playback pipeline supports those features.
 - Treat this as **roadmap only** until an explicit build instruction. No feature implementation, compilation, tests, or downloadable package is authorized by this entry.
 
+## Build 9: immediate format switching and honest playback diagnostics
+
+- Select **Automatic**, **Original**, **MP4**, or **WebM** either in Playback
+  settings or the video's right-click menu.
+- Changing playback format reopens the selected local file and attempts
+  to restore its saved playback position. A requested MP4/WebM conversion
+  does not start playing the original source while remuxing is pending.
+- Each load has a conversion epoch. Obsolete asynchronous remux results
+  cannot replace a different movie or newer format selection.
+- Media Information shows the requested format and the actual playback
+  path (original source, lossless WebM remux, or lossless MP4 remux).
+- Forced formats still require a supported lossless path. On-the-fly
+  *re-encoding* is **not installed**; the hardware-acceleration switch
+  remains a preference, not a working GPU override.
+
 ## Build 8: automatic Up Next cleanup
 
 - Completed videos are removed from **Up Next** when playback reaches the end.
@@ -197,7 +212,7 @@ Its initial settings are **Automatic** playback, **Prefer hardware
 acceleration** enabled, and **Remember format preference** enabled. The
 format choices are Automatic, Original (no conversion), MP4 (H.264/AAC),
 and WebM (VP9/Opus). Preferences are stored locally when remembering is
-enabled and take effect for the next opened file.
+enabled. Format changes also reopen the current item when one is selected.
 
 - **Automatic** continues normal Chromium playback and existing compatible
   Matroska fallbacks.
@@ -221,7 +236,7 @@ limits. Non-MKV container conversion is not yet supported.
 2. Select **Open files**, or drag your media files onto the player.
 3. The first opened movie plays automatically. Use **+ Add files** to queue others without interrupting it.
 4. Optionally choose a media folder from the Up Next sidebar and reopen it in later sessions.
-5. Right-click the video for subtitles, audio tracks, playback speed, picture options, and media information.
+5. Right-click the video for playback format, subtitles, audio tracks, playback speed, picture options, and media information.
 
 The player uses local media files, not direct streaming links. Playback depends on the codecs available in your Chromium installation. Some MKV audio and subtitle formats may not be supported.
 

@@ -27,6 +27,12 @@
     "Chromium cannot play this WebM codec combination.":"Хромиум не поддерживает эту комбинацию кодеков ВебМ.",
     "Requested playback format":"Выбранный формат воспроизведения",
     "Actual playback method":"Применённый способ воспроизведения",
+    "MP4 included audio track":"Аудиодорожка в МП4",
+    "Original-only MKV tracks":"Дорожки только в исходном МКВ",
+    "Embedded MKV subtitles":"Встроенные субтитры МКВ",
+    "Available from original file, not copied into MP4":"Доступны из исходного файла, не копируются в МП4",
+    "No soundtrack":"Без звуковой дорожки",
+
     "Hardware acceleration preference":"Предпочтение аппаратного ускорения",
     "Original source":"Исходный файл",
     "Cached lossless remux":"Сохранённая перепаковка без потерь",
@@ -287,6 +293,10 @@
       translated = "Субтитры: " + m[1];
     if (translated === null && (m = /^Subtitles off · (\d+) embedded MKV tracks? found$/.exec(plain)))
       translated = "Субтитры выключены · Найдено " + m[1] + " " + russianPlural(m[1], "дорожка", "дорожки", "дорожек") + " МКВ";
+    if (translated === null && (m = /^Preparing MP4: (\d+)% scanned…$/.exec(plain)))
+      translated = "Подготовка МП4: " + m[1] + "% проверено…";
+    if (translated === null && (m = /^Original MKV track (\d+)$/.exec(plain)))
+      translated = "Исходная дорожка МКВ " + m[1];
     if (translated === null && (m = /^Volume (\d+)%$/.exec(plain)))
       translated = "Громкость " + m[1] + "%";
     if (translated === null && (m = /^Restore (.+)$/.exec(plain)))

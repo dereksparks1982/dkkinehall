@@ -582,6 +582,42 @@
       return false;
     }
   };
+  const compatibleInfo = item => ({
+    videoTracks:item.embeddedVideo,
+    audioTracks:item.embeddedAudio,tracks:item.embeddedSubtitles
+  });
+  const retryAsMP4 = async item => {
+    if(!item?.file||item.compatAttempted||!window.DKMkvMP4 ||
+       !window.DKMkvMP4.eligible(compatibleInfo(item),item.file))return false;
+    item.compatAttempted=true;
+    status("Preparing H.264 and AAC video for Chromium…");
+    try{
+      const output=await window.DKMkvMP4.remux(item.file,compatibleInfo(item));
+      if(!state.queue.includes(item))return false;
+      if(!media.canPlayType(output.mime))
+        throw Error("Chromium cannot decode this H.264/AAC profile");
+      item.compatSrc=URL.createObjectURL(output.blob);
+      if(current()===item&&!state.stopped&&media.error &&
+        (media.error.code===3||media.error.code===4)){
+        media.src=item.compatSrc;media.load();
+        if(item.autoplayRequested)playCurrent();
+        status("Playing H.264/AAC MKV through an MP4 container.",true);
+      }
+      return true;
+    }catch(error){
+      status("H.264/AAC container fallback unavailable: "+
+        (error?.message||"unsupported stream"));
+      return false;
+    }
+  };
+  const tryCompatibleFallback = async item => {
+    const info=compatibleInfo(item);
+    if(window.DKMkvWebM?.eligible(info,item.file))
+      return retryAsWebM(item);
+    if(window.DKMkvMP4?.eligible(info,item.file))
+      return retryAsMP4(item);
+    return false;
+  };
   const releaseCompatible = item => {
     if(item?.compatSrc){
       try{URL.revokeObjectURL(item.compatSrc);}catch(_){}
@@ -640,14 +676,10 @@
             updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item);
             if(item.compatPending){
               item.compatPending=false;
-              if(window.DKMkvWebM?.eligible({
-                videoTracks:item.embeddedVideo,audioTracks:item.embeddedAudio,
-                tracks:item.embeddedSubtitles},item.file))
-                void retryAsWebM(item).then(ok=>{
-                  if(!ok && current()===item)
-                    status("This MKV video codec or container is not supported.");
-                });
-              else status("This MKV video codec or container is not supported.");
+              void tryCompatibleFallback(item).then(ok=>{
+                if(!ok&&current()===item&&!item.compatAttempted)
+                  status("This MKV video codec or container is not supported.");
+              });
             }
           }
         }).catch(() => {
@@ -1101,20 +1133,16 @@
     if (!current() || !media.error) return;
     const code = media.error.code;
     const item=current();
-    if((code===3||code===4)&&item?.file && /.mkv$/i.test(item.name) &&
-       !item.compatAttempted && window.DKMkvWebM){
+    if((code===3||code===4)&&item?.file && /\.mkv$/i.test(item.name) &&
+       !item.compatAttempted && (window.DKMkvWebM||window.DKMkvMP4)){
       if(item.mkvInspection==="pending"){
         item.compatPending=true;
         status("Checking MKV container compatibility…");
         return;
       }
-      if(window.DKMkvWebM.eligible({
-        videoTracks:item.embeddedVideo,audioTracks:item.embeddedAudio,
-        tracks:item.embeddedSubtitles},item.file)){
-        void retryAsWebM(item).then(ok=>{
-          if(!ok && current()===item)
-            status("This MKV video codec or container is not supported.");
-        });
+      if(window.DKMkvWebM?.eligible(compatibleInfo(item),item.file) ||
+         window.DKMkvMP4?.eligible(compatibleInfo(item),item.file)){
+        void tryCompatibleFallback(item);
         return;
       }
     }

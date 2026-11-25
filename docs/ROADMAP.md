@@ -50,6 +50,25 @@
 - Include tests for matched movie poster, year-mismatch rejection, episode still/series fallback, failed image recovery, persistent URL cache, queue DOM redraw, and actual image load in Linux Chromium/Electron. Public provider availability is outside the player's control.
 - Keep the same player on GitHub Pages and in the root Linux executable, then remove the temporary test workflow.
 
+## Build 6: H.264/AAC Matroska-to-MP4 fallback (November 2026)
+- Implement a small EBML-to-ISO-BMFF remux for precisely one AVC/H.264
+  video track without decode-order/presentation-order reordering, plus one
+  AAC audio track. Preserve original compressed packets via File slices.
+  Generate ftyp/moov/mdat, avcC and AAC esds, movie and media
+  timing tables, sample sizes, chunk offsets and keyframe indexes.
+- Attempt only after native video fails, and only when Chromium reports
+  support for the resulting MP4 codec string. Avoid copying complete
+  movie bytes into JavaScript, avoid any external codec/FFmpeg dependency
+  for users, and revoke temporary blob URLs when queue items leave.
+- Bound the first implementation to 1 GiB and 130,000 samples per track.
+  Unsupported B-frame reordering, additional streams and missing headers
+  must fail explicitly, not claim successful remuxing.
+- Run actual H.264/AAC Matroska fixture playback in Chromium and the root
+  standalone Linux executable, not metadata-only checks.
+- Keep existing UI, locale support, artwork, resume and Up Next. No extra
+  branch; remove the temporary GitHub Actions workflow after verified
+  release.
+
 ## Build 5: lossless WebM-compatible Matroska video playback (November 2026)
 - Implement a bounded EBML header rewrite for files that **only** contain
   WebM-compatible VP8/VP9/AV1 video, Opus/Vorbis audio, and optional WebM

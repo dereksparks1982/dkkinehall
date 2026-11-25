@@ -20,6 +20,26 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Embedded bitmap subtitles.** Local PGS and basic DVD VobSub bitmap subtitle decoding in MKV files, with subtitle selection from the existing right-click menu. Unsupported DVD display commands and encodings are reported rather than faked.
 - **English and Russian.** Switch the interface between English and Русский.
 
+## Build 6: H.264 video and AAC audio in MKV files
+
+When Chromium cannot open an MKV containing a single H.264/AVC video track
+and a single AAC soundtrack, Kinehall now attempts a **lossless local MP4
+remux** using the original encoded samples. It builds MP4 sample tables,
+codec initialization records, durations and keyframe indexes without
+re-encoding, downloading codecs, or changing the original file. This uses
+the same HTML5 video player in both the browser and standalone editions.
+
+This initial implementation is deliberately restricted to **AVC without
+B-frame reordering**, ordinary AAC streams, no additional subtitle or
+audio tracks and files up to 1 GiB, with up to 130,000 samples per track.
+More complex multi-audio, B-frame, large-file, and HEVC MKVs still require
+further work. When remuxing is not supported or Chromium lacks the codec,
+Kinehall leaves the original item alone and displays the limitation.
+
+GitHub's synthetic H.264/AAC MKV test validates a real moving image in the
+built Chromium runtime. This does not establish that every movie plays or
+that long-run synchronization is perfect.
+
 ## Build 5: play WebM-compatible MKV video without transcoding
 
 Chromium sometimes refuses an MKV file because its container announces

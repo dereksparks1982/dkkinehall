@@ -94,3 +94,12 @@ conversion of the small Matroska EBML document header to WebM. The original
 file remains untouched; the player creates a temporary local Blob using
 original File slices. Unsupported codecs are not converted or decoded.
 The same functionality runs in the browser and standalone edition.
+
+## H.264/AAC MKV remux
+
+The shared JavaScript player can retry a supported AVC/AAC MKV through a
+local temporary MP4 container when Chromium rejects native Matroska.
+The original file is unchanged, and the user needs no codec installer.
+The current remuxer rejects B-frames, unsupported auxiliary streams and
+files over 1 GiB. This is an incremental compatibility feature, not
+universal Matroska playback.

@@ -68,3 +68,11 @@ cases no remuxing or decoding is claimed; a full Matroska media pipeline is
 still required. This fallback is in the shared docs player, with no desktop-
 only implementation. It preserves local file bytes, seeking controls,
 subtitles off defaults, queue semantics, and original permissions.
+
+## Build 6: H.264/AAC MKV fallback
+
+A bounded browser-local Matroska remuxer builds MP4 sample tables and codec
+initialization records from video and audio tracks. Only one H.264 track
+without frame reordering, one AAC track, and no extra streams are allowed.
+Original media samples are reused through File slices, no transcoding.
+This does not add HEVC, MPEG-2, AC3, E-AC3 or DTS decoders.

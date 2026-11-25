@@ -181,6 +181,18 @@ function openWindow() {
           if (!played?.passed)
             throw new Error("Real WebM-compatible MKV video did not play");
           console.log("DK_KINEHALL_WEBM_MKV_VIDEO_PASS",JSON.stringify(played));
+
+        if(process.env.DK_KINEHALL_MP4_FIXTURE){
+          const fs=require("node:fs");
+          const base64=fs.readFileSync(process.env.DK_KINEHALL_MP4_FIXTURE)
+            .toString("base64");
+          const script=fs.readFileSync(path.join(__dirname,"mp4-video-smoke.js"),
+            "utf8").replace("__DK_MP4_B64__",JSON.stringify(base64));
+          const rendered=await win.webContents.executeJavaScript(script);
+          if(!rendered?.passed)throw Error("Real H264/AAC MKV playback failed");
+          console.log("DK_KINEHALL_MP4_MKV_VIDEO_PASS",JSON.stringify(rendered));
+        }
+
         }
 
 

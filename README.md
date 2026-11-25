@@ -15,9 +15,37 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Preview the timeline.** Hover over the progress bar to preview a scene when the video format allows it.
 - **Resume watching.** Remember playback position and, where Chromium permissions allow, reopen your last selected local file.
 - **Subtitles.** Load SRT/VTT, select supported text, PGS or DVD VobSub tracks embedded in MKV files, and turn subtitles off. New files start with subtitles off; selected embedded tracks can be remembered per file.
-- **Audio tracks.** Switch Chromium-native tracks when exposed, or select supported embedded MKV AAC/Opus tracks using WebCodecs and WebAudio. Playback and synchronization depend on actual codec support.
+- **Audio tracks.** Switch Chromium-native audio tracks when exposed, or select supported MKV AAC, Opus, MP3, FLAC, and Vorbis streams using WebCodecs and WebAudio. Availability depends on the specific codec/profile and Chromium installation.
 - **Embedded bitmap subtitles.** Local PGS and basic DVD VobSub bitmap subtitle decoding in MKV files, with subtitle selection from the existing right-click menu. Unsupported DVD display commands and encodings are reported rather than faked.
 - **English and Russian.** Switch the interface between English and Русский.
+
+## Build 4: additional MKV audio codecs and honest format diagnostics
+
+The shared Chromium player now includes MKV audio demuxing and conditional
+WebCodecs output for **MP3 (MPEG Layer III), FLAC, and Vorbis** alongside AAC
+and Opus. For Vorbis and FLAC, the decoder is initialized using the actual
+Matroska `CodecPrivate` stream headers; tracks without required headers are
+not offered as playable. Unsupported tracks such as AC3, E-AC3 and DTS remain
+identified in Media Information but are not presented as working decoders.
+The user does **not** need to install a codec pack.
+
+The player now reports the detected MKV video codec (for example H.264 or
+HEVC/H.265) and source dimensions in Media Information. If Chromium cannot
+play the video codec, the player displays that codec in its error rather than
+silently treating the file as supported.
+
+**Important limitation:** This build expands the *audio-track fallback* for
+MKV video files that Chromium can already display. WebCodecs does not by
+itself provide an MKV video renderer or MPEG-2/HEVC software codec. Full MKV
+video remuxing and optional decoder licensing for incompatible HEVC, MPEG-2,
+AC3, E-AC3 and DTS remain future work. File compatibility cannot be promised
+for all MKV files. Selecting an audio track triggers a real decoder-support
+probe and may report that the selected codec cannot be decoded.
+
+Tests generate fresh short encoded MP3/FLAC/Vorbis Matroska samples and
+attempt decoding with the bundled Chromium, alongside the existing player
+and Linux-executable checks. These synthetic tests do not replace testing
+your own movie files, long seeking or audio/video synchronization.
 
 ## Movie poster and episode artwork repair
 

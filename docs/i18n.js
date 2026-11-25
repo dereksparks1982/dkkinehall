@@ -123,6 +123,8 @@
     "Couldn't decode VobSub subtitles:":"Не удалось декодировать субтитры ВобСаб:",
     "This subtitle codec is not yet supported by the player.":"Этот формат субтитров пока не поддерживается проигрывателем.",
     "VobSub":"ВобСаб",
+    "Detected MKV video codec":"Обнаруженный видеокодек МКВ",
+    "This format is not supported by the included Chromium audio decoder.":"Этот формат не поддерживается встроенным аудиодекодером Хромиум.",
     "PGS bitmap subtitle track":"Графическая дорожка ПГС",
     "This subtitle codec still requires a decoder (for example VobSub).":"Для этого формата субтитров по-прежнему необходим декодер.",
     "Codec unsupported":"Неподдерживаемый кодек",
@@ -262,6 +264,8 @@
       translated = "Аудиодорожка " + m[1];
     if (translated === null && (m = /^Audio track selected: (.+)$/.exec(plain)))
       translated = "Выбрана аудиодорожка: " + m[1];
+    if (translated === null && (m = /^Chromium cannot play this MKV video codec: (.+)\.$/.exec(plain)))
+      translated = "Хромиум не может воспроизвести этот видеокодек МКВ: " + m[1] + ".";
     if (translated === null && (m = /^Couldn't decode VobSub subtitles: (.+)$/.exec(plain)))
       translated = "Не удалось декодировать субтитры ВобСаб: " + m[1];
     if (translated === null && (m = /^Couldn't read PGS subtitles: (.+)$/.exec(plain)))

@@ -587,7 +587,7 @@
         file, src: URL.createObjectURL(file), handle,
         size: file.size, mime: file.type || "",
         key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
-        embeddedSubtitles: [], embeddedAudio: [], mkvInspection: "not-mkv"};
+        embeddedSubtitles: [], embeddedAudio: [], embeddedVideo: [], mkvInspection: "not-mkv"};
       newItems.push(item);
       if (/\.mkv$/i.test(file.name) && window.DKMatroska) {
         item.mkvInspection = "pending";
@@ -595,6 +595,7 @@
           if (!state.queue.includes(item)) return;
           item.embeddedSubtitles = result.tracks || [];
           item.embeddedAudio = result.audioTracks || [];
+          item.embeddedVideo = result.videoTracks || [];
           item.mkvInspection = result.truncated ? "partial" : "complete";
           if (current() === item) { updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item); }
         }).catch(() => {
@@ -1043,7 +1044,10 @@
   media.addEventListener("error", () => {
     if (!current() || !media.error) return;
     const code = media.error.code;
-    const message = code === 4 ? "This file format isn't supported by your browser." :
+    const mkvVideo = current().embeddedVideo?.[0]?.codec || null;
+    const message = code === 4 && mkvVideo ?
+      "Chromium cannot play this MKV video codec: " + mkvVideo + "." :
+      code === 4 ? "This file format isn't supported by your browser." :
       code === 2 ? "The media file couldn't be read." :
       code === 3 ? "The browser couldn't decode this media format." :
       "Unable to play this media source.";
@@ -1404,7 +1408,7 @@
             () => { if (possible) void chooseEmbeddedAudio(item,track); },
             {checked:possible ? mkvAudio.selectedNumber() === track.number : undefined,
               disabled:!possible,
-              reason:"This track needs a Chromium WebCodecs decoder not yet included."});
+              reason:"This format is not supported by the included Chromium audio decoder."});
         });
       } else if (item.mkvInspection === "pending") {
         addMenuItem("Checking MKV audio tracks…", () => {}, {disabled:true});
@@ -1468,6 +1472,9 @@
       addDetail("Resolution", media.videoWidth + " × " + media.videoHeight);
     addDetail("Duration", Number.isFinite(media.duration) ? time(media.duration) : "Live / unknown");
     addDetail("Speed", media.playbackRate + "×");
+    if (item.embeddedVideo && item.embeddedVideo.length)
+      addDetail("Detected MKV video codec",item.embeddedVideo.map(t =>
+        t.codec+(t.width&&t.height?" · "+t.width+" × "+t.height:"")).join("; "));
     addDetail("Browser subtitle tracks", subtitleTracks().length);
     addDetail("Browser audio tracks", audioTracks().length);
     if (item.embeddedAudio && item.embeddedAudio.length)

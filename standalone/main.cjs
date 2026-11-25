@@ -169,6 +169,24 @@ function openWindow() {
         if (!codecState || codecState.passed !== true)
           throw new Error("MKV codec/subtitle smoke test did not pass");
         console.log("DK_KINEHALL_MKV_CODECS_PASS", JSON.stringify(codecState));
+
+        if (process.env.DK_KINEHALL_FIXTURE_DIR) {
+          // Only CI sets this path. The release does not ship fixtures.
+          const fs = require("node:fs");
+          const payload = Object.fromEntries(
+            ["mp3","flac","vorbis"].map(name => [
+              name,fs.readFileSync(path.join(
+                process.env.DK_KINEHALL_FIXTURE_DIR,name+".mka")).toString("base64")
+            ])
+          );
+          const source = fs.readFileSync(path.join(__dirname,
+            "expanded-codec-smoke.js"),"utf8")
+            .replace("__DK_CODEC_FIXTURES__",JSON.stringify(payload));
+          const decoded = await win.webContents.executeJavaScript(source);
+          if (!decoded?.passed) throw new Error("Real encoded MKV audio frames were not decoded");
+          console.log("DK_KINEHALL_EXPANDED_CODEC_PASS",JSON.stringify(decoded));
+        }
+
         app.exit(0);
       } catch (error) {
         console.error("DK_KINEHALL_SMOKE_FAILED", String(error));

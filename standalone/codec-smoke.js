@@ -12,11 +12,16 @@
   });
   if (aac.codec!=="mp4a.40.2" || opus.codec!=="opus")
     fail("AAC/Opus decoder configuration failed");
-  const registration={aac:false,opus:false};
+  const mp3=window.DKMkvAudio.configFor({
+    codec:"A_MPEG/L3",channels:2,rate:44100
+  });
+  if(mp3.codec!=="mp3")fail("MKV MP3 decoder configuration failed");
+  const registration={aac:false,opus:false,mp3:false};
   if(typeof AudioDecoder==="function" && typeof AudioDecoder.isConfigSupported==="function"){
     try{
       registration.aac=Boolean((await AudioDecoder.isConfigSupported(aac)).supported);
       registration.opus=Boolean((await AudioDecoder.isConfigSupported(opus)).supported);
+      registration.mp3=Boolean((await AudioDecoder.isConfigSupported(mp3)).supported);
     }catch(err){console.warn("WebCodecs capability check:",String(err));}
   }
   // Decode a tiny DVD subtitle bitmap, render to a canvas, check visible
@@ -42,5 +47,6 @@
     fail("Fullscreen controls not initialized");
   return {passed:true,decoderAPIs:typeof AudioDecoder==="function",
     aacSupported:registration.aac,opusSupported:registration.opus,
+    mp3Supported:registration.mp3,
     vobsubRaster:true,pgsAvailable:true,subtitlesDefaultOff};
 })()

@@ -12,7 +12,8 @@
   const TRACKS = 0x1654AE6B, ENTRY = 0xAE;
   const TYPE = 0x83, NUMBER = 0xD7, CODEC = 0x86, NAME = 0x536E;
   const LANGUAGE = 0x22B59C, LANGUAGE_IETF = 0x22B59D;
-  const DEFAULT = 0x88, FORCED = 0x55AA, AUDIO = 0xE1, PRIVATE = 0x63A2;
+  const DEFAULT = 0x88, FORCED = 0x55AA, AUDIO = 0xE1, VIDEO = 0xE0, PRIVATE = 0x63A2;
+  const PIXEL_WIDTH=0xB0,PIXEL_HEIGHT=0xBA;
   const CHANNELS = 0x9F, FREQUENCY = 0xB5, BIT_DEPTH = 0x6264;
   const MAX_SCAN = 8 * 1024 * 1024;
   const vint = (bytes, start, stripMarker) => {
@@ -69,7 +70,7 @@
   };
   const parseTracksHeader = data => {
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-    const subtitles = [], audioTracks = [];
+    const subtitles = [], audioTracks = [], videoTracks = [];
     const seen = new Set();
     // Tracks may be enclosed in an unknown-sized Segment, so look for its
     // four-byte EBML ID inside this bounded header sample.
@@ -83,19 +84,24 @@
       children(bytes, from, to, (id, start, end) => {
         if (id !== ENTRY) return;
         const track = {number:0, type:0, codec:"", name:"", language:"",
-          channels:null, sampleRate:null, bitDepth:null, default:true, forced:false, privateData:null};
+          channels:null, sampleRate:null, bitDepth:null, width:null,height:null, default:true, forced:false, privateData:null};
         children(bytes, start, end, (key, a, b) => {
           if (key === TYPE) track.type = valueOf(bytes,a,b);
           else if (key === NUMBER) track.number = valueOf(bytes,a,b);
           else if (key === CODEC) track.codec = stringOf(bytes,a,b);
           else if (key === NAME) track.name = stringOf(bytes,a,b);
-          else if (key === PRIVATE && b-a<=4096) track.privateData=bytes.slice(a,b);
+          else if (key === PRIVATE && b-a<=65536) track.privateData=bytes.slice(a,b);
           else if (key === LANGUAGE) {
             if (!track.language) track.language = stringOf(bytes,a,b);
           } else if (key === LANGUAGE_IETF) track.language = stringOf(bytes,a,b);
           else if (key === DEFAULT) track.default = valueOf(bytes,a,b) !== 0;
           else if (key === FORCED) track.forced = valueOf(bytes,a,b) !== 0;
-          else if (key === AUDIO) {
+          else if (key === VIDEO) {
+            children(bytes,a,b,(detail,x,y)=>{
+              if(detail===PIXEL_WIDTH)track.width=valueOf(bytes,x,y)||null;
+              if(detail===PIXEL_HEIGHT)track.height=valueOf(bytes,x,y)||null;
+            });
+          } else if (key === AUDIO) {
             children(bytes,a,b,(detail,x,y) => {
               if (detail === CHANNELS) track.channels = valueOf(bytes,x,y) || null;
               if (detail === FREQUENCY) track.sampleRate = sampleRateOf(bytes,x,y);
@@ -103,29 +109,33 @@
             });
           }
         });
-        if (!track.number || !track.codec || (track.type !== 2 && track.type !== 17)) return;
+        if (!track.number || !track.codec || ![1,2,17].includes(track.type)) return;
         const fingerprint = track.type + "|" + track.number;
         if (seen.has(fingerprint)) return;
         seen.add(fingerprint);
         const common = {number:track.number,codec:track.codec,name:track.name,
           language:track.language || "und"};
-        if (track.type === 17) subtitles.push({...common,
-          ...(track.codec.toUpperCase()==="S_VOBSUB"?{privateData:track.privateData}:{} )});
+        if(track.type===17) subtitles.push({...common,
+          ...(track.codec.toUpperCase()==="S_VOBSUB"?{privateData:track.privateData}:{})});
+        else if(track.type===1) videoTracks.push({...common,
+          width:track.width,height:track.height});
         else audioTracks.push({...common,channels:track.channels,sampleRate:track.sampleRate,
-          bitDepth:track.bitDepth,default:track.default,forced:track.forced});
+          bitDepth:track.bitDepth,default:track.default,forced:track.forced,
+          ...(["A_FLAC","A_VORBIS"].includes(track.codec)?
+            {privateData:track.privateData}:{})});
       });
-      if (subtitles.length || audioTracks.length) break;
+      if (subtitles.length || audioTracks.length || videoTracks.length) break;
     }
-    return {subtitles,audioTracks};
+    return {subtitles,audioTracks,videoTracks};
   };
   const parseHeader = data => parseTracksHeader(data).subtitles;
   const inspectFile = async file => {
-    if (!file || !/\.mkv$/i.test(file.name || "") || typeof file.slice !== "function")
-      return {tracks:[],audioTracks:[],truncated:false};
+    if (!file || !/\.(mkv|mka)$/i.test(file.name || "") || typeof file.slice !== "function")
+      return {tracks:[],audioTracks:[],videoTracks:[],truncated:false};
     const bytes = new Uint8Array(await file.slice(0, MAX_SCAN).arrayBuffer());
     const parsed = parseTracksHeader(bytes);
     return {tracks:parsed.subtitles,audioTracks:parsed.audioTracks,
-      truncated:file.size > bytes.length};
+      videoTracks:parsed.videoTracks,truncated:file.size > bytes.length};
   };
   return {parseHeader,parseTracksHeader,inspectFile};
 });

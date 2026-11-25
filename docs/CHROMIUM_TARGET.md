@@ -45,3 +45,17 @@ DK Kinehall is a **Chromium-only** local media player. The primary target is the
   canvas as video. The VobSub palette and frame size come from Matroska's
   CodecPrivate data. Unsupported DVD commands must show an error.
 - Preserve the source player interface and native Chromium playback.
+
+## Build 4: expanded audio and clear video limitations
+
+The MKV WebCodecs path also attempts MP3, FLAC and Vorbis audio. All attempts
+are gated by CodecPrivate validation and the bundled Chromium decoder's
+actual capabilities; MP3 has no private configuration. Unsupported codecs
+remain disabled and visible as descriptors. The MKV header inspector also
+identifies video CodecID and dimensions, but this is **not** a video decoder.
+
+The WebCodecs audio codec registry covers AAC, Opus, MP3, FLAC and Vorbis
+among others; it does not guarantee AC3/E-AC3/DTS. Likewise an HEVC decoder
+capability probe does not provide MPEG-TS/MKV demuxing or synced rendering.
+Do not describe this build as universal MKV playback. Source documentation:
+https://www.w3.org/TR/webcodecs-codec-registry/

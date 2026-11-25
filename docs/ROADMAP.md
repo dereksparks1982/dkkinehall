@@ -50,6 +50,30 @@
 - Include tests for matched movie poster, year-mismatch rejection, episode still/series fallback, failed image recovery, persistent URL cache, queue DOM redraw, and actual image load in Linux Chromium/Electron. Public provider availability is outside the player's control.
 - Keep the same player on GitHub Pages and in the root Linux executable, then remove the temporary test workflow.
 
+## Build 4: expanded Matroska audio codec paths and diagnostics (November 2026)
+- Added experimental Chromium WebCodecs audio-track paths for `A_MPEG/L3` (MP3),
+  `A_FLAC`, and `A_VORBIS`, retaining existing AAC and Opus. All use the
+  existing local MKV demuxer and WebAudio synchronization with the video;
+  no download, external player or separately installed codec library.
+- Parse FLAC `fLaC` STREAMINFO metadata and Matroska Vorbis/Xiph laced
+  identification/comment/setup packets. Convert them to correct WebCodecs
+  initialization bytes, reject missing/invalid headers, and check decoder
+  support before enabling output. MP3/FLAC packet lengths receive codec-aware
+  estimates when no Matroska default duration is present.
+- Extend the local Matroska header inspector with actual video CodecID and
+  dimensions. Display codec information in Media Information and name the
+  detected codec when Chromium reports unsupported video.
+- **No false universal playback:** the WebCodecs API does not provide automatic
+  video remuxing or guaranteed HEVC, MPEG-2, AC3, E-AC3, DTS decoding.
+  Video remuxer/decoder integration and compliant codec licensing are still
+  needed for those files. Native Chromium playback remains preferred.
+- GitHub-only build runs decoder configuration and invalid-header regressions;
+  generates actual encoded MP3, FLAC, and Vorbis test MKVs, and attempts to
+  decode packets in the bundled Chromium. It also runs existing queue,
+  fullscreen, metadata artwork, subtitles and folder regressions.
+- The desktop and GitHub Pages continue to run the **same HTML/JS source**.
+  One branch `main`, no persistent build workflow after successful validation.
+
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.
 - Original golden emblem, Open files, Restore last file and drag-and-drop, with a local-file-only welcome sentence.
@@ -57,8 +81,8 @@
 - Browser-native video/audio playback, stop/reset, seeking, 10-second rewind/forward, volume, speed, fullscreen and picture-in-picture.
 - Local-file resume through permissions-based file handles when possible, or user-driven file re-selection.
 - External SRT/VTT loading, MKV subtitle track metadata inspection and local MKV text subtitle extraction (UTF-8/SubRip, ASCII, ASS/SSA) into browser WebVTT tracks. Users can select/off/switch tracks in the right-click menu. ASS styling is simplified to text.
-- Initial source support for local MKV PGS bitmap subtitles (S_HDMV/PGS): Matroska packet reading, palette and RLE decoding, multiple composition objects, timestamps, clear frames, canvas overlay, responsive geometry and off/switch controls. Source-only fixtures added; not validated in a browser. VobSub and unhandled encodings remain unavailable.
-- MKV audio descriptor scanning (track number, language, codec, name, channel count, sample rate and bit depth); distinguish informational MKV tracks from browser-switchable tracks in the video context menu. Select and remember real native audio tracks per local file when Chromium exposes a working track API. No claim of complete MKV demuxer audio switching or extra codecs.
+- Local MKV PGS and basic VobSub bitmap subtitles (S_HDMV/PGS, S_VOBSUB): packet reading, palette/RLE decoding, timestamps, canvas overlay and off/switch controls; supported fixture rendering validated in Chromium. Some subtitle commands remain unsupported.
+- MKV audio descriptor scanning and native track selection, plus experimental local WebCodecs audio selection for supported AAC, Opus, MP3, FLAC, and Vorbis; unsupported tracks remain informational.
 - Corrected playlist media-file retention so on-demand MKV subtitle extraction receives the actual local `File` object rather than an undefined value.
 - Hover seek frames, muted video previews, automatic keyless movie posters, TVmaze episode stills and series fallbacks, bounded local thumbnails, artwork URL caching and retry.
 - Cyrillic-only Russian interface.
@@ -73,11 +97,11 @@
 - Add on-device Matroska AAC/Opus audio demuxing through File slices and Chromium WebCodecs + WebAudio. The menu offers real audio decoding attempts for supported codecs and a return to native audio. Add initial clock-aligned playback, pause, seek, rate-change, volume and cleanup integration.
 - **Not compiled or run:** complete audio synchronization, WebCodecs profiles, laced packets, pause/seek behavior and long-file performance require Surface Pro Chromium testing. Other codecs remain out of scope for this increment.
 
-## Next major feature: format compatibility (Build 4)
+## Remaining work: universal format compatibility
 - Research and implement an optional client-side decoder/demuxer fallback for media that the host browser cannot play, potentially using a licensed WebAssembly-based codec engine.
 - Preserve Chromium's native playback for supported files, and make decoding limitations and resource costs clear.
 - Next: validate and harden the new WebCodecs AAC/Opus fallback on the Surface Pro, including synchronization, seeking, lacing, codec profiles and performance; then extend decoder coverage. Metadata-only listings do not count as switching.
-- Investigate VobSub/remaining bitmap subtitle formats. Avoid presenting metadata-only track listing as playback capability.
+- Continue improving nonstandard VobSub/PGS subtitle commands and verify with full user media. Avoid presenting metadata-only track listing as playback capability.
 - Then add more codec/container compatibility, retaining Chromium-native playback whenever supported.
 - Complete quality and accessibility improvements while preserving the approved layout. Keep the approved icon, visuals and existing file/queue workflows; avoid compatibility-only development for other browser engines.
 - Matroska, PGS and audio-track source-only fixtures are in `docs/tests/mkv-subtitles.cjs`, `docs/tests/mkv-tracks.cjs`, `docs/tests/pgs-subtitles.cjs` and `docs/tests/audio-tracks.cjs`. They have **not** been run. No compilation or test runs until the project owner requests them.

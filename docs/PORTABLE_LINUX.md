@@ -77,3 +77,12 @@ its local PGS and basic VobSub subtitle decoders and AAC/Opus WebCodecs
 fallback. No separate VLC, DLL, codec installation, or download occurs.
 Availability of specific codec profiles varies by the bundled Chromium
 runtime. Unsupported media cannot be made playable by listing track names.
+
+## Expanded MKV audio codecs
+
+The shared renderer can attempt bundled Chromium decoding of MP3, FLAC and
+Vorbis audio tracks in Matroska, in addition to AAC/Opus. Support is determined
+by the actual decoder and media file at runtime; unsupported tracks remain
+unavailable. The user installs nothing. Some movie video codecs such as HEVC
+and MPEG-2 still require container handling/decoders not included in this
+build, and AC3/E-AC3/DTS are not yet decoded by DK Kinehall.

@@ -15,8 +15,11 @@
   const MAX_PACKET=2*1024*1024;
   const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const contextType=()=>globalThis.AudioContext||globalThis.webkitAudioContext;
+  const CODECS=new Set(["A_OPUS","A_MPEG/L3","A_FLAC","A_VORBIS"]);
   const canAttempt=track=>Boolean(track &&
-    (track.codec==="A_OPUS"||String(track.codec||"").startsWith("A_AAC")) &&
+    (CODECS.has(track.codec)||String(track.codec||"").startsWith("A_AAC")) &&
+    (!["A_FLAC","A_VORBIS"].includes(track.codec)||
+      (track.privateData && track.privateData.length>=4)) &&
     typeof globalThis.AudioDecoder==="function" &&
     typeof globalThis.EncodedAudioChunk==="function" && contextType());
   const vint=(bytes,at,strip=false)=>{
@@ -100,6 +103,72 @@
     }
     return result;
   };
+  // Matroska stores three Vorbis setup packets in Xiph-laced CodecPrivate.
+  // WebCodecs expects Ogg's page_segments, segment_table, then those bytes.
+  // Header type and bounds are checked before allocating decoder memory.
+  const vorbisDescription=privateData=>{
+    const bytes=privateData instanceof Uint8Array?privateData:new Uint8Array(privateData||[]);
+    if(bytes.length<12||bytes[0]!==2||bytes.length>65536)
+      throw new Error("Invalid Matroska Vorbis initialization headers");
+    let at=1;
+    const sizes=[];
+    for(let i=0;i<2;i++){
+      let size=0,part=255;
+      while(part===255){
+        if(at>=bytes.length)throw new Error("Truncated Vorbis header lacing");
+        part=bytes[at++];size+=part;
+        if(size>65536)throw new Error("Oversized Vorbis header");
+      }
+      sizes.push(size);
+    }
+    const third=bytes.length-at-sizes[0]-sizes[1];
+    sizes.push(third);
+    if(sizes.some(n=>n<7))throw new Error("Incomplete Vorbis headers");
+    let pos=at;
+    const ids=[1,3,5];
+    for(let i=0;i<3;i++){
+      if(bytes[pos]!==ids[i]||String.fromCharCode(...bytes.subarray(pos+1,pos+7))!=="vorbis")
+        throw new Error("Incorrect Vorbis header packet");
+      pos+=sizes[i];
+    }
+    const segments=[];
+    for(const size of sizes){
+      let remaining=size;
+      while(remaining>=255){segments.push(255);remaining-=255;}
+      segments.push(remaining);
+    }
+    if(segments.length>255)throw new Error("Vorbis setup requires too many segments");
+    const result=new Uint8Array(1+segments.length+bytes.length-at);
+    result[0]=segments.length;
+    result.set(segments,1);
+    result.set(bytes.subarray(at),1+segments.length);
+    return result;
+  };
+  const flacDescription=privateData=>{
+    const bytes=privateData instanceof Uint8Array?privateData:new Uint8Array(privateData||[]);
+    if(bytes.length<42||bytes[0]!==102||bytes[1]!==76||bytes[2]!==97||bytes[3]!==67)
+      throw new Error("MKV FLAC requires a fLaC stream header");
+    // STREAMINFO is the first metadata block (type 0, size exactly 34).
+    if((bytes[4]&127)!==0||bytes[5]!==0||bytes[6]!==0||bytes[7]!==34)
+      throw new Error("Invalid FLAC STREAMINFO block");
+    return bytes;
+  };
+  const mp3Samples=bytes=>{
+    if(!bytes||bytes.length<4||bytes[0]!==255||(bytes[1]&224)!==224)
+      return null;
+    const version=(bytes[1]>>3)&3,layer=(bytes[1]>>1)&3;
+    if(version===1||layer!==1)return null; // MP3 is Layer III.
+    return version===3?1152:576;
+  };
+  const flacSamples=bytes=>{
+    if(!bytes||bytes.length<4||bytes[0]!==255||(bytes[1]&254)!==248)return null;
+    const code=bytes[2]>>4;
+    if(code===1)return 192;
+    if(code>=2&&code<=5)return 576*Math.pow(2,code-2);
+    if(code>=8&&code<=15)return 256*Math.pow(2,code-8);
+    // Blocksize codes 6/7 require scanning variable-sized frame numbers.
+    return null;
+  };
   const configFor=meta=>{
     if(!Number.isInteger(meta.channels)||meta.channels<1||meta.channels>8||
        !Number.isFinite(meta.rate)||meta.rate<8000||meta.rate>192000)
@@ -107,6 +176,14 @@
     if(meta.codec==="A_OPUS")return {codec:"opus",sampleRate:48000,
       numberOfChannels:meta.channels,
       ...(meta.privateData?{description:meta.privateData}:{})};
+    if(meta.codec==="A_MPEG/L3")return {codec:"mp3",
+      sampleRate:Math.round(meta.rate),numberOfChannels:meta.channels};
+    if(meta.codec==="A_FLAC")return {codec:"flac",
+      sampleRate:Math.round(meta.rate),numberOfChannels:meta.channels,
+      description:flacDescription(meta.privateData)};
+    if(meta.codec==="A_VORBIS")return {codec:"vorbis",
+      sampleRate:Math.round(meta.rate),numberOfChannels:meta.channels,
+      description:vorbisDescription(meta.privateData)};
     if(meta.codec.startsWith("A_AAC")&&meta.privateData&&meta.privateData.length>=2){
       let profile=(meta.privateData[0]>>3)&31;
       if(profile===31)profile=32+((meta.privateData[0]&7)<<3)+(meta.privateData[1]>>5);
@@ -146,8 +223,16 @@
     const count=mode===0?1:mode===3?(bytes[1]||0)&63:2;
     return Math.min(120000,frame*Math.max(1,count));
   };
-  const frameDuration=(bytes,meta)=>meta.defaultDuration?meta.defaultDuration/1000:
-    meta.codec==="A_OPUS"?opusDuration(bytes):1024*1000000/meta.rate;
+  const frameDuration=(bytes,meta)=>{
+    if(meta.defaultDuration)return meta.defaultDuration/1000;
+    if(meta.codec==="A_OPUS")return opusDuration(bytes);
+    if(meta.codec==="A_MPEG/L3")
+      return (mp3Samples(bytes)||1152)*1000000/meta.rate;
+    if(meta.codec==="A_FLAC")
+      return (flacSamples(bytes)||1024)*1000000/meta.rate;
+    if(meta.codec==="A_VORBIS")return 20000; // nominal; prefer DefaultDuration
+    return 1024*1000000/meta.rate;
+  };
   const splitBlock=async(reader,part,number)=>{
     const size=part.end-part.start;
     if(size<4)return [];
@@ -192,6 +277,49 @@
     if(sizes.some(n=>n<0)||sizes.reduce((a,b)=>a+b,0)!==size-p)
       throw new Error("Corrupt MKV audio frame boundaries");
     return sizes.map(length=>{const data=bytes.slice(p,p+length);p+=length;return {data,relative};});
+  };
+  // Test fixture inspection uses the same local Matroska reader, lacing
+  // parser and decoder configuration as the live track player. No server.
+  // Keep this bounded; never read a whole feature-length movie into memory.
+  const inspectAudioPackets=async(file,number,maxFrames=12)=>{
+    const info=await discover(file,number);
+    const {reader,segment,meta,scale}=info;
+    const config=configFor(meta),frames=[];
+    let clusters=0,bytes=0;
+    for await(const part of reader.children(segment.start,segment.end)){
+      if(part.id!==CLUSTER)continue;
+      if(++clusters>16)break;
+      let clusterTime=0;
+      for await(const child of reader.children(part.start,part.end)){
+        if(child.id===CLUSTER_TIME){
+          clusterTime=unsigned(await reader.read(child.start,child.end-child.start));
+          continue;
+        }
+        const blocks=[];
+        if(child.id===SIMPLE)blocks.push(child);
+        else if(child.id===GROUP){
+          for await(const gc of reader.children(child.start,child.end))
+            if(gc.id===BLOCK)blocks.push(gc);
+        }
+        for(const block of blocks){
+          bytes+=block.end-block.start;
+          if(bytes>4*1024*1024)break;
+          const packets=await splitBlock(reader,block,meta.number);
+          let timestamp=null;
+          for(const packet of packets){
+            if(timestamp===null)timestamp=(clusterTime+packet.relative)*scale/1000;
+            frames.push({timestamp:Math.round(timestamp),
+              duration:Math.max(1,Math.round(frameDuration(packet.data,meta))),
+              data:packet.data});
+            if(frames.length>=maxFrames)return {config,frames};
+            timestamp+=frameDuration(packet.data,meta);
+          }
+        }
+        if(bytes>4*1024*1024)break;
+      }
+      if(bytes>4*1024*1024)break;
+    }
+    return {config,frames};
   };
   const create=({media,onError=()=>{},isMuted=()=>false})=>{
     let epoch=0,ctx=null,gain=null,decoder=null,selection=null;
@@ -345,5 +473,6 @@
     });
     return {start,stop,hold,restart,active,selectedNumber,setVolume,canAttempt};
   };
-  return {create,canAttempt,configFor,opusDuration,frameDuration,splitBlock};
+  return {create,canAttempt,configFor,opusDuration,frameDuration,splitBlock,
+    flacDescription,vorbisDescription,mp3Samples,flacSamples,inspectAudioPackets};
 });

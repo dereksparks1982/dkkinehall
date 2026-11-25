@@ -222,3 +222,16 @@ assert.match(mkvAudioSource, /const splitBlock=async\(reader,part,number\)=>/);
 require("./mkv-audio.cjs");
 require("./vobsub.cjs");
 console.log("PASS: MKV audio and DVD bitmap subtitle integration");
+
+/* Build 4: unsupported codec names do not claim to be playable. */
+const expandedSource=fs.readFileSync(path.join(root,"mkv-audio.js"),"utf8");
+assert.match(html,/src="\.\/mkv-audio\.js\?v=20261125-codecs4/);
+assert.match(html,/src="\.\/mkv-tracks\.js\?v=20261125-codecs4/);
+assert.match(expandedSource,/A_MPEG\/L3/);
+assert.match(expandedSource,/A_FLAC/);
+assert.match(expandedSource,/A_VORBIS/);
+assert.match(expandedSource,/inspectAudioPackets/);
+assert.match(js,/Chromium cannot play this MKV video codec/);
+assert.match(js,/Detected MKV video codec/);
+require("./mkv-expanded-codecs.cjs");
+console.log("PASS: Build 4 expanded MKV audio and clear video-codec diagnostics");

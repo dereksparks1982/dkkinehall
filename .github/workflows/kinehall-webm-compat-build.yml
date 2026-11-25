@@ -1,4 +1,4 @@
-name: DK Kinehall WebM-compatible Matroska video fallback build
+name: DK Kinehall WebM-compatible Matroska video fallback build (root verified)
 on:
   push:
     paths:
@@ -166,6 +166,7 @@ jobs:
           set -euo pipefail
           rm -rf "$HOME/.cache/dk-kinehall"
           export DK_KINEHALL_FIXTURE_DIR="$RUNNER_TEMP/dk-codec-fixtures"
+          export DK_KINEHALL_WEBM_FIXTURE="$RUNNER_TEMP/dk-codec-fixtures/vp9-opus.mkv"
           xvfb-run -a -s '-screen 0 1600x1000x24' bash -c \
             'openbox --sm-disable >/dev/null 2>&1 & sleep 2; DK_KINEHALL_SMOKE=1 timeout 100s "$1" --disable-gpu' \
             _ './DK Kinehall'

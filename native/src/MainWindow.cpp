@@ -431,7 +431,7 @@ QString MainWindow::resolvePoster(const QString &path) const {
     QStringLiteral("poster"),QStringLiteral("folder"),
     QStringLiteral("cover"),QStringLiteral("front")};
   for(const QString &stem:stems)
-    for(const QString &ext:{QStringLiteral(".jpg"),QStringLiteral(".jpeg"),
+    for(const QString &ext:QStringList{QStringLiteral(".jpg"),QStringLiteral(".jpeg"),
                             QStringLiteral(".png"),QStringLiteral(".webp")}) {
       const QString artwork=dir.absoluteFilePath(stem+ext);
       if(QFileInfo::exists(artwork))return artwork;
@@ -449,8 +449,9 @@ void MainWindow::openFiles(bool queueOnly) {
   addPaths(selected,queueOnly);
 }
 void MainWindow::addPaths(const QStringList &paths,bool queueOnly) {
-  const bool shouldStart=!queueOnly &&
-    (current_<0 || player_->paused());
+  // Opening a media file is an explicit Play Now action. Only the
+  // separate + Add files and Choose folder actions are queue-only.
+  const bool shouldStart=!queueOnly;
   int first=-1;
   for (const QString &candidate:paths) {
     const QFileInfo info(candidate);

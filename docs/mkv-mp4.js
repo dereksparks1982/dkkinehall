@@ -115,7 +115,7 @@ async function descriptors(r,segment){
  return {scale,tracks};
 }
 function readBlock(bytes,absolute,clusterTime,scale,key){
- const track=vst(bytes,0),offset=track.width;
+ const track=vst(bytes,0,true),offset=track.width;
  if(bytes.length<offset+3)throw Error("Truncated Matroska block");
  const rel=(bytes[offset]<<8)|bytes[offset+1];
  const timestamp=clusterTime+(rel&0x8000?rel-65536:rel);
@@ -192,7 +192,7 @@ async function collect(file,r,segment,tracks,scale){
  return [...found.values()];
 }
 function readBlockHeader(prefix,length,absolute,base,scale,key){
- const number=vst(prefix,0),offset=number.width;
+ const number=vst(prefix,0,true),offset=number.width;
  if(prefix.length<offset+3)throw Error("Truncated block header");
  const rel=(prefix[offset]<<8)|prefix[offset+1];
  const flags=prefix[offset+2],lace=(flags>>1)&3;

@@ -17,9 +17,20 @@ fi
 if [[ -z "$PLUGIN_ROOT" || ! -d "$PLUGIN_ROOT/platforms" ]]; then
   echo "Qt6 platform plugins are missing" >&2; exit 1
 fi
-for name in platforms imageformats egldeviceintegrations platformthemes; do
+# XCB's OpenGL implementation is a separate, dynamically loaded Qt plugin.
+# Omitting xcbglintegrations made the first distributed executable segfault
+# before showing a usable window, even though the unbundled build started.
+for name in platforms xcbglintegrations imageformats egldeviceintegrations platformthemes platforminputcontexts styles iconengines; do
   if [[ -d "$PLUGIN_ROOT/$name" ]]; then cp -a "$PLUGIN_ROOT/$name" "$ROOT/plugins/"; fi
 done
+if [[ ! -d "$ROOT/plugins/xcbglintegrations" ]]; then
+  echo "Missing Qt6 XCB OpenGL integration plugin; refusing broken package" >&2
+  exit 1
+fi
+if ! find "$ROOT/plugins/xcbglintegrations" -type f -name '*glx*' | grep -q .; then
+  echo "Missing Qt6 XCB GLX plugin; refusing broken package" >&2
+  exit 1
+fi
 # Recursively collect native dependencies, including libmpv video codecs
 # and Qt's platform plugins. Leave glibc/ld loader with the host OS.
 for pass in $(seq 1 9); do
@@ -65,6 +76,15 @@ int main(int argc, char **argv) {
 }
 C
 gcc -O2 -s -o "$ROOT/DK Kinehall" "$OUT/launcher.c"
+# Fail early if any ELF has a dependency the package and system cannot resolve.
+while IFS= read -r -d '' object; do
+  if ! file -Lb "$object" | grep -q ELF; then continue; fi
+  if env LD_LIBRARY_PATH="$PWD/$ROOT/lib" ldd "$object" 2>/dev/null | grep -q 'not found'; then
+    echo "Incomplete portable runtime: $object" >&2
+    env LD_LIBRARY_PATH="$PWD/$ROOT/lib" ldd "$object" >&2 || true
+    exit 1
+  fi
+done < <(find "$ROOT/bin" "$ROOT/lib" "$ROOT/plugins" -type f -print0)
 cat > "$ROOT/README.txt" <<'DOC'
 DK Kinehall native Linux x86_64
 Unpack the complete directory before launching.

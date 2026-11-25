@@ -10,6 +10,12 @@
 - The rejected Tkinter/libVLC standalone source and packaging were removed. Retain the web version unchanged.
 - Electron relies on a bundled Chromium engine and is larger than the web player alone; this is required for identical browser rendering without a separately installed browser.
 
+## Fullscreen fix, November 24, 2026
+- The shared web player fullscreen button, F shortcut and double-click work even before a media file is selected.
+- The standalone edition uses a limited Electron preload bridge to fullscreen the actual native window, while the **same** `#screen` and video/controls use the original CSS and fill the monitor.
+- Escape, fullscreen button, and OS window events synchronize the button/overlay state.
+- One-time Linux GUI test must exercise native enter, exit, double-click and Escape through the built executable before declaring this fix accepted.
+
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.
 - Original golden emblem, Open files, Restore last file and drag-and-drop, with a local-file-only welcome sentence.

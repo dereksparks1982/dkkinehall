@@ -2,7 +2,7 @@
 
 // The desktop edition loads the EXISTING web player verbatim.
 // No Tkinter interface, forked CSS, or replacement playback controls.
-const { app, BrowserWindow, Menu, shell } = require("electron");
+const { app, BrowserWindow, Menu, shell, ipcMain } = require("electron");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
@@ -25,6 +25,7 @@ function openWindow() {
     title: "DK Kinehall",
     icon,
     webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -34,6 +35,22 @@ function openWindow() {
   });
   Menu.setApplicationMenu(null);
   win.once("ready-to-show", () => win.show());
+
+  const broadcastFullscreen = () => {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send("dk-kinehall:fullscreen-changed", win.isFullScreen());
+    }
+  };
+  win.on("enter-full-screen", broadcastFullscreen);
+  win.on("leave-full-screen", broadcastFullscreen);
+  ipcMain.handle("dk-kinehall:set-fullscreen", (event, enabled) => {
+    if (win.isDestroyed() || event.sender !== win.webContents) {
+      throw new Error("Fullscreen is only allowed from DK Kinehall");
+    }
+    win.setFullScreen(Boolean(enabled));
+    return win.isFullScreen();
+  });
+  win.on("closed", () => ipcMain.removeHandler("dk-kinehall:set-fullscreen"));
 
   // Artwork links open the system browser, never an arbitrary page in player.
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -57,12 +74,37 @@ function openWindow() {
   if (process.env.DK_KINEHALL_SMOKE === "1") {
     win.webContents.once("did-finish-load", async () => {
       try {
-        const state = await win.webContents.executeJavaScript("(() => {\n const media = document.getElementById(\"media\");\n const queue = document.getElementById(\"queue\");\n const screen = document.getElementById(\"screen\");\n const css = screen ? getComputedStyle(screen) : null;\n return {title:document.title,media:Boolean(media),queue:Boolean(queue),controls:Boolean(document.getElementById(\"screenControls\")),fullscreen:Boolean(document.getElementById(\"fullscreen\")),background:css?css.backgroundColor:null,stylesheets:document.styleSheets.length,scripts:document.scripts.length,secureContext:window.isSecureContext,pickerSupported:typeof window.showOpenFilePicker===\"function\"};\n})()");
-        if (!state.media || !state.queue || !state.controls ||
-            !state.fullscreen || state.stylesheets < 1 || state.scripts < 10) {
-          throw new Error("Existing web player assets did not load: " + JSON.stringify(state));
+        const initial = await win.webContents.executeJavaScript("(() => ({video:!!document.getElementById(\"media\"),queue:!!document.getElementById(\"queue\"),controls:!!document.getElementById(\"screenControls\"),fullscreen:!!document.getElementById(\"fullscreen\"),bridge:typeof window.DKStandalone?.setFullscreen === \"function\",stylesheets:document.styleSheets.length,scripts:document.scripts.length}))()");
+        if (!initial.video || !initial.queue || !initial.controls ||
+            !initial.fullscreen || !initial.bridge ||
+            initial.stylesheets < 1 || initial.scripts < 10) {
+          throw new Error("Original web player or desktop bridge failed to load: " + JSON.stringify(initial));
         }
-        console.log("DK_KINEHALL_WEB_PLAYER_LOADED", JSON.stringify(state));
+        console.log("DK_KINEHALL_WEB_PLAYER_LOADED", JSON.stringify(initial));
+        const wait = () => new Promise(resolve => setTimeout(resolve, 700));
+        const assertMode = async (label, expected) => {
+          await wait();
+          const state = await win.webContents.executeJavaScript("(() => { const screen = document.getElementById(\"screen\"); const rect = screen.getBoundingClientRect(); return {css:screen.classList.contains(\"desktop-fullscreen\"), pressed:document.getElementById(\"fullscreen\").getAttribute(\"aria-pressed\"), width:rect.width,height:rect.height,viewportWidth:innerWidth,viewportHeight:innerHeight}; })()");
+          const native = win.isFullScreen();
+          console.log("DK_KINEHALL_FULLSCREEN", label, JSON.stringify({native,...state}));
+          if (native !== expected || state.css !== expected ||
+              state.pressed !== String(expected) ||
+              (expected && (Math.abs(state.width-state.viewportWidth) > 3 ||
+                            Math.abs(state.height-state.viewportHeight) > 3))) {
+            throw new Error("Fullscreen failed: " + label);
+          }
+        };
+        // Test the actual native window, not merely existence of the button.
+        await win.webContents.executeJavaScript('document.getElementById("fullscreen").click()');
+        await assertMode("button-enter", true);
+        await win.webContents.executeJavaScript('document.getElementById("fullscreen").click()');
+        await assertMode("button-exit", false);
+        await win.webContents.executeJavaScript('document.getElementById("screen").dispatchEvent(new MouseEvent("dblclick", {bubbles:true}))');
+        await assertMode("double-click-enter", true);
+        win.webContents.sendInputEvent({type:"keyDown",keyCode:"Escape"});
+        win.webContents.sendInputEvent({type:"keyUp",keyCode:"Escape"});
+        await assertMode("escape-exit", false);
+        console.log("DK_KINEHALL_FULLSCREEN_PASS");
         app.exit(0);
       } catch (error) {
         console.error("DK_KINEHALL_SMOKE_FAILED", String(error));

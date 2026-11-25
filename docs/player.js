@@ -858,20 +858,47 @@
       else if (current()) await media.requestPictureInPicture();
     } catch (_) { status("Picture in picture isn't available for this video or browser."); }
   });
+  // The website uses the browser Fullscreen API. The standalone app must also
+  // fullscreen its NATIVE window, not merely resize a video within that window.
+  const desktopFullscreen = window.DKStandalone &&
+    typeof window.DKStandalone.setFullscreen === "function" ? window.DKStandalone : null;
+  const isFullscreen = () => document.fullscreenElement === screen ||
+    screen.classList.contains("desktop-fullscreen");
   const updateFullscreenButton = () => {
-    const fullscreen = document.fullscreenElement === screen;
+    const fullscreen = isFullscreen();
     const button = byId("fullscreen");
     button.setAttribute("aria-label", fullscreen ? "Exit fullscreen" : "Fullscreen");
     button.title = fullscreen ? "Exit fullscreen" : "Fullscreen";
     button.setAttribute("aria-pressed", String(fullscreen));
   };
+  const applyDesktopFullscreen = fullscreen => {
+    screen.classList.toggle("desktop-fullscreen", !!fullscreen);
+    document.documentElement.classList.toggle("dk-desktop-fullscreen", !!fullscreen);
+    updateFullscreenButton();
+    requestAnimationFrame(syncPgsOverlay);
+    revealControls();
+  };
+  if (desktopFullscreen && typeof desktopFullscreen.onFullscreenChanged === "function") {
+    desktopFullscreen.onFullscreenChanged(applyDesktopFullscreen);
+  }
   const toggleFullscreen = async () => {
-    if (!current()) return;
+    if (desktopFullscreen) {
+      try {
+        // Electron controls the actual OS window. Its event also handles
+        // exit via OS/window-manager controls, so both stay synchronized.
+        applyDesktopFullscreen(await desktopFullscreen.setFullscreen(!isFullscreen()));
+      } catch (_) {
+        status("Fullscreen isn't available for this window.");
+      }
+      return;
+    }
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
       } else if (typeof screen.requestFullscreen === "function") {
         await screen.requestFullscreen();
+      } else if (typeof screen.webkitRequestFullscreen === "function") {
+        await screen.webkitRequestFullscreen();
       } else {
         status("Fullscreen isn't available in this browser.");
       }
@@ -881,11 +908,10 @@
     updateFullscreenButton();
   };
   byId("fullscreen").addEventListener("click", () => { void toggleFullscreen(); });
-  // Double-click anywhere in the picture, including its black sidebars, to
-  // enter/leave fullscreen without interrupting video playback.
+  // Double-click anywhere on the picture, even before opening a file.
   screen.addEventListener("dblclick", event => {
-    if (!current() || current().audio ||
-        (event.target.closest && event.target.closest("button,input,select,.player-context-menu,.media-info"))) return;
+    if (event.target.closest && event.target.closest(
+        "button,input,select,.player-context-menu,.media-info")) return;
     event.preventDefault();
     cancelVideoClick();
     void toggleFullscreen();
@@ -1257,15 +1283,25 @@
     if (event.key === "Escape") {
       if (menuOpen) { event.preventDefault(); closeContextMenu(); }
       else if (!infoPanel.hidden) { infoPanel.hidden = true; revealControls(); }
+      else if (desktopFullscreen && screen.classList.contains("desktop-fullscreen")) {
+        event.preventDefault();
+        void desktopFullscreen.setFullscreen(false);
+      }
       return;
     }
     const tag = event.target && event.target.tagName;
-    if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tag) ||
-        !current()) return;
+    if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tag)) return;
     const key = event.key.toLowerCase();
-    if ([" ", "k", "arrowleft", "arrowright", "arrowup", "arrowdown", "f", "m"].includes(key)) event.preventDefault();
+    // Fullscreen is a window command, not a media-decoder command: F works
+    // even on the welcome screen before the first file is selected.
+    if (key === "f") {
+      event.preventDefault();
+      void toggleFullscreen();
+      return;
+    }
+    if (!current()) return;
+    if ([" ", "k", "arrowleft", "arrowright", "arrowup", "arrowdown", "m"].includes(key)) event.preventDefault();
     if (key === " " || key === "k") byId("playPause").click();
-    if (key === "f") byId("fullscreen").click();
     if (key === "m") byId("mute").click();
     if (key === "arrowup") setVolume(volumePercent + 5);
     if (key === "arrowdown") setVolume(volumePercent - 5);

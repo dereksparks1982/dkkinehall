@@ -34,7 +34,7 @@ If you choose to restore a previously opened file, Chromium may ask you to grant
 | Action | Control |
 | --- | --- |
 | Play or pause | Space or K |
-| Fullscreen | F or double-click the video |
+| Fullscreen | Button, F, or double-click the video; Escape exits |
 | Mute | M |
 | Jump backward or forward | Left or right arrow (5 seconds) |
 | Adjust volume | Up or down arrow; mouse wheel over the player |

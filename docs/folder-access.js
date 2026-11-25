@@ -11,6 +11,8 @@
   const MAX_FILES = 500;
   const MAX_VISITS = 12000;
   const MAX_DEPTH = 6;
+  const MAX_ARTWORK = 1000;
+  const posterImage = name => /\.(?:jpe?g|png|webp)$/i.test(name);
   const playable = name => /\.(mp4|m4v|mov|mkv|avi|webm|ogg|ogv|mp3|m4a|aac|wav|flac|opus|ts)$/i.test(name);
   const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
   async function scan(handle, options = {}) {
@@ -20,6 +22,7 @@
     const maxDepth = Math.min(MAX_DEPTH, Math.max(0, Number.isInteger(options.maxDepth) ? options.maxDepth : MAX_DEPTH));
     const queue = [{dir:handle, prefix:"", depth:0}];
     const output = [];
+    const artwork = [];
     let visited = 0, truncated = false;
     while (queue.length) {
       if (options.signal?.aborted) throw new Error("Folder scan cancelled");
@@ -43,12 +46,16 @@
             const file = await entry.getFile();
             if (file && file.name) output.push({file, handle:entry, path:prefix+name});
           } catch (_) { /* One unreadable file must not block the folder. */ }
+        } else if (posterImage(name) && artwork.length < MAX_ARTWORK) {
+          // Image handles stay private to this user-approved directory. We
+          // open only images matched to a queued media file, on demand.
+          artwork.push({handle:entry,path:prefix+name});
         }
       }
       if (visited > MAX_VISITS) break;
     }
     output.sort((a, b) => byName(a.path, b.path));
-    return {files:output, truncated, visited};
+    return {files:output, artwork, truncated, visited};
   }
-  return Object.freeze({scan, playable, MAX_FILES, MAX_VISITS, MAX_DEPTH});
+  return Object.freeze({scan, playable, MAX_FILES, MAX_VISITS, MAX_DEPTH, MAX_ARTWORK});
 });

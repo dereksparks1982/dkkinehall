@@ -18,13 +18,19 @@ fullscreen, ten-second skips, volume up to 100%, playback resume, built-in
 audio/subtitle selection, external subtitles, matching local artwork, English
 and Russian interface, and configurable removal of completed queue items.
 
-**Release status:** the native source is being developed, but a verified
-portable native Linux executable has **not yet been produced in this session**.
-The former Electron/Chromium executable, its browser runtime and the
-web-player entrypoint have been removed from `main`. A native executable
-must still be built and packaged from
-`native/` before users can run this replacement. Do not treat a source commit
-as a verified binary release.
+**Release status (November 25, 2026):** a native Linux x86-64 release
+candidate has been compiled and packaged in the
+[one-time GitHub Actions build](https://github.com/dereksparks1982/dkkinehall/actions/runs/45644468833).
+The archive is named `DK-Kinehall-native-linux-x86_64` and contains a tar.gz
+with the actual ELF launcher, Qt 6/libmpv runtime libraries, and the native
+`DK Kinehall` executable. Source compilation and an 8-second virtual X11
+window-startup smoke check passed on Ubuntu 24.04. **Real movie playback,
+embedded subtitle selection, sound and desktop fullscreen have not yet been
+verified on the user's Ubuntu machine.** This is a release candidate, not a
+claim of universal codec support.
+
+The former Electron/Chromium executable and web-player entrypoint have
+been removed from `main`. They are not included in the new archive.
 
 ## Embedded MKV subtitles (native player)
 
@@ -41,9 +47,9 @@ must never be triggered by clicking the ordinary Subtitles button.
 
 This implementation belongs to the same DK Kinehall native source tree. The
 former browser player's `+ Subtitles` file picker is not part of the native
-subtitle workflow. Functional playback requires a compiled native executable;
-the former legacy Chromium executable was removed rather than relabeled as
-native.
+subtitle workflow. The compiled native executable is included in the November 25 release
+candidate; the former Chromium executable was removed, not relabeled.
+Embedded subtitle selection still needs verification with real MKV samples.
 
 ## Playback and future conversion
 

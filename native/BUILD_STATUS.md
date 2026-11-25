@@ -1,6 +1,6 @@
 # Native executable build
 Result: success
-Run: https://github.com/dereksparks1982/dkkinehall/actions/runs/45644468833
+Run: https://github.com/dereksparks1982/dkkinehall/actions/runs/45647852632
 Archive: DK-Kinehall-native-linux-x86_64
 Date: 2026-11-25
 -- The CXX compiler identification is GNU 13.3.0
@@ -22,7 +22,7 @@ Date: 2026-11-25
 -- Found PkgConfig: /usr/bin/pkg-config (found version "1.8.1")
 -- Checking for module 'mpv'
 --   Found mpv, version 2.2.0
--- Configuring done (1.8s)
+-- Configuring done (1.1s)
 -- Generating done (0.0s)
 -- Build files have been written to: /home/runner/work/dkkinehall/dkkinehall/build-native
 [  0%] Built target dk-kinehall_autogen_timestamp_deps
@@ -35,3 +35,63 @@ Date: 2026-11-25
 [100%] Linking CXX executable "DK Kinehall"
 [100%] Built target dk-kinehall
 Cannot load libcuda.so.1
+qt.core.plugin.loader: Found metadata in lib /tmp/kinehall-portable/DK Kinehall/plugins/xcbglintegrations/libqxcb-glx-integration.so, metadata=
+{
+    "IID": "org.qt-project.Qt.QPA.Xcb.QXcbGlIntegrationFactoryInterface.5.5",
+    "MetaData": {
+        "Keys": [
+            "xcb_glx"
+        ]
+    },
+    "archlevel": 1,
+    "className": "QXcbGlxIntegrationPlugin",
+    "debug": false,
+    "version": 394240
+}
+
+
+qt.core.plugin.factoryloader: Got keys from plugin meta data QList("xcb_glx")
+qt.core.plugin.factoryloader: checking directory path "/usr/lib/x86_64-linux-gnu/qt6/plugins/xcbglintegrations" ...
+qt.core.plugin.factoryloader: looking at "/usr/lib/x86_64-linux-gnu/qt6/plugins/xcbglintegrations/libqxcb-egl-integration.so"
+qt.core.plugin.loader: Found metadata in lib /usr/lib/x86_64-linux-gnu/qt6/plugins/xcbglintegrations/libqxcb-egl-integration.so, metadata=
+{
+    "IID": "org.qt-project.Qt.QPA.Xcb.QXcbGlIntegrationFactoryInterface.5.5",
+    "MetaData": {
+        "Keys": [
+            "xcb_egl"
+        ]
+    },
+    "archlevel": 1,
+    "className": "QXcbEglIntegrationPlugin",
+    "debug": false,
+    "version": 394240
+}
+
+
+qt.core.plugin.factoryloader: Got keys from plugin meta data QList("xcb_egl")
+qt.core.plugin.factoryloader: looking at "/usr/lib/x86_64-linux-gnu/qt6/plugins/xcbglintegrations/libqxcb-glx-integration.so"
+qt.core.plugin.loader: Found metadata in lib /usr/lib/x86_64-linux-gnu/qt6/plugins/xcbglintegrations/libqxcb-glx-integration.so, metadata=
+{
+    "IID": "org.qt-project.Qt.QPA.Xcb.QXcbGlIntegrationFactoryInterface.5.5",
+    "MetaData": {
+        "Keys": [
+            "xcb_glx"
+        ]
+    },
+    "archlevel": 1,
+    "className": "QXcbGlxIntegrationPlugin",
+    "debug": false,
+    "version": 394240
+}
+
+
+qt.core.plugin.factoryloader: Got keys from plugin meta data QList("xcb_glx")
+qt.core.plugin.factoryloader: checking directory path "/tmp/kinehall-portable/DK Kinehall/bin/xcbglintegrations" ...
+qt.core.library: "/tmp/kinehall-portable/DK Kinehall/plugins/xcbglintegrations/libqxcb-glx-integration.so" loaded library
+Cannot load libcuda.so.1
+qt.core.plugin.factoryloader: checking directory path "/tmp/kinehall-portable/DK Kinehall/plugins/accessible" ...
+qt.core.plugin.factoryloader: checking directory path "/usr/lib/x86_64-linux-gnu/qt6/plugins/accessible" ...
+qt.core.plugin.factoryloader: checking directory path "/tmp/kinehall-portable/DK Kinehall/bin/accessible" ...
+qt.core.plugin.factoryloader: checking directory path "/tmp/kinehall-portable/DK Kinehall/plugins/accessiblebridge" ...
+qt.core.plugin.factoryloader: checking directory path "/usr/lib/x86_64-linux-gnu/qt6/plugins/accessiblebridge" ...
+qt.core.plugin.factoryloader: checking directory path "/tmp/kinehall-portable/DK Kinehall/bin/accessiblebridge" ...

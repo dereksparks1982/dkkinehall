@@ -1,0 +1,27 @@
+name: Verify root DK Kinehall executable loads the original player
+on:
+  push:
+    paths:
+      - .github/workflows/verify-kinehall-launcher.yml
+
+permissions:
+  contents: read
+
+jobs:
+  run-original-web-player:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare GUI-only Linux system libraries
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            xvfb xauth libnss3 libasound2t64 libgbm1 libgtk-3-0t64
+      - name: Run the ROOT executable, unpack its INCLUDED runtime, and verify web UI
+        run: |
+          set -euo pipefail
+          test -x './DK Kinehall'
+          test -f '_internal/runtime.tar.gz.000'
+          DK_KINEHALL_SMOKE=1 timeout 120s xvfb-run -a -s '-screen 0 1600x1000x24' \
+            './DK Kinehall' --disable-gpu

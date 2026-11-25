@@ -144,7 +144,7 @@
      candidates.length===1&&!candidates[0].releaseDate?candidates[0]:null)):
      candidates[0];
    if(!chosen)return null;
-   return {still:applePoster(chosen.artworkUrl100),series:null,
+   return {type:"movie",still:applePoster(chosen.artworkUrl100),series:null,
      title:chosen.trackName||info.title,provider:"Apple",
      credit:allowedCredit(chosen.trackViewUrl,"Apple")||"https://itunes.apple.com"};
  }
@@ -293,7 +293,7 @@
         !found.release_date.startsWith(String(info.year)))return null;
      const art=tmdbImage(found.backdrop_path,"w300")||tmdbImage(found.poster_path,"w185");
      if(!art)return null;
-     return {still:art,series:null,title:found.title||info.title,
+     return {type:"movie",still:art,series:null,title:found.title||info.title,
        provider:"TMDb",credit:"https://www.themoviedb.org/movie/"+found.id};
    }
    function choose(data){

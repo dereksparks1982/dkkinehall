@@ -1,4 +1,4 @@
-name: DK Kinehall movie posters and episode artwork repair
+name: DK Kinehall movie posters and episode artwork repair (type fix)
 on:
   push:
     paths:

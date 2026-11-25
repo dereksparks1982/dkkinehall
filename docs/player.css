@@ -562,3 +562,17 @@ html.dk-desktop-fullscreen body {
 .queue li[data-artwork-type="episode"] .queue-artwork-image {
   object-fit:cover;
 }
+
+/* Build 7: shared playback format preferences */
+.header-tools{display:flex;align-items:center;gap:12px}
+.playback-settings{position:relative;z-index:30}
+.playback-settings summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:9px;background:var(--panel2);padding:8px 11px;font-size:.82rem}
+.playback-settings summary::-webkit-details-marker{display:none}
+.playback-settings summary:focus-visible{outline:3px solid var(--accent2);outline-offset:2px}
+.playback-settings-panel{position:absolute;right:0;top:calc(100% + 7px);width:min(330px,calc(100vw - 25px));background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:15px;box-shadow:0 12px 38px #0009;display:grid;gap:10px}
+.playback-settings-panel>label:first-child{font-weight:700;font-size:.85rem}
+.playback-settings-panel select{width:100%;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:9px}
+.playback-settings-panel label{display:flex;align-items:center;gap:8px;font-size:.81rem}
+.playback-settings-panel input{accent-color:var(--accent)}
+.playback-settings-panel p{margin:0;font-size:.75rem;color:var(--muted);line-height:1.4}
+@media(max-width:530px){.playback-settings summary{font-size:0}.playback-settings summary::first-letter{font-size:18px}}

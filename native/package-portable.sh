@@ -20,7 +20,7 @@ fi
 # XCB's OpenGL implementation is a separate, dynamically loaded Qt plugin.
 # Omitting xcbglintegrations made the first distributed executable segfault
 # before showing a usable window, even though the unbundled build started.
-for name in platforms xcbglintegrations imageformats egldeviceintegrations platformthemes platforminputcontexts styles iconengines; do
+for name in platforms xcbglintegrations imageformats egldeviceintegrations platformthemes platforminputcontexts styles iconengines generic; do
   if [[ -d "$PLUGIN_ROOT/$name" ]]; then cp -a "$PLUGIN_ROOT/$name" "$ROOT/plugins/"; fi
 done
 if [[ ! -d "$ROOT/plugins/xcbglintegrations" ]]; then
@@ -29,6 +29,22 @@ if [[ ! -d "$ROOT/plugins/xcbglintegrations" ]]; then
 fi
 if ! find "$ROOT/plugins/xcbglintegrations" -type f -name '*glx*' | grep -q .; then
   echo "Missing Qt6 XCB GLX plugin; refusing broken package" >&2
+  exit 1
+fi
+# Mesa's GLX and EGL vendor libraries and DRI drivers are loaded through
+# dlopen(), so ldd cannot discover them. Bundle them with the player.
+# Linux kernel/device-specific proprietary drivers remain OS-level services.
+for vendor in /usr/lib/x86_64-linux-gnu/libGLX_mesa.so.0 /usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0 /usr/lib/x86_64-linux-gnu/libglapi.so.0 /usr/lib/x86_64-linux-gnu/libgbm.so.1; do
+  if [[ -f "$vendor" ]]; then
+    cp -L "$vendor" "$ROOT/lib/$(basename "$vendor")"
+  fi
+done
+mkdir -p "$ROOT/lib/dri"
+for driver in /usr/lib/x86_64-linux-gnu/dri/*_dri.so; do
+  if [[ -f "$driver" ]]; then cp -L "$driver" "$ROOT/lib/dri/$(basename "$driver")"; fi
+done
+if [[ ! -f "$ROOT/lib/dri/swrast_dri.so" || ! -f "$ROOT/lib/libGLX_mesa.so.0" ]]; then
+  echo "Missing bundled Mesa GLX/software renderer; refusing incomplete package" >&2
   exit 1
 fi
 # Recursively collect native dependencies, including libmpv video codecs

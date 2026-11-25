@@ -9,7 +9,7 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 ## Features
 
 - **Play your own files.** Open local videos and music, choose a remembered folder, or drag files into the player. Media files remain on your device.
-- **Up Next queue.** Organize videos, move between episodes, keep watched items in the list, and remove entries when you choose.
+- **Up Next queue.** Organize videos, move between episodes, and automatically remove completed videos (enabled by default, configurable in Playback settings).
 - **Movie posters and episode artwork.** Automatically find film posters through the keyless Cinemeta and Apple movie catalogs and episode stills through TVmaze; use series artwork, embedded MKV cover art, or local video frames when preferred artwork is unavailable. No personal API token required.
 - **Playback controls.** Play, pause, stop, previous, next, 10-second rewind and forward, timeline seeking, volume, mute, playback speed, fullscreen, and picture-in-picture.
 - **Preview the timeline.** Hover over the progress bar to preview a scene when the video format allows it.
@@ -176,6 +176,19 @@ Add a **Playback Format** setting in the existing player settings, shared by the
 - Investigate an appropriate locally bundled transcoding backend (e.g., FFmpeg) for the standalone player. The web edition must truthfully handle browser sandbox limitations; do not promise support where browser APIs and bundled codecs cannot provide it.
 - Preserve play/pause, seeking, subtitles, audio selection, fullscreen, and Up Next behavior wherever the selected playback pipeline supports those features.
 - Treat this as **roadmap only** until an explicit build instruction. No feature implementation, compilation, tests, or downloadable package is authorized by this entry.
+
+## Build 8: automatic Up Next cleanup
+
+- Completed videos are removed from **Up Next** when playback reaches the end.
+  The next waiting video then starts automatically, without replaying an
+  earlier entry or discarding queued items.
+- **Remove watched videos from Up Next** is enabled by default in the
+  existing Playback settings menu. Disable it to keep completed items
+  visible and advance through the queue as before.
+- File object URLs and thumbnail resources belonging to completed items
+  are released when their entry leaves the queue. The original files
+  remain untouched. Resume state for a fully watched item is cleared.
+- This is entirely local player logic, shared by Chromium and standalone.
 
 ## Build 7: Playback Format selector
 

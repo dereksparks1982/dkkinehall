@@ -110,10 +110,11 @@ void MpvWidget::paintGL() {
 bool MpvWidget::openFile(const QString &path) {
   if (!mpv_ || path.isEmpty()) return false;
   const QByteArray local = QFile::encodeName(path);
+  // Set the default before loading and once more after FILE_LOADED. libmpv
+  // discovers subtitle streams from the MKV without opening a file dialog.
+  mpv_set_property_string(mpv_, "sid", "no");
   const char *cmd[] = {"loadfile", local.constData(), "replace", nullptr};
   if (mpv_command(mpv_, cmd) < 0) return false;
-  // Never automatically enable embedded subtitles on a new film.
-  mpv_set_property_string(mpv_, "sid", "no");
   return true;
 }
 void MpvWidget::play() {
@@ -205,6 +206,7 @@ QVector<MediaTrack> MpvWidget::tracks(const QString &type) const {
           if (key == QStringLiteral("type")) track.type = text;
           else if (key == QStringLiteral("title")) track.title = text;
           else if (key == QStringLiteral("lang")) track.language = text;
+          else if (key == QStringLiteral("codec")) track.codec = text;
         } else if (key == QStringLiteral("selected") && value.format == MPV_FORMAT_FLAG)
           track.selected = value.u.flag != 0;
       }

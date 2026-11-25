@@ -684,6 +684,10 @@
       if(item.compatSrc)URL.revokeObjectURL(item.compatSrc);
       item.compatSrc=URL.createObjectURL(output.blob);
       item.playbackMethod="MP4 lossless remux";
+      item.remuxTrackSummary={
+        copiedAudioTrack:output.copiedAudioTrack||null,
+        skippedTracks:output.skippedTrackCount||0
+      };
       if(current()===item&&!state.stopped&&
         (item.requestedFormat === "mp4" ||
          (media.error && (media.error.code===3||media.error.code===4)))){
@@ -1742,6 +1746,12 @@
     if (item.embeddedVideo && item.embeddedVideo.length)
       addDetail("Detected MKV video codec",item.embeddedVideo.map(t =>
         t.codec+(t.width&&t.height?" · "+t.width+" × "+t.height:"")).join("; "));
+    if(item.playbackMethod==="MP4 lossless remux"&&item.remuxTrackSummary){
+      addDetail("MP4 included audio track",item.remuxTrackSummary.copiedAudioTrack
+        ? "Original MKV track "+item.remuxTrackSummary.copiedAudioTrack : "No soundtrack");
+      addDetail("Original-only MKV tracks",item.remuxTrackSummary.skippedTracks);
+      addDetail("Embedded MKV subtitles","Available from original file, not copied into MP4");
+    }
     addDetail("Browser subtitle tracks", subtitleTracks().length);
     addDetail("Browser audio tracks", audioTracks().length);
     if (item.embeddedAudio && item.embeddedAudio.length)

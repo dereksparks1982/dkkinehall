@@ -250,7 +250,7 @@ console.log("PASS: Build 5 MKV to native WebM compatibility wiring");
 const mp4Source=fs.readFileSync(path.join(root,"mkv-mp4.js"),"utf8");
 new Function(mp4Source);
 assert.match(html,/mkv-mp4\.js\?v=20261125-avc6/);
-assert.match(html,/player\.js\?v=20261125-avc6/);
+assert.match(html,/player\.js\?v=20261125-format7/);
 assert.match(js,/DKMkvMP4\.eligible\(compatibleInfo\(item\),item\.file\)/);
 assert.match(js,/DKMkvMP4\.remux\(item\.file,compatibleInfo\(item\)\)/);
 assert.match(js,/Playing H\.264\/AAC MKV through an MP4 container/);

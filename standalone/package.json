@@ -1,8 +1,0 @@
-{
-  "name": "dk-kinehall",
-  "productName": "DK Kinehall",
-  "version": "1.0.0",
-  "description": "DK Kinehall desktop host for the unmodified web player",
-  "main": "main.cjs",
-  "private": true
-}

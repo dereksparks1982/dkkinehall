@@ -29,6 +29,7 @@
     "WebM (VP9/Opus)":"ВебМ (ВП9/Опус)",
     "Prefer hardware acceleration":"Предпочитать аппаратное ускорение",
     "Remember format preference":"Запомнить выбранный формат",
+    "Remove watched videos from Up Next":"Удалять просмотренные видео из очереди",
     "MP4 and WebM currently use compatible MKV remuxing, not full transcoding. Changes apply to the next opened file.":"МП4 и ВебМ пока доступны только при совместимых кодеках МКВ, без полного перекодирования. Настройки применяются к следующему файлу.",
     "Original playback skips remuxing. Changes apply to the next opened file.":"Оригинальное воспроизведение исключает перепаковку. Настройки применяются к следующему файлу.",
     "MP4/WebM require compatible codecs; full transcoding and GPU switching are not implemented. Changes apply to the next opened file.":"Для МП4 и ВебМ требуются совместимые кодеки. Полное перекодирование и переключение видеоускорения ещё не реализованы. Настройки применяются к следующему файлу.",

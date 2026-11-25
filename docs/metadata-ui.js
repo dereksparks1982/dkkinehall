@@ -66,6 +66,9 @@ function showImage(box,art,requestedGeneration,source="provider"){
     if(!box.isConnected||requestedGeneration!==generation)return;
     // The best verified image wins. Never let a late local frame replace
     // a real movie poster or episode still.
+    if(box.dataset.artworkStatus==="folder-loaded"&&source!=="folder"){
+      image.remove();return;
+    }
     if(source==="local"&&box.dataset.artworkStatus==="loaded"){
       image.remove();return;
     }
@@ -77,6 +80,8 @@ function showImage(box,art,requestedGeneration,source="provider"){
     if(placeholder)placeholder.hidden=true;
     if(source==="local"){
       status(box,locale("Local movie preview","Кадр из файла"),"local-preview");
+    }else if(source==="folder"){
+      status(box,locale("Local poster from your folder","Местный постер из выбранной папки"),"folder-loaded");
     }else{
       const provider=locale(art.provider==="TVmaze"?"TVmaze":art.provider,
         art.provider==="TVmaze"?"ТВмейз":
@@ -90,6 +95,14 @@ function showImage(box,art,requestedGeneration,source="provider"){
     if(!box.isConnected||requestedGeneration!==generation)return;
     if(++index<urls.length){image.src=urls[index];return;}
     image.remove();
+    if(source==="folder"){
+      const item=box.closest("li")?.dkQueueItem;
+      if(item?.folderArtworkSrc){
+        try{URL.revokeObjectURL(item.folderArtworkSrc);}catch(_){}
+        item.folderArtworkSrc=null;
+      }
+      status(box,locale("Folder poster could not be displayed","Не удалось показать постер из папки"),"folder-error");
+    }
     if(source==="provider"){
       const name=box.closest("li")?.querySelector(".item-title")?.textContent?.trim();
       if(name){cache.delete(name);forgetArt(name);}
@@ -105,6 +118,20 @@ function showImage(box,art,requestedGeneration,source="provider"){
   };
   box.append(image);
   image.src=urls[0];
+}
+async function showFolderPoster(item,box,epoch){
+  if(!item?.folderArtwork||!window.DKLocalArtwork)return;
+  try{
+    if(!item.folderArtworkSrc){
+      const file=await window.DKLocalArtwork.load(item.folderArtwork);
+      if(!file||!box.isConnected||epoch!==generation)return;
+      item.folderArtworkSrc=URL.createObjectURL(file);
+    }
+    if(box.isConnected&&epoch===generation)
+      showImage(box,{url:item.folderArtworkSrc},epoch,"folder");
+  }catch(_){
+    if(box.isConnected)status(box,locale("Folder poster unavailable","Постер из папки недоступен"),"folder-error");
+  }
 }
 const localThumbnails=window.DKQueueArtwork?.create({
   makeVideo:()=>document.createElement("video"),
@@ -202,6 +229,7 @@ function scan(){
     // Offline fallback runs only for items within the visible/sidebar region.
     // Keep the original source item rather than uploading or transcoding it.
     const item=li.dkQueueItem;
+    if(item?.folderArtwork)void showFolderPoster(item,box,generation);
     if(item?.thumbnail)showImage(box,{url:item.thumbnail},generation,"local");
     else if(item&&localThumbnails) {
       // Defer 1.5 seconds so a fast provider poster avoids video decoding.

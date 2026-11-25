@@ -24,6 +24,15 @@
 - When available, GNOME Files/GIO also assigns that icon as the executable file's per-file custom icon on first launch. This file-manager metadata cannot be delivered pre-set inside a normal GitHub ZIP.
 - Rebuild the single root executable with the unchanged web UI and verify the exact playback/queue behavior under Electron plus Go launcher, then remove the one-time workflow.
 
+## Build 2: remembered media folders (November 2026)
+- Users explicitly select a directory with Chromium's `showDirectoryPicker`. Only the authorized `FileSystemDirectoryHandle` is saved to origin-local IndexedDB, under its own key independent of the last-playing file handle.
+- The same `docs/` interface runs in the web player and standalone Electron. No Tkinter redesign, media server, unrestricted directory access, or backend service.
+- The player enumerates supported local media in nested folders (maximum depth six), sorts names naturally, and queues up to 500 files without autoplay or interrupting the current movie. It avoids duplicate entries when reopening a folder already in Up Next.
+- Remember the folder name locally, automatically rescan on a later launch **only when read permission is already granted**, show a permission reconnect action otherwise, and let the user forget the folder without deleting or removing already queued files.
+- Restrictive browser contexts retain one-session folder selection through a `webkitdirectory` input fallback. Persistent access there is not claimed.
+- New tests verify nested scanning, file limits, folder selection, queue noninterruption, re-opening without duplicates, and forgetting access. Automated tests cannot guarantee that a particular user's Chromium/Ubuntu permissions will persist.
+- The approved player appearance, fullscreen, previous autoplay behavior, and red selected-item marker remain unchanged.
+
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.
 - Original golden emblem, Open files, Restore last file and drag-and-drop, with a local-file-only welcome sentence.

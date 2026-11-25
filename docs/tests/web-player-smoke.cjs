@@ -174,3 +174,22 @@ assert.match(js, /openLocalFiles\("queue"\)/);
 assert.match(js, /openLocalFiles\("open"\)/);
 assert.match(js, /openLocalFiles\("restore"\)/);
 require("./queue-autoplay.cjs");
+
+/* Folder access: shared Chromium directory handle, not a second player. */
+const folderSource=fs.readFileSync(path.join(root, "folder-access.js"), "utf8");
+new Function(folderSource);
+assert.match(html, /src="\.\/folder-access\.js\?/);
+assert.match(html, /id="selectFolder"/);
+assert.match(html, /id="reopenFolder"/);
+assert.match(html, /id="forgetFolder"/);
+assert.match(html, /id="folderStatus"/);
+assert.match(html, /id="folderFallback"[^>]*webkitdirectory/);
+assert.match(js, /showDirectoryPicker/);
+assert.match(js, /folderHandleKey = "selectedMediaFolder"/);
+assert.match(js, /storedHandle\("save", handle, folderHandleKey\)/);
+assert.match(js, /storedHandle\("read", null, folderHandleKey\)/);
+assert.match(js, /collectFolder\(handle, "startup"\)/);
+assert.match(js, /await restoreLastMedia\(\);\s*await restoreSavedFolder\(\)/);
+assert.match(js, /selections\.map\(e => e\.handle\), "queue"/);
+assert.match(css, /\.folder-access\s*\{/);
+console.log("PASS: folder-access web/player integration checks");

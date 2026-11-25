@@ -107,6 +107,13 @@ function openWindow() {
           throw new Error("Original web player or desktop bridge failed to load: " + JSON.stringify(initial));
         }
         console.log("DK_KINEHALL_WEB_PLAYER_LOADED", JSON.stringify(initial));
+        const folderAPIs = await win.webContents.executeJavaScript(
+          '({picker:typeof window.showDirectoryPicker === "function",' +
+          'indexedDB:typeof window.indexedDB !== "undefined",' +
+          'scanner:!!window.DKFolderAccess})');
+        console.log("DK_KINEHALL_FOLDER_APIS", JSON.stringify(folderAPIs));
+        if (!folderAPIs.picker || !folderAPIs.indexedDB || !folderAPIs.scanner)
+          throw new Error("Persistent folder APIs unavailable in standalone Chromium");
         const initialized = await win.webContents.executeJavaScript(
           'document.getElementById("fullscreen").getAttribute("aria-pressed") === "false"');
         if (!initialized) throw new Error("Player JavaScript initialization did not finish");
@@ -141,6 +148,12 @@ function openWindow() {
         if (!queueState || queueState.passed !== true)
           throw new Error("Automatic playback/queue test did not pass");
         console.log("DK_KINEHALL_QUEUE_AUTOPLAY_PASS", JSON.stringify(queueState));
+        const folderTest = require("node:fs").readFileSync(
+          path.join(__dirname, "folder-smoke.js"), "utf8");
+        const folderState = await win.webContents.executeJavaScript(folderTest);
+        if (!folderState || folderState.passed !== true)
+          throw new Error("Persistent media-folder test did not pass");
+        console.log("DK_KINEHALL_FOLDER_ACCESS_PASS", JSON.stringify(folderState));
         app.exit(0);
       } catch (error) {
         console.error("DK_KINEHALL_SMOKE_FAILED", String(error));

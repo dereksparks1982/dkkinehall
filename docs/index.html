@@ -24,7 +24,8 @@
 <script src="./queue-hover.js?v=20261116-1" defer></script>
 <script src="./i18n.js?v=20261117-7" defer></script>
 <script src="./queue-autoplay.js?v=20261124-1" defer></script>
-<script src="./player.js?v=20261124-autoplay" defer></script>
+<script src="./folder-access.js?v=20261124-1" defer></script>
+<script src="./player.js?v=20261124-folders" defer></script>
 </head>
 <body>
 <div class="shell">
@@ -58,13 +59,21 @@
 <div role="status" aria-live="polite" id="status" class="info-status"></div>
 </div>
 </div>
-<aside class="panel" aria-label="Playlist"><div class="sidebar-top"><div class="sidebar-title"><h2>Up Next</h2><span class="count" id="queueCount">0 items</span></div><div class="sidebar-actions"><button type="button" class="btn ghost" id="addQueueFiles">＋ Add files</button><button type="button" class="btn ghost" id="clearQueue">Clear queue</button></div></div><ol class="queue" id="queue"><li class="queue-empty">Your playlist is empty. Add a file to begin.</li></ol><p class="queue-attribution">Artwork: <a href="https://www.tvmaze.com/" target="_blank" rel="noopener noreferrer">TVmaze</a></p></aside>
+<aside class="panel" aria-label="Playlist"><div class="sidebar-top"><div class="sidebar-title"><h2>Up Next</h2><span class="count" id="queueCount">0 items</span></div><div class="sidebar-actions"><button type="button" class="btn ghost" id="addQueueFiles">＋ Add files</button><button type="button" class="btn ghost" id="clearQueue">Clear queue</button></div></div><ol class="queue" id="queue"><li class="queue-empty">Your playlist is empty. Add a file to begin.</li></ol><div class="folder-access" aria-label="Media folder access">
+  <div class="folder-actions">
+    <button type="button" class="btn ghost" id="selectFolder">Choose folder</button>
+    <button type="button" class="btn ghost" id="reopenFolder" hidden>Reopen folder</button>
+    <button type="button" class="btn ghost" id="forgetFolder" hidden>Forget folder</button>
+  </div>
+  <p id="folderStatus" role="status" aria-live="polite">No folder selected</p>
+</div><p class="queue-attribution">Artwork: <a href="https://www.tvmaze.com/" target="_blank" rel="noopener noreferrer">TVmaze</a></p></aside>
 </div>
 </section>
 </main>
 <footer class="footer"><span>DK Kinehall · DK Softworks</span></footer>
 </div>
 <input type="file" id="filePicker" class="hidden-file" accept="video/*,audio/*,.mkv,.avi,.m4v,.ts,.flac,.ogg" multiple aria-label="Choose media files">
+<input type="file" id="folderFallback" class="hidden-file" webkitdirectory directory multiple aria-label="Choose a media folder">
 <input type="file" id="subtitlePicker" class="hidden-file" accept=".srt,.vtt,text/vtt,application/x-subrip" aria-label="Choose subtitle file">
 </body>
 </html>

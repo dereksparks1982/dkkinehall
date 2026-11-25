@@ -12,7 +12,8 @@
     volume: "dkmedia.web.volume.v2",
     lastMedia: "dkmedia.web.last-media.v1",
     subtitlePreference: "dkmedia.web.subtitle-preference.v1",
-    audioPreferences: "dkmedia.web.audio-preferences.v1"
+    audioPreferences: "dkmedia.web.audio-preferences.v1",
+    folderName: "dkmedia.web.folder-name.v1"
   };
   const read = (key, fallback) => {
     try {
@@ -33,6 +34,7 @@
     activeEmbeddedTrack: null,
     activePgsTrack: null, pgsEvents: null, pgsLastFrame: null,
     restoreHandle: null, pendingPickerMode: "open", stopped: false,
+    folderHandle: null, folderScanVersion: 0, folderName: read("dkmedia.web.folder-name.v1", ""),
     audioPreferences: (() => {
       const saved = read(store.audioPreferences, {});
       return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
@@ -53,6 +55,7 @@
   const handleDb = "dkmedia.web.local-files.v1";
   const handleStore = "handles";
   const lastHandleKey = "lastPlayingFile";
+  const folderHandleKey = "selectedMediaFolder";
   const openHandleDatabase = () => new Promise((resolve, reject) => {
     if (!window.indexedDB) { reject(new Error("IndexedDB unavailable")); return; }
     const request = window.indexedDB.open(handleDb, 1);
@@ -64,14 +67,14 @@
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error || new Error("Unable to open file storage"));
   });
-  const storedHandle = async (operation, handle = null) => {
+  const storedHandle = async (operation, handle = null, key = lastHandleKey) => {
     const database = await openHandleDatabase();
     return new Promise((resolve, reject) => {
       const transaction = database.transaction(handleStore, operation === "read" ? "readonly" : "readwrite");
       const store = transaction.objectStore(handleStore);
       let result = null;
-      const request = operation === "read" ? store.get(lastHandleKey) :
-        operation === "save" ? store.put(handle, lastHandleKey) : store.delete(lastHandleKey);
+      const request = operation === "read" ? store.get(key) :
+        operation === "save" ? store.put(handle, key) : store.delete(key);
       request.onsuccess = () => { result = request.result || null; };
       transaction.oncomplete = () => { database.close(); resolve(result); };
       transaction.onabort = () => {
@@ -96,11 +99,11 @@
   };
   const rememberSelectedMedia = item => {
     if (item.handle) {
-      write(store.lastMedia, {kind: "file", name: item.name});
+      write(store.lastMedia, {kind: "file", name: item.name, key: item.key});
       updateStoredHandle(item.handle);
     } else {
       // Files selected via the legacy input or drag-and-drop are session-only.
-      write(store.lastMedia, {kind: "temporary-file", name: item.name});
+      write(store.lastMedia, {kind: "temporary-file", name: item.name, key: item.key});
       updateStoredHandle(null);
     }
     byId("restoreMedia").hidden = true;
@@ -524,6 +527,155 @@
     else renderQueue();
     status("Added " + accepted.length + (accepted.length === 1 ? " file" : " files") + " to the queue.", true);
   };
+
+  // Folder selection is permission-scoped. Chromium and standalone Kinehall
+  // store the approved directory handle, never the media bytes themselves.
+  const folderLabel = byId("folderStatus");
+  const folderReconnectButton = byId("reopenFolder");
+  const folderForgetButton = byId("forgetFolder");
+  const folderInput = byId("folderFallback");
+  const folderLimit = window.DKFolderAccess.MAX_FILES;
+  const mediaKeyFor = file => "file:" + file.name + ":" + file.size + ":" + file.lastModified;
+  const updateFolderUI = (message = null) => {
+    folderReconnectButton.hidden = !state.folderName;
+    folderForgetButton.hidden = !state.folderName;
+    folderLabel.textContent = message ||
+      (state.folderName ? "Saved folder: " + state.folderName : "No folder selected");
+  };
+  updateFolderUI();
+  const collectFolder = async (handle, reason) => {
+    const epoch = ++state.folderScanVersion;
+    folderLabel.textContent = "Scanning folder: " + handle.name;
+    try {
+      const result = await window.DKFolderAccess.scan(handle, {maxFiles:folderLimit});
+      if (epoch !== state.folderScanVersion) return;
+      const known = new Set(state.queue.map(item => item.key));
+      const selections = [];
+      for (const item of result.files) {
+        const key = mediaKeyFor(item.file);
+        if (!known.has(key)) {
+          known.add(key);
+          selections.push(item);
+        }
+      }
+      if (selections.length) addFiles(selections.map(e => e.file),
+        selections.map(e => e.handle), "queue");
+      // A previously watched file can be recovered through a still-approved
+      // directory handle even if its individual file handle expired.
+      if (reason === "startup" && !current()) {
+        const saved = read(store.lastMedia, null);
+        const previous = saved ? state.queue.findIndex(item =>
+          saved.key ? item.key === saved.key : item.name === saved.name) : -1;
+        if (previous >= 0) load(previous, false);
+      }
+      const count = result.files.length;
+      updateFolderUI("Folder: " + handle.name);
+      if (!count) status("Folder contains no supported media files.");
+      else if (result.truncated)
+        status("Folder scan limited to " + folderLimit + " files.", true);
+      else if (selections.length)
+        status("Added " + selections.length + " files from folder.", true);
+      else if (reason !== "startup") status("Folder is already in Up Next.", true);
+    } catch (_) {
+      if (epoch !== state.folderScanVersion) return;
+      updateFolderUI("Saved folder: " + handle.name);
+      status("Folder access failed. Choose or reconnect the folder.");
+    }
+  };
+  const chooseFolder = async () => {
+    if (typeof window.showDirectoryPicker !== "function") {
+      // Chromium fallback offers a one-session folder selection.
+      folderInput.click();
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker({
+        id: "dk-kinehall-media-folder", mode: "read"
+      });
+      if (!handle || handle.kind !== "directory") return;
+      ++state.folderScanVersion;
+      state.folderHandle = handle;
+      state.folderName = handle.name;
+      write(store.folderName, handle.name);
+      updateFolderUI();
+      try {
+        await storedHandle("save", handle, folderHandleKey);
+      } catch (_) {
+        status("Folder available for this session. Choose it again next time.");
+      }
+      await collectFolder(handle, "selection");
+    } catch (error) {
+      if (error?.name !== "AbortError")
+        status("Folder access failed. Choose or reconnect the folder.");
+    }
+  };
+  const reopenFolder = async () => {
+    let handle = state.folderHandle;
+    if (!handle) {
+      try { handle = await storedHandle("read", null, folderHandleKey); }
+      catch (_) {}
+    }
+    if (!handle || handle.kind !== "directory") {
+      await chooseFolder();
+      return;
+    }
+    try {
+      let permission = typeof handle.queryPermission === "function" ?
+        await handle.queryPermission({mode:"read"}) : "prompt";
+      if (permission !== "granted" && typeof handle.requestPermission === "function")
+        permission = await handle.requestPermission({mode:"read"});
+      if (permission !== "granted") {
+        updateFolderUI("Saved folder: " + handle.name);
+        status("Folder access needs permission. Reopen to grant access.");
+        return;
+      }
+      state.folderHandle = handle;
+      state.folderName = handle.name;
+      updateFolderUI();
+      await collectFolder(handle, "reopen");
+    } catch (_) {
+      status("Folder access failed. Choose or reconnect the folder.");
+    }
+  };
+  const forgetFolder = async () => {
+    ++state.folderScanVersion;
+    state.folderHandle = null;
+    state.folderName = "";
+    try { localStorage.removeItem(store.folderName); } catch (_) {}
+    try { await storedHandle("delete", null, folderHandleKey); } catch (_) {}
+    updateFolderUI();
+    status("Folder forgotten. Queued movies remain available this session.", true);
+  };
+  const restoreSavedFolder = async () => {
+    if (!state.folderName) return;
+    updateFolderUI();
+    try {
+      const handle = await storedHandle("read", null, folderHandleKey);
+      if (!handle || handle.kind !== "directory") {
+        status("Folder access needs permission. Reopen to grant access.");
+        return;
+      }
+      state.folderHandle = handle;
+      const permission = typeof handle.queryPermission === "function" ?
+        await handle.queryPermission({mode:"read"}) : "prompt";
+      if (permission === "granted") await collectFolder(handle, "startup");
+      else status("Folder access needs permission. Reopen to grant access.");
+    } catch (_) {
+      status("Folder access needs permission. Reopen to grant access.");
+    }
+  };
+  byId("selectFolder").addEventListener("click", () => { void chooseFolder(); });
+  folderReconnectButton.addEventListener("click", () => { void reopenFolder(); });
+  folderForgetButton.addEventListener("click", () => { void forgetFolder(); });
+  folderInput.addEventListener("change", event => {
+    const entries = Array.from(event.target.files || []).slice(0, folderLimit);
+    event.target.value = "";
+    if (!entries.length) return;
+    const name = String(entries[0].webkitRelativePath || "").split("/")[0];
+    if (name) updateFolderUI("Session folder: " + name);
+    addFiles(entries, [], "queue");
+    status("Folder available for this session. Choose it again next time.", true);
+  });
 
   // Chromium's File System Access picker provides permissioned file handles.
   // If the picker API is unavailable in the current Chromium context, use
@@ -1326,5 +1478,8 @@
   });
   idle();
   // A restored file stays paused until the user presses Play.
-  restoreLastMedia();
+  void (async () => {
+    await restoreLastMedia();
+    await restoreSavedFolder();
+  })();
 })();

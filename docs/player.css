@@ -535,3 +535,20 @@ html.dk-desktop-fullscreen body {
   max-height:none !important;
   object-fit:contain;
 }
+
+/* Media folder permission controls stay in the existing Up Next sidebar;
+   they add no new page, library tab, or alternate standalone interface. */
+.folder-access {
+  padding:12px 14px 10px;
+  margin-top:4px;
+  border-top:1px solid var(--line);
+}
+.folder-actions {display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.folder-actions .btn {padding:7px 9px;min-height:36px;font-size:.75rem;}
+.folder-access #folderStatus {
+  margin:7px 0 0;
+  font-size:.74rem;
+  line-height:1.35;
+  color:var(--muted);
+  overflow-wrap:anywhere;
+}

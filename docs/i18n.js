@@ -63,6 +63,18 @@
     "Playlist":"Плейлист", "Up Next":"Далее", "0 items":"0 файлов",
     "Your playlist is empty. Add a file to begin.":"Список воспроизведения пуст. Добавьте файл.",
     "＋ Add files":"＋ Добавить файлы", "Clear queue":"Очистить очередь",
+    "Media folder access":"Доступ к папке с медиафайлами",
+    "Choose a media folder":"Выберите папку с медиафайлами",
+    "Choose folder":"Выбрать папку",
+    "Reopen folder":"Открыть папку снова",
+    "Forget folder":"Забыть папку",
+    "No folder selected":"Папка не выбрана",
+    "Folder contains no supported media files.":"В папке нет поддерживаемых медиафайлов.",
+    "Folder available for this session. Choose it again next time.":"Папка доступна только в этом сеансе. В следующий раз выберите её снова.",
+    "Folder access failed. Choose or reconnect the folder.":"Не удалось открыть папку. Выберите её заново или восстановите доступ.",
+    "Folder access needs permission. Reopen to grant access.":"Для доступа к папке нужно разрешение. Откройте её снова.",
+    "Folder is already in Up Next.":"Файлы этой папки уже находятся в очереди.",
+    "Folder forgotten. Queued movies remain available this session.":"Папка забыта. Фильмы в очереди останутся до конца сеанса.",
     "Your collection":"Ваша коллекция",
     "Saved direct media links live in this browser.":"Сохранённые прямые ссылки хранятся в этом браузере.",
     "Saved streams and media links":"Сохранённые потоки и ссылки",
@@ -215,6 +227,18 @@
       translated = m[1] + " " + russianPlural(m[1], "файл", "файла", "файлов");
     if (translated === null && (m = /^Added (\d+) files? to the queue\.$/.exec(plain)))
       translated = "Добавлено " + m[1] + " " + russianPlural(m[1], "файл", "файла", "файлов") + " в очередь.";
+    if (translated === null && (m = /^Added (\d+) files? from folder\.$/.exec(plain)))
+      translated = "Из папки добавлено " + m[1] + " " + russianPlural(m[1], "файл", "файла", "файлов") + ".";
+    if (translated === null && (m = /^Folder scan limited to (\d+) files\.$/.exec(plain)))
+      translated = "Показано не более " + m[1] + " файлов из папки.";
+    if (translated === null && (m = /^Saved folder: (.+)$/.exec(plain)))
+      translated = "Сохранённая папка: " + m[1];
+    if (translated === null && (m = /^Folder: (.+)$/.exec(plain)))
+      translated = "Папка: " + m[1];
+    if (translated === null && (m = /^Session folder: (.+)$/.exec(plain)))
+      translated = "Папка текущего сеанса: " + m[1];
+    if (translated === null && (m = /^Scanning folder: (.+)$/.exec(plain)))
+      translated = "Поиск файлов в папке: " + m[1];
     if (translated === null && (m = /^Subtitles: (.+)$/.exec(plain)))
       translated = "Субтитры: " + m[1];
     if (translated === null && (m = /^Subtitles off · (\d+) embedded MKV tracks? found$/.exec(plain)))

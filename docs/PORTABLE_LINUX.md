@@ -56,3 +56,16 @@ is established on first launch, not before it.
 No administrator permissions, additional program downloads, or separate
 installer are required. The launcher continues to work if these optional
 icon-registration facilities are unavailable.
+
+## Persistent media folder access
+
+The Linux standalone edition runs the same Chromium File System Access
+folder picker and IndexedDB handle storage as the web player. This browser
+profile is stored in the current user's application data directory, not in
+GitHub or a remote media server. A previously selected folder is scanned again
+if read access remains approved. If permission has expired, select **Reopen
+folder** to ask for access again. The user can remove the saved handle with
+**Forget folder**. Do not silently grant additional disk permissions.
+
+The directory picker is user-initiated and local. There is a one-session
+`webkitdirectory` fallback for contexts that cannot retain directory handles.

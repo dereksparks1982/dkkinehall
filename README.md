@@ -8,7 +8,7 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 
 ## Features
 
-- **Play your own files.** Open local videos and music or drag files into the player. Media files remain on your device.
+- **Play your own files.** Open local videos and music, choose a remembered folder, or drag files into the player. Media files remain on your device.
 - **Up Next queue.** Organize videos, move between episodes, keep watched items in the list, and remove entries when you choose.
 - **Movie and episode artwork.** Display artwork and available episode information, with automatic image fallbacks.
 - **Playback controls.** Play, pause, stop, previous, next, 10-second rewind and forward, timeline seeking, volume, mute, playback speed, fullscreen, and picture-in-picture.
@@ -17,6 +17,26 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Subtitles.** Load SRT or VTT subtitle files; select supported text and PGS subtitle tracks embedded in MKV files; turn subtitles off from the video menu.
 - **Audio tracks.** Choose browser-accessible audio tracks. Some MKV AAC and Opus streams can also be selected using Chromium's WebCodecs support, depending on codec availability.
 - **English and Russian.** Switch the interface between English and Русский.
+
+## Remembered media folder
+
+**Choose folder** from the Up Next sidebar to select a folder of movies, episodes,
+or music. Kinehall scans supported media files in that folder and its subfolders,
+then adds them to Up Next without interrupting playback. A folder selection does
+not automatically start the first alphabetically named movie.
+
+Chromium and the standalone player can save the approved directory handle in
+their own local IndexedDB storage. On a later launch, Kinehall restores the
+folder's files when its read permission is still granted. Otherwise **Reopen
+folder** requests permission again. **Forget folder** removes the remembered
+directory permission reference without deleting your original files or the
+current session's queue. Folder access is initiated by the user and media bytes
+remain on the device.
+
+A scan is limited to 500 supported files and six nested folder levels to avoid
+overwhelming the player. Files beyond the limit can be opened individually. If
+your Chromium context does not support persistent folder handles, the fallback
+file selector works for that session, but the folder must be selected again.
 
 ## Automatic playback and Up Next
 
@@ -32,7 +52,8 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 1. Open **[DK Kinehall](https://dereksparks1982.github.io/dkkinehall/)** in Chromium or DK NetNav.
 2. Select **Open files**, or drag your media files onto the player.
 3. The first opened movie plays automatically. Use **+ Add files** to queue others without interrupting it.
-4. Right-click the video for subtitles, audio tracks, playback speed, picture options, and media information.
+4. Optionally choose a media folder from the Up Next sidebar and reopen it in later sessions.
+5. Right-click the video for subtitles, audio tracks, playback speed, picture options, and media information.
 
 The player uses local media files, not direct streaming links. Playback depends on the codecs available in your Chromium installation. Some MKV audio and subtitle formats may not be supported.
 

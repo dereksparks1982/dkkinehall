@@ -21,3 +21,16 @@ DK Kinehall is a **Chromium-only** local media player. The primary target is the
 - Preserve the approved DK Kinehall icon, English/Russian interface and player appearance.
 - DK NetNav lives in its own repository. Work here does not automatically change that browser.
 - README must describe actual implemented features, not promise unverified functionality. No compilation, browser testing or GitHub Actions until the project owner asks.
+
+## Folder access (Build 2)
+
+- Only users choose folders. Save browser-approved directory handles in
+  origin-local IndexedDB; query existing read permission at startup.
+- If permission has expired, provide a user-triggered reconnect operation.
+  Never request new folder permissions during automatic startup.
+- Keep scanning bounded to 500 playable files and six nested levels, and
+  do not interrupt current playback when importing a folder.
+- Chromium's ordinary `webkitdirectory` picker remains a temporary fallback
+  when persistent folder handles are unavailable.
+- The standalone edition uses the same Chromium APIs and source files, not
+  an independent media library implementation.

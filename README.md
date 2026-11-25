@@ -12,7 +12,7 @@ Play local media directly in your web browser, with the familiar DK Kinehall int
 
 ### Standalone Linux
 
-DK Kinehall also has a native Linux desktop edition with its own executable. It does not require a browser. This edition is intended for broader local media and embedded MKV subtitle support without browser restrictions.
+DK Kinehall also has a standalone Linux edition that uses the **same web player interface** in its own bundled Chromium window. It does not require you to install a separate browser. Keep the included `_internal` runtime alongside the **DK Kinehall** executable. Media and subtitle support still depends on the codecs available to that bundled player.
 
 The two editions are separate. The Web App remains available regardless of changes to the standalone version.
 

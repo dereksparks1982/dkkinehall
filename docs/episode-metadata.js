@@ -333,7 +333,8 @@
      if(!found)return null;
      if(info.year&&typeof found.release_date==="string"&&
         !found.release_date.startsWith(String(info.year)))return null;
-     const art=tmdbImage(found.backdrop_path,"w300")||tmdbImage(found.poster_path,"w185");
+     // Prefer a movie poster over a landscape backdrop.
+     const art=tmdbImage(found.poster_path,"w342")||tmdbImage(found.backdrop_path,"w300");
      if(!art)return null;
      return {type:"movie",still:art,series:null,title:found.title||info.title,
        provider:"TMDb",credit:"https://www.themoviedb.org/movie/"+found.id};
@@ -353,15 +354,23 @@
        credit:data.credit,title:data.title,
        fallbackUrl:data.series&&data.series!==picked.url?data.series:null}:null;
    }
-   async function find(filename){
+   async function find(filename,options={}){
      if(!enabled())return null;
      const info=parseFilename(filename);
      if(!info)return null;
      if(info.type==="movie"){
-       // Prefer a configured TMDb movie poster where available, otherwise
-       // use the keyless Apple catalog instead of hiding all movie artwork.
-       const tm=token()?await tmdbMovie(info):null;
-       return choose(tm||await cinemetaMovie(info)||await appleMovie(info));
+       // Broken images can fall back to a different trusted provider.
+       const excluded=new Set(Array.isArray(options.excludeProviders)?
+         options.excludeProviders:[]);
+       if(!excluded.has("TMDb")&&token()){
+         const tm=choose(await tmdbMovie(info));
+         if(tm)return tm;
+       }
+       if(!excluded.has("Cinemeta")){
+         const cinema=choose(await cinemetaMovie(info));
+         if(cinema)return cinema;
+       }
+       return excluded.has("Apple")?null:choose(await appleMovie(info));
      }
      const tv=await tvEpisode(info);
      if(tv?.still)return choose({...tv,type:"episode"});

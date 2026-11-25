@@ -69,7 +69,7 @@ function showImage(box,art,requestedGeneration,source="provider"){
     if(box.dataset.artworkStatus==="folder-loaded"&&source!=="folder"){
       image.remove();return;
     }
-    if(source==="local"&&box.dataset.artworkStatus==="loaded"){
+    if(source==="local"&&["loaded","folder-loaded"].includes(box.dataset.artworkStatus){
       image.remove();return;
     }
     for(const previous of box.querySelectorAll(".queue-artwork-image"))
@@ -83,6 +83,13 @@ function showImage(box,art,requestedGeneration,source="provider"){
     }else if(source==="folder"){
       status(box,locale("Local poster from your folder","Местный постер из выбранной папки"),"folder-loaded");
     }else{
+      // Only cache successfully rendered image URLs, not broken CDN links.
+      const name=box.closest("li")?.querySelector(".item-title")?.textContent?.trim();
+      if(name){
+        const workingArt=index===0?art:{...art,url:urls[index],fallbackUrl:null};
+        cache.set(name,Promise.resolve(workingArt));
+        saveArt(name,workingArt);
+      }
       const provider=locale(art.provider==="TVmaze"?"TVmaze":art.provider,
         art.provider==="TVmaze"?"ТВмейз":
         art.provider==="Apple"?"Эппл":
@@ -105,15 +112,37 @@ function showImage(box,art,requestedGeneration,source="provider"){
     }
     if(source==="provider"){
       const name=box.closest("li")?.querySelector(".item-title")?.textContent?.trim();
-      if(name){cache.delete(name);forgetArt(name);}
-      if(!box.querySelector(".queue-artwork-image:not([hidden])")){
-        box.classList.remove("has-art");
-        const fallback=box.querySelector(".queue-artwork-fallback");
-        if(fallback)fallback.hidden=false;
+      const markUnavailable=()=>{
+        if(!box.isConnected||requestedGeneration!==generation)return;
+        if(name){cache.delete(name);forgetArt(name);}
+        if(!box.querySelector(".queue-artwork-image:not([hidden])")){
+          box.classList.remove("has-art");
+          const fallback=box.querySelector(".queue-artwork-fallback");
+          if(fallback)fallback.hidden=false;
+        }
+        status(box,locale("Artwork image failed to load; retrying",
+          "Не удалось загрузить изображение, повторная попытка"),"image-error");
+        scheduleRetry(name);
+      };
+      const parsed=name&&window.DKMediaMetadata.parseFilename(name);
+      // A movie match may be correct while its poster CDN URL is dead.
+      // Try the next trusted provider instead of repeatedly loading it.
+      if(parsed?.type==="movie"&&art.provider){
+        const tried=(box.dataset.artworkSourcesTried||"").split("|").filter(Boolean);
+        if(!tried.includes(art.provider))tried.push(art.provider);
+        box.dataset.artworkSourcesTried=tried.join("|");
+        if(tried.length<3){
+          finder.find(name,{excludeProviders:tried}).then(alternate=>{
+            if(!box.isConnected||requestedGeneration!==generation)return;
+            if(alternate?.url&&alternate.provider&&!tried.includes(alternate.provider)&&
+               !urls.includes(alternate.url))
+              showImage(box,alternate,requestedGeneration,"provider");
+            else markUnavailable();
+          }).catch(markUnavailable);
+          return;
+        }
       }
-      status(box,locale("Artwork image failed to load; retrying",
-        "Не удалось загрузить изображение, повторная попытка"),"image-error");
-      scheduleRetry(name);
+      markUnavailable();
     }
   };
   box.append(image);
@@ -161,6 +190,8 @@ function scheduleRetry(name){
     for(const li of queue.children){
       if(names.has(li.querySelector(".item-title")?.textContent?.trim())){
         seen.delete(li);
+        // lookup() checks this flag; clear it to make the retry effective.
+        delete li.dataset.artworkRequested;
         if(intersection)intersection.unobserve(li);
       }
     }
@@ -174,7 +205,6 @@ function lookup(li,box,name,parsed,epoch){
   cache.get(name).then(art=>{
     if(!box.isConnected||epoch!==generation)return;
     if(art?.url){
-      saveArt(name,art);
       showImage(box,art,epoch);
     }else{
       const willRetry=!retried.has(name);

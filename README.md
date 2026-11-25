@@ -25,6 +25,25 @@ being removed. A native executable must be built and packaged from
 `native/` before users can run this replacement. Do not treat a source commit
 as a verified binary release.
 
+## Embedded MKV subtitles (native player)
+
+**Subtitles** on the playback bar and **right-click → Subtitles** select
+subtitle streams reported by libmpv from the currently opened MKV. All
+embedded tracks are listed after the file loads, including supported SRT,
+ASS/SSA, PGS and VobSub types. **Off** is the default for a new video.
+Selecting an embedded track immediately sets libmpv's `sid` property and
+does not ask for an external subtitle file.
+
+**Add external subtitle file...** is a separate, explicitly named action
+for the occasions when an MKV does not contain the desired subtitle. It
+must never be triggered by clicking the ordinary Subtitles button.
+
+This implementation belongs to the same DK Kinehall native source tree. The
+former browser player's `+ Subtitles` file picker is not part of the native
+subtitle workflow. Functional playback requires a new native executable;
+the existing legacy binary cannot acquire native functionality from source
+commits alone.
+
 ## Playback format settings
 
 - **Automatic** (default): libmpv plays the supported local file directly.

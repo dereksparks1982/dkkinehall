@@ -17,6 +17,7 @@ struct MediaTrack {
   QString language;
   QString codec;
   bool selected = false;
+  bool external = false;
 };
 
 class MpvWidget final : public QOpenGLWidget {

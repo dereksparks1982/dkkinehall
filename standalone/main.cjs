@@ -183,7 +183,7 @@ function openWindow() {
             "expanded-codec-smoke.js"),"utf8")
             .replace("__DK_CODEC_FIXTURES__",JSON.stringify(payload));
           const decoded = await win.webContents.executeJavaScript(source);
-          if (!decoded?.passed) throw new Error("Real encoded MKV audio frames were not decoded");
+          if (!decoded?.passed) throw new Error("Encoded MKV sample failed: "+JSON.stringify(decoded));
           console.log("DK_KINEHALL_EXPANDED_CODEC_PASS",JSON.stringify(decoded));
         }
 

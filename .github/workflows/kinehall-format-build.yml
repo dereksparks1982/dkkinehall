@@ -1,4 +1,4 @@
-name: DK Kinehall expanded MKV audio and video format diagnostics
+name: DK Kinehall expanded MKV audio and video format diagnostics (decode probe)
 on:
   push:
     paths:

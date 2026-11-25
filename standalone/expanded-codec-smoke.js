@@ -5,7 +5,9 @@
 // proving the track is more than metadata.
 const fixtures=__DK_CODEC_FIXTURES__;
 const result={passed:false,codecs:{}};
+try{
 for(const [name,base64] of Object.entries(fixtures)){
+  console.log("DK_KINEHALL_CODEC_PROBING",name);
   const bytes=Uint8Array.from(atob(base64),c=>c.charCodeAt(0));
   const file=new File([bytes],"test-"+name+".mkv",{type:"video/x-matroska"});
   const descriptor=await window.DKMatroska.inspectFile(file);
@@ -45,4 +47,8 @@ if(!result.codecs.mp3.webCodecsSupported ||
   throw new Error("Bundled Chromium did not decode real MP3 frames");
 result.passed=true;
 return result;
+}catch(error){
+  return {passed:false, error:String(error?.message||error),
+    stack:String(error?.stack||""),codecs:result.codecs};
+}
 })()

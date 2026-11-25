@@ -1,4 +1,4 @@
-name: DK Kinehall H264 and AAC Matroska fallback build (track decode fix)
+name: DK Kinehall H264 and AAC Matroska fallback build (MP4 tables)
 on:
   push:
     paths:

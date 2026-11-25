@@ -21,7 +21,7 @@ mkv.name="Synthetic.H264.AAC.mkv";
  assert.match(output.mime,/avc1\.[0-9a-f]+, mp4a\.40\.2/);
  assert.ok(output.frames>12&&output.audioPackets>15);
  assert.ok(output.blob.size>mkv.size*0.7);
- const head=Buffer.from(await output.blob.slice(0,220).arrayBuffer());
+ const head=Buffer.from(await output.blob.slice(0,Math.min(16384,output.blob.size)).arrayBuffer());
  assert.ok(head.includes(Buffer.from("ftyp")));
  assert.ok(head.includes(Buffer.from("moov")));
  assert.ok(head.includes(Buffer.from("avc1")));

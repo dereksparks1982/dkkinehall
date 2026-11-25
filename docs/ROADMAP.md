@@ -50,6 +50,16 @@
 - Include tests for matched movie poster, year-mismatch rejection, episode still/series fallback, failed image recovery, persistent URL cache, queue DOM redraw, and actual image load in Linux Chromium/Electron. Public provider availability is outside the player's control.
 - Keep the same player on GitHub Pages and in the root Linux executable, then remove the temporary test workflow.
 
+## Next: selectable playback format and progressive output
+- Add a right-click **Playback format** selector: Auto, Original, MP4, WebM.
+  Save the user preference; disable choices unavailable for the current
+  codecs instead of pretending to convert them.
+- Preserve seek position and playback state when switching containers.
+- Progressively remux into MediaSource/fMP4 instead of preparing the entire
+  movie before playback. This is planned, not yet implemented.
+- Container switching does not decode HEVC, MPEG-2, AC3 or DTS. Genuine
+  transcoding needs separate decoder/encoder integration and licensing.
+
 ## Build 6: H.264/AAC Matroska-to-MP4 fallback (November 2026)
 - Implement a small EBML-to-ISO-BMFF remux for precisely one AVC/H.264
   video track without decode-order/presentation-order reordering, plus one

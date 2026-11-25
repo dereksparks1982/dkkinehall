@@ -41,7 +41,7 @@ const expectations = [
   ["Reopen folder", "Открыть папку снова"],
   ["Forget folder", "Забыть папку"],
   ["No folder selected", "Папка не выбрана"],
-  ["Folder: Movies", "Папка: Мовиес"],
+  ["Folder: Movies", "Папка: мовиес"],
   ["Added 2 files from folder.", "Из папки добавлено 2 файла."],
   ["Folder scan limited to 500 files.", "Показано не более 500 файлов из папки."],
   ["No saved links yet.", "Пока нет сохранённых ссылок."]

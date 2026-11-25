@@ -1,4 +1,4 @@
-name: DK Kinehall remembered media folder build
+name: DK Kinehall remembered media folder build (localization check)
 on:
   push:
     paths:

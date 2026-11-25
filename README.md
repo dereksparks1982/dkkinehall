@@ -24,7 +24,7 @@ The two editions are separate. The Web App remains available regardless of chang
 - **Fullscreen:** Watch videos in fullscreen using the player controls.
 - **Subtitles and audio:** Open **Subtitles** to choose embedded MKV subtitle tracks or turn subtitles off. External SRT/VTT files are loaded separately. Available formats depend on browser playback support.
 - **Playback resume:** Return to where you stopped in a movie when the edition can restore access to that file.
-- **Artwork:** Display movie posters, episode stills, and local cover images when available.
+- **Artwork:** Display movie posters, episode stills, and local cover images when available, with automatic recovery when an online artwork source fails.
 - **Languages:** English and Russian interface options.
 
 ## Getting started

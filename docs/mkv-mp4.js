@@ -159,14 +159,31 @@ function readBlock(bytes,absolute,clusterTime,scale,key){
  }
  return {track:track.value,samples};
 }
-async function collect(file,r,segment,tracks,scale){
+async function collect(file,r,segment,tracks,scale,options={}){
  const found=new Map(tracks.map(t=>[t.number,{...t,samples:[]}]));
- let clusterCount=0;
+ let clusterCount=0,processed=0,lastProgress=-1;
+ const checkAbort=()=>{
+  if(options.signal?.aborted){
+   const error=new Error("MP4 preparation cancelled");
+   error.name="AbortError";
+   throw error;
+  }
+ };
+ const report=position=>{
+  if(typeof options.onProgress!=="function")return;
+  const percent=Math.max(0,Math.min(99,Math.floor(position*100/file.size)));
+  if(percent<=lastProgress)return;
+  lastProgress=percent;
+  try{options.onProgress(percent)}catch(_){}
+ };
  for await(const cluster of r.children(segment.start,segment.end)){
+  checkAbort();
   if(cluster.id!==0x1f43b675)continue;
+  report(cluster.start);
   if(++clusterCount>200000)throw Error("Too many clusters");
   let base=0;
   for await(const element of r.children(cluster.start,cluster.end)){
+   if((++processed%128)===0)checkAbort();
    if(element.id===0xe7){base=uint(await small(r,element,8));continue;}
    const blocks=[];
    if(element.id===0xa3)blocks.push({element,key:true});
@@ -179,6 +196,7 @@ async function collect(file,r,segment,tracks,scale){
     if(block)blocks.push({element:block,key});
    }
    for(const {element:block,key} of blocks){
+    checkAbort();
     if(block.size>8*1024*1024)throw Error("Oversized Matroska block");
     // For stream copy, read block header + lacing only; do not load full
     // frame payloads. Block-relative size calculation uses the sample tail.
@@ -193,6 +211,8 @@ async function collect(file,r,segment,tracks,scale){
    }
   }
  }
+ checkAbort();
+ report(file.size);
  return [...found.values()];
 }
 function readBlockHeader(prefix,length,absolute,base,scale,key){
@@ -334,7 +354,12 @@ async function remux(file,info,options={}){
  if(audios.length&&!audio)
   throw Error("No AAC soundtrack exists in this MKV");
  const selected=[video,...(audio?[audio]:[])];
- const samples=await collect(file,r,segment,selected,scale);
+ const samples=await collect(file,r,segment,selected,scale,options);
+ if(options.signal?.aborted){
+  const error=new Error("MP4 preparation cancelled");
+  error.name="AbortError";
+  throw error;
+ }
  const [v,a]=samples;
  if(v.samples.length<2||(a&&a.samples.length<2))
   throw Error("Insufficient video or audio samples");

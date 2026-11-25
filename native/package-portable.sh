@@ -86,12 +86,21 @@ int main(int argc, char **argv) {
   setenv("LD_LIBRARY_PATH",libs,1);
   setenv("QT_PLUGIN_PATH",plugins,1);
   setenv("QT_QPA_PLATFORM_PLUGIN_PATH",platforms,1);
+  char dri[PATH_MAX];
+  snprintf(dri,sizeof(dri),"%s/lib/dri",base);
+  setenv("LIBGL_DRIVERS_PATH",dri,1);
+  setenv("LIBVA_DRIVERS_PATH",dri,1);
   char **args=calloc((size_t)argc+1,sizeof(char*));if(!args)return 1;
   args[0]=bin;for(int i=1;i<argc;i++)args[i]=argv[i];
   execv(bin,args);perror("DK Kinehall native executable");return 1;
 }
 C
 gcc -O2 -s -o "$ROOT/DK Kinehall" "$OUT/launcher.c"
+cat > "$ROOT/bin/qt.conf" <<'QT'
+[Paths]
+Prefix=..
+Plugins=plugins
+QT
 # Fail early if any ELF has a dependency the package and system cannot resolve.
 while IFS= read -r -d '' object; do
   if ! file -Lb "$object" | grep -q ELF; then continue; fi

@@ -7,6 +7,15 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 app.setName("DK Kinehall");
+// Linux dock icons are matched by the installed desktop-entry filename and
+// the window class. The portable root launcher registers this entry at launch.
+if (process.platform === "linux") {
+  app.setDesktopName("dk-kinehall.desktop");
+  app.commandLine.appendSwitch("class", "dk-kinehall");
+  // An explicit file-open action must start playback without browser autoplay
+  // restrictions when this player is running as its own desktop application.
+  app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
+}
 app.setAppUserModelId("org.dksoftworks.dk-kinehall");
 
 function openWindow() {
@@ -126,6 +135,12 @@ function openWindow() {
         win.webContents.sendInputEvent({type:"keyUp",keyCode:"Escape"});
         await assertMode("escape-exit", false);
         console.log("DK_KINEHALL_FULLSCREEN_PASS");
+        const queueTest = require("node:fs").readFileSync(
+          path.join(__dirname, "queue-smoke.js"), "utf8");
+        const queueState = await win.webContents.executeJavaScript(queueTest);
+        if (!queueState || queueState.passed !== true)
+          throw new Error("Automatic playback/queue test did not pass");
+        console.log("DK_KINEHALL_QUEUE_AUTOPLAY_PASS", JSON.stringify(queueState));
         app.exit(0);
       } catch (error) {
         console.error("DK_KINEHALL_SMOKE_FAILED", String(error));

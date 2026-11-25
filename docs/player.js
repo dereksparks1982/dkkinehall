@@ -32,7 +32,7 @@
     subtitleEpoch: 0, mkvSubtitleAbort: null, mkvSubtitlePending: false,
     activeEmbeddedTrack: null,
     activePgsTrack: null, pgsEvents: null, pgsLastFrame: null,
-    restoreHandle: null, restorePickerPending: false, stopped: false,
+    restoreHandle: null, pendingPickerMode: "open", stopped: false,
     audioPreferences: (() => {
       const saved = read(store.audioPreferences, {});
       return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
@@ -485,19 +485,24 @@
     }
     if (old.kind === "file") URL.revokeObjectURL(old.src);
   };
-  const addFiles = (files, handles = [], autoplay = true) => {
+  // Open files selects a movie to watch now unless another is playing.
+  // The Up Next button queues without ever interrupting current playback.
+  // Restore reopens the previous file paused at its remembered position.
+  const addFiles = (files, handles = [], mode = "open") => {
     const accepted = Array.from(files || []).map((file, index) => ({
       file, handle: handles[index] || null
     })).filter(entry => fileIsMedia(entry.file));
     if (!accepted.length) { status("No supported media file selected. Choose a video or audio file."); return; }
-    const first = state.queue.length;
+    const playing = Boolean(current()) && !state.stopped && !media.paused && !media.ended;
+    const plan = window.DKQueueAutoplay.plan(mode, state.current, state.queue.length, playing);
+    const newItems = [];
     for (const {file, handle} of accepted) {
       const item = {kind: "file", name: file.name, audio: fileIsAudio(file),
         file, src: URL.createObjectURL(file), handle,
         size: file.size, mime: file.type || "",
         key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
         embeddedSubtitles: [], embeddedAudio: [], mkvInspection: "not-mkv"};
-      state.queue.push(item);
+      newItems.push(item);
       if (/\.mkv$/i.test(file.name) && window.DKMatroska) {
         item.mkvInspection = "pending";
         void window.DKMatroska.inspectFile(file).then(result => {
@@ -512,18 +517,19 @@
         });
       }
     }
-    renderQueue();
-    if (state.current === -1) load(first, autoplay);
+    // Put an explicitly opened movie ahead of pending entries, retaining
+    // existing queue order. Multi-selection starts only the first new file.
+    state.queue.splice(plan.insertAt, 0, ...newItems);
+    if (plan.activate) load(plan.insertAt, plan.autoplay);
+    else renderQueue();
     status("Added " + accepted.length + (accepted.length === 1 ? " file" : " files") + " to the queue.", true);
   };
 
   // Chromium's File System Access picker provides permissioned file handles.
   // If the picker API is unavailable in the current Chromium context, use
   // a temporary file input without persistent-file permissions.
-  const openLocalFiles = async (autoplay = true) => {
-    // DOM click events are passed to this handler by the ordinary Open buttons.
-    if (typeof autoplay !== "boolean") autoplay = true;
-    state.restorePickerPending = !autoplay;
+  const openLocalFiles = async (mode = "open") => {
+    state.pendingPickerMode = mode;
     if (typeof window.showOpenFilePicker !== "function") {
       byId("filePicker").click();
       return;
@@ -538,7 +544,7 @@
         } catch (_) { /* Continue opening remaining files. */ }
       }
       if (selected.length) addFiles(selected.map(item => item.file),
-                                    selected.map(item => item.handle), autoplay);
+                                    selected.map(item => item.handle), mode);
       else status("No readable video or audio file was selected.");
     } catch (error) {
       if (error && error.name === "AbortError") return;
@@ -577,7 +583,7 @@
       if (permission === "granted") {
         const file = await handle.getFile();
         if (state.queue.length) return;
-        addFiles([file], [handle], false);
+        addFiles([file], [handle], "restore");
         status("Last local file restored. Press Play to resume.", true);
       } else {
         showRestoreChoice(saved, "Allow access or select the same file again to resume.");
@@ -596,23 +602,22 @@
         if (permission === "granted") {
           const file = await handle.getFile();
           if (state.queue.length) return;
-          addFiles([file], [handle], false);
+          addFiles([file], [handle], "restore");
           status("File restored. Press Play to resume.", true);
           return;
         }
       } catch (_) { /* Fall back to the normal file picker below. */ }
     }
     status("Choose your previously opened file to restore its saved position.");
-    await openLocalFiles(false);
+    await openLocalFiles("restore");
   });
-  for (const id of ["openEmpty", "addQueueFiles"]) {
-    byId(id).addEventListener("click", openLocalFiles);
-  }
+  byId("openEmpty").addEventListener("click", () => { void openLocalFiles("open"); });
+  byId("addQueueFiles").addEventListener("click", () => { void openLocalFiles("queue"); });
   byId("filePicker").addEventListener("change", event => {
-    const autoplay = !state.restorePickerPending;
-    state.restorePickerPending = false;
+    const mode = state.pendingPickerMode;
+    state.pendingPickerMode = "open";
     if (event.target.files && event.target.files.length)
-      addFiles(event.target.files, [], autoplay);
+      addFiles(event.target.files, [], mode);
     event.target.value = "";
   });
   for (const eventName of ["dragenter", "dragover"]) screen.addEventListener(eventName, event => {
@@ -624,7 +629,8 @@
     event.preventDefault();
     screen.classList.remove("dragging");
   });
-  screen.addEventListener("drop", event => addFiles(event.dataTransfer && event.dataTransfer.files));
+  screen.addEventListener("drop", event =>
+    addFiles(event.dataTransfer && event.dataTransfer.files, [], "open"));
   byId("clearQueue").addEventListener("click", () => {
     // Clearing Up Next should not interrupt the episode currently on screen.
     const old = state.queue.splice(state.current + 1);

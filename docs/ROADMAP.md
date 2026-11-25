@@ -16,6 +16,14 @@
 - Escape, fullscreen button, and OS window events synchronize the button/overlay state.
 - One-time Linux GUI test must exercise native enter, exit, double-click and Escape through the built executable before declaring this fix accepted.
 
+## November 24, 2026: automatic playback and application icon
+- `Open files` starts the first new media selection automatically if the player is not currently playing. If a movie is already playing, new selections are added to Up Next without interrupting it.
+- `+ Add files` is explicitly queue-only, including when no movie is selected or playback is paused.
+- Opening several files starts only the first; automatic next-file playback, watched-item retention, and restore-last-file-paused remain unchanged.
+- The standalone launcher registers `dk-kinehall.desktop` in the user's XDG applications directory on first run. It points at the existing approved DK Kinehall PNG icon and executable; Linux window WM_CLASS / desktop identity match it for the Ubuntu dock.
+- When available, GNOME Files/GIO also assigns that icon as the executable file's per-file custom icon on first launch. This file-manager metadata cannot be delivered pre-set inside a normal GitHub ZIP.
+- Rebuild the single root executable with the unchanged web UI and verify the exact playback/queue behavior under Electron plus Go launcher, then remove the one-time workflow.
+
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.
 - Original golden emblem, Open files, Restore last file and drag-and-drop, with a local-file-only welcome sentence.

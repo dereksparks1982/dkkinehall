@@ -40,3 +40,19 @@ privileges. The desktop host disables Node.js in the renderer, limits page
 navigation to the local player and routes HTTPS external links to the system
 browser. It is a **local media player**, not a general-purpose web browser.
 A future portable sandbox solution would improve defense in depth.
+
+## DK Kinehall application icon
+
+The original artwork is at `docs/icons/dk-media-player-512.png`. On the
+first standalone launch, the executable registers a user-local XDG
+`dk-kinehall.desktop` application entry pointing to the executable and
+original icon. Electron sets its Linux desktop name to match the entry so
+the dock shows the Kinehall icon rather than a generic gear. GNOME Files
+can display the same image on the executable after the launcher assigns
+its custom-icon metadata through GIO (when supported). The GitHub ZIP
+cannot transport user-specific GNOME file metadata, so that per-file icon
+is established on first launch, not before it.
+
+No administrator permissions, additional program downloads, or separate
+installer are required. The launcher continues to work if these optional
+icon-registration facilities are unavailable.

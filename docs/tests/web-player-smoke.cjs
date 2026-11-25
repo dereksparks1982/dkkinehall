@@ -10,8 +10,8 @@ const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
 new Function(js);
 assert.match(js, /screen\.addEventListener\("dblclick"/);
 assert.match(js, /const toggleFullscreen = async/);
-assert.match(js, /await openLocalFiles\(false\)/);
-assert.match(js, /state\.restorePickerPending/);
+assert.match(js, /await openLocalFiles\("restore"\)/);
+assert.match(js, /state\.pendingPickerMode/);
 assert.match(js, /"temporary-file"/);
 assert.doesNotMatch(js, /createMediaElementSource|createGain|AudioContext|enableAudioBoost|volumeGain/);
 assert.match(js, /media\.volume = volumePercent \/ 100/);
@@ -164,3 +164,13 @@ assert.match(artUI, /enabled=true,token=""/);
 assert.match(html, /Choose a video or music file from this device\./);
 assert.doesNotMatch(html, /data-nav=|id="page-library"|id="page-help"|id="urlForm"|Private local playback/);
 assert.doesNotMatch(js, /byId\("urlForm"\)|byId\("clearLibrary"\)|renderLibrary\(/);
+
+/* Open files auto-plays when idle; Up Next never interrupts; Restore stays paused. */
+assert.match(html, /src="\.\/queue-autoplay\.js\?/);
+assert.match(js, /DKQueueAutoplay\.plan\(mode, state\.current, state\.queue\.length, playing\)/);
+assert.match(js, /state\.queue\.splice\(plan\.insertAt, 0, \.\.\.newItems\)/);
+assert.match(js, /if \(plan\.activate\) load\(plan\.insertAt, plan\.autoplay\)/);
+assert.match(js, /openLocalFiles\("queue"\)/);
+assert.match(js, /openLocalFiles\("open"\)/);
+assert.match(js, /openLocalFiles\("restore"\)/);
+require("./queue-autoplay.cjs");

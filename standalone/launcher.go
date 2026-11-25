@@ -9,7 +9,9 @@ import (
   "errors"
   "fmt"
   "io"
+  "net/url"
   "os"
+  "os/exec"
   "path/filepath"
   "sort"
   "strings"
@@ -109,10 +111,53 @@ func unpack(base string) (string, error) {
   return binary, nil
 }
 
+// Provide GNOME with an application icon and a dock launcher without an
+// installer, elevated privileges, or an extra download. The ELF remains the
+// same direct, double-clickable application in the repository root.
+func registerDesktopIcon(executable string) {
+  base := filepath.Dir(executable)
+  icon := filepath.Join(base, "docs", "icons", "dk-media-player-512.png")
+  if stat, err := os.Stat(icon); err != nil || !stat.Mode().IsRegular() { return }
+  home, err := os.UserHomeDir()
+  if err != nil { return }
+  dataHome := os.Getenv("XDG_DATA_HOME")
+  if dataHome == "" || !filepath.IsAbs(dataHome) {
+    dataHome = filepath.Join(home, ".local", "share")
+  }
+  appDir := filepath.Join(dataHome, "applications")
+  if err := os.MkdirAll(appDir, 0700); err == nil {
+    // The application ID and WM_CLASS must match the desktop entry filename.
+    // Shell metacharacters in an executable path must remain quoted.
+    escaped := strings.NewReplacer("\\", "\\\\", "\"", "\\\"", "$", "\\$", "%", "%%").Replace(executable)
+    entry := "[Desktop Entry]\n" +
+      "Type=Application\n" +
+      "Name=DK Kinehall\n" +
+      "Name[ru]=ДК Кинехолл\n" +
+      "Comment=Play local videos and music\n" +
+      "Exec=\"" + escaped + "\"\n" +
+      "Icon=" + icon + "\n" +
+      "Terminal=false\n" +
+      "StartupNotify=true\n" +
+      "StartupWMClass=dk-kinehall\n" +
+      "Categories=AudioVideo;Video;Player;\n"
+    path := filepath.Join(appDir, "dk-kinehall.desktop")
+    _ = os.WriteFile(path, []byte(entry), 0644)
+  }
+  // GNOME Files/Nautilus displays an ELF as a gear unless its per-file icon
+  // metadata has been set. This optional operation runs on first launch and
+  // does not require any installation, root privileges or internet access.
+  if gio, err := exec.LookPath("gio"); err == nil {
+    iconURI := (&url.URL{Scheme:"file", Path:icon}).String()
+    command := exec.Command(gio, "set", "-t", "string", executable, "metadata::custom-icon", iconURI)
+    _ = command.Run()
+  }
+}
+
 func main() {
   executable, err := os.Executable()
   if err != nil { fmt.Fprintln(os.Stderr, "DK Kinehall:", err); os.Exit(1) }
   base := filepath.Dir(executable)
+  registerDesktopIcon(executable)
   runtime, err := unpack(base)
   if err != nil {
     fmt.Fprintln(os.Stderr, "DK Kinehall could not start:", err)

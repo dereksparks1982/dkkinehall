@@ -18,11 +18,20 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Audio tracks.** Choose browser-accessible audio tracks. Some MKV AAC and Opus streams can also be selected using Chromium's WebCodecs support, depending on codec availability.
 - **English and Russian.** Switch the interface between English and Русский.
 
+## Automatic playback and Up Next
+
+- **Open files** starts the first selected movie immediately when nothing is playing. Additional selected files wait in Up Next.
+- **+ Add files** always queues the selection and never interrupts playback. It does not start a movie automatically when the player is idle.
+- Opening a movie while one is already playing adds it to Up Next without interrupting that movie.
+- The next queued movie plays when the current movie finishes.
+- **Restore last file** reopens the saved movie and leaves it paused at its remembered position.
+- The web and standalone versions use this same player code.
+
 ## Getting started
 
 1. Open **[DK Kinehall](https://dereksparks1982.github.io/dkkinehall/)** in Chromium or DK NetNav.
 2. Select **Open files**, or drag your media files onto the player.
-3. Choose an item from **Up Next** to play it.
+3. The first opened movie plays automatically. Use **+ Add files** to queue others without interrupting it.
 4. Right-click the video for subtitles, audio tracks, playback speed, picture options, and media information.
 
 The player uses local media files, not direct streaming links. Playback depends on the codecs available in your Chromium installation. Some MKV audio and subtitle formats may not be supported.

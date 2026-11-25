@@ -81,6 +81,7 @@ function showImage(box,art,requestedGeneration,source="provider"){
       const provider=locale(art.provider==="TVmaze"?"TVmaze":art.provider,
         art.provider==="TVmaze"?"ТВмейз":
         art.provider==="Apple"?"Эппл":
+        art.provider==="Cinemeta"?"Синемета":
         art.provider==="TMDb"?"ТМДБ":"Источник");
       status(box,provider+": "+locale(art.title||"Artwork","Изображение"),"loaded");
     }

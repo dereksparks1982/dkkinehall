@@ -170,6 +170,7 @@ assert.match(js,/li\.dkQueueItem = item/);
 assert.match(css,/data-artwork-type="movie"/);
 assert.match(metaSource,/pickAppleMovie/);
 assert.match(metaSource,/appleJSONP/);
+assert.match(metaSource,/pickCinemetaMovie/);
 assert.match(html, /Choose a video or music file from this device\./);
 assert.doesNotMatch(html, /data-nav=|id="page-library"|id="page-help"|id="urlForm"|Private local playback/);
 assert.doesNotMatch(js, /byId\("urlForm"\)|byId\("clearLibrary"\)|renderLibrary\(/);

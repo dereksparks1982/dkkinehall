@@ -13,6 +13,7 @@
  const TV="https://api.tvmaze.com";
  const TM="https://api.themoviedb.org/3";
  const APPLE="https://itunes.apple.com/search";
+ const CINEMETA="https://v3-cinemeta.strem.io";
  const MAX_BODY=3*1024*1024;
  function normalize(value){
    return String(value||"").normalize("NFKD")
@@ -75,9 +76,11 @@
      const parsed=new URL(url);
      const hosts=provider==="TVmaze"?["static.tvmaze.com","images.tvmaze.com"]:
        provider==="TMDb"?["image.tmdb.org"]:[];
+     const cinema=provider==="Cinemeta" &&
+       parsed.hostname==="images.metahub.space";
      const apple=provider==="Apple" &&
        /^(?:is\d+-ssl|a\d+|is\d+)\.mzstatic\.com$/.test(parsed.hostname);
-     return parsed.protocol==="https:"&&(hosts.includes(parsed.hostname)||apple)?
+     return parsed.protocol==="https:"&&(hosts.includes(parsed.hostname)||apple||cinema)?
        parsed.href:null;
    }catch(_){return null;}
  }
@@ -87,7 +90,8 @@
      const parsed=new URL(url);
      const hosts=provider==="TVmaze"?["www.tvmaze.com","tvmaze.com"]:
        provider==="TMDb"?["www.themoviedb.org","themoviedb.org"]:
-       provider==="Apple"?["itunes.apple.com","tv.apple.com"]:[];
+       provider==="Apple"?["itunes.apple.com","tv.apple.com"]:
+       provider==="Cinemeta"?["www.imdb.com"]:[];
      return parsed.protocol==="https:"&&hosts.includes(parsed.hostname)?parsed.href:null;
    }catch(_){return null;}
  }
@@ -148,12 +152,27 @@
      title:chosen.trackName||info.title,provider:"Apple",
      credit:allowedCredit(chosen.trackViewUrl,"Apple")||"https://itunes.apple.com"};
  }
+ function pickCinemetaMovie(info,metas){
+   const title=normalize(info.title);
+   const matches=(Array.isArray(metas)?metas:[]).filter(row=>
+     row&&normalize(row.name||"")===title &&
+     allowedImage(row.poster,"Cinemeta"));
+   const year=Number(info.year)||null;
+   const sameYear=year?matches.filter(row=>String(row.year||"")===String(year)):[];
+   const chosen=year?(sameYear[0]||(
+     matches.length===1&&!matches[0].year?matches[0]:null)):matches[0];
+   if(!chosen)return null;
+   const id=/^tt\d{6,11}$/.test(String(chosen.id||""))?chosen.id:null;
+   return {type:"movie",still:allowedImage(chosen.poster,"Cinemeta"),
+     series:null,title:chosen.name||info.title,provider:"Cinemeta",
+     credit:id?"https://www.imdb.com/title/"+id+"/":null};
+ }
  function create({fetchJSON=typeof fetch==="function"?fetch.bind(globalThis):null,
                   selectImage=null,token=()=>"",enabled=()=>true,
                   appleSearch=typeof document!=="undefined"?appleJSONP:null,
                   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){
    const searchTV=new Map(),episodesTV=new Map();
-   const searchTM=new Map(),searchApple=new Map();
+   const searchTM=new Map(),searchApple=new Map(),searchCinema=new Map();
    let appleGate=Promise.resolve(),lastAppleRequest=0;
    const queuedApple = url => {
      const task=appleGate.catch(()=>{}).then(async()=>{
@@ -273,6 +292,29 @@
        credit:"https://www.themoviedb.org/tv/"+found.id+
          "/season/"+info.season+"/episode/"+info.episode};
    }
+   async function cinemetaMovie(info){
+     const key=normalize(info.title)+":"+(info.year||"");
+     if(!searchCinema.has(key)){
+       const url=CINEMETA+"/catalog/movie/top/search="+
+         encodeURIComponent(info.title)+".json";
+       searchCinema.set(key,(async()=>{
+         if(!fetchJSON)return null;
+         const controller=typeof AbortController==="function"?new AbortController():null;
+         const timer=controller?setTimeout(()=>controller.abort(),8500):null;
+         try {
+           const response=await fetchJSON(url,{method:"GET",mode:"cors",
+             credentials:"omit",...(controller?{signal:controller.signal}:{})});
+           if(!response?.ok)return null;
+           const data=typeof response.json==="function"?
+             await response.json():typeof response.text==="function"?
+             JSON.parse(await response.text()):null;
+           return pickCinemetaMovie(info,data?.metas);
+         }catch(_){return null;}
+         finally{if(timer)clearTimeout(timer);}
+       })());
+     }
+     return searchCinema.get(key);
+   }
    async function appleMovie(info){
      const key=normalize(info.title)+":"+(info.year||"");
      if(!searchApple.has(key)){
@@ -319,7 +361,7 @@
        // Prefer a configured TMDb movie poster where available, otherwise
        // use the keyless Apple catalog instead of hiding all movie artwork.
        const tm=token()?await tmdbMovie(info):null;
-       return choose(tm||await appleMovie(info));
+       return choose(tm||await cinemetaMovie(info)||await appleMovie(info));
      }
      const tv=await tvEpisode(info);
      if(tv?.still)return choose({...tv,type:"episode"});
@@ -332,9 +374,9 @@
      return choose(tv?{...tv,type:"episode"}:null);
    }
    function clear(){
-     searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();
+     searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();searchCinema.clear();
    }
    return {find,clear};
  }
- return {normalize,parseFilename,findExact,findShow,allowedImage,allowedCredit,applePoster,pickAppleMovie,create};
+ return {normalize,parseFilename,findExact,findShow,allowedImage,allowedCredit,applePoster,pickAppleMovie,pickCinemetaMovie,create};
 });

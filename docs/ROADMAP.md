@@ -43,7 +43,7 @@
 
 ## Movie poster and episode still repair (November 2026)
 - Root cause: `metadata-ui.js` had a branch that skipped **every movie file**, while `episode-metadata.js` required an optional TMDb token for movie lookup. The shipped interface supplied no token, so movies could never display online posters.
-- Remove the episode-only restriction and add keyless, automatically requested movie artwork from the public Apple movie catalog. Match normalized titles and release years; do not display unrelated posters for ambiguous remakes. Retain TVmaze still-first lookup and series poster fallback for episodes.
+- Remove the episode-only restriction and add keyless, automatically requested movie artwork from the public Cinemeta and Apple movie catalogs. Match normalized titles and release years; do not display unrelated posters for ambiguous remakes. Retain TVmaze still-first lookup and series poster fallback for episodes.
 - Use original approved Matroska cover attachments when present, and local muted video-frame previews if a public poster is unavailable; label those as local previews, not as posters. Limit concurrent decoding and only process relevant visible queue entries. Never upload full files or local paths.
 - Reattach actual artwork images when the queue is rerendered; retain recently verified remote artwork **URLs only** across sessions. Retry bad image links and temporary failures. Do not persist remote image bytes.
 - Preserve the existing Up Next card width and height. Show portrait posters without cutting off film titles; TV episode stills continue to fill the rectangular area.

@@ -10,7 +10,7 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 
 - **Play your own files.** Open local videos and music, choose a remembered folder, or drag files into the player. Media files remain on your device.
 - **Up Next queue.** Organize videos, move between episodes, keep watched items in the list, and remove entries when you choose.
-- **Movie posters and episode artwork.** Automatically find film posters through the keyless Apple movie catalog and episode stills through TVmaze; use series artwork, embedded MKV cover art, or local video frames when preferred artwork is unavailable. No personal API token required.
+- **Movie posters and episode artwork.** Automatically find film posters through the keyless Cinemeta and Apple movie catalogs and episode stills through TVmaze; use series artwork, embedded MKV cover art, or local video frames when preferred artwork is unavailable. No personal API token required.
 - **Playback controls.** Play, pause, stop, previous, next, 10-second rewind and forward, timeline seeking, volume, mute, playback speed, fullscreen, and picture-in-picture.
 - **Preview the timeline.** Hover over the progress bar to preview a scene when the video format allows it.
 - **Resume watching.** Remember playback position and, where Chromium permissions allow, reopen your last selected local file.
@@ -23,7 +23,7 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 
 Older versions intentionally skipped movie artwork entirely unless a private
 TMDb token was configured. This defect is fixed. For recognized movie names,
-Kinehall requests the matching movie poster from the Apple catalog without
+Kinehall requests a matching movie poster from Cinemeta, then the Apple catalog if needed, without
 requiring user credentials. Matching requires the actual title and, when
 available, its release year to avoid confusing remakes. Television episodes
 prefer verified TVmaze episode stills, falling back to series art.

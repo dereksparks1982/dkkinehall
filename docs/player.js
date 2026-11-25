@@ -58,18 +58,22 @@
   const playbackSettings = {
     format: validPlaybackFormats.includes(savedPlayback?.format) ? savedPlayback.format : "auto",
     hardware: savedPlayback?.hardware !== false,
-    remember: savedPlayback?.remember !== false
+    remember: savedPlayback?.remember !== false,
+    removeWatched: savedPlayback?.removeWatched !== false
   };
   const playbackFormatInput = byId("playbackFormat");
   const hardwareInput = byId("playbackHardware");
   const rememberInput = byId("playbackRemember");
+  const removeWatchedInput = byId("removeWatched");
   playbackFormatInput.value = playbackSettings.format;
   hardwareInput.checked = playbackSettings.hardware;
   rememberInput.checked = playbackSettings.remember;
+  removeWatchedInput.checked = playbackSettings.removeWatched;
   const updatePlaybackSettings = () => {
     playbackSettings.format = playbackFormatInput.value;
     playbackSettings.hardware = hardwareInput.checked;
     playbackSettings.remember = rememberInput.checked;
+    playbackSettings.removeWatched = removeWatchedInput.checked;
     try {
       if (playbackSettings.remember) write(store.playbackSettings, playbackSettings);
       else localStorage.removeItem(store.playbackSettings);
@@ -78,7 +82,7 @@
       ? "Original playback skips remuxing. Changes apply to the next opened file."
       : "MP4/WebM require compatible codecs; full transcoding and GPU switching are not implemented. Changes apply to the next opened file.";
   };
-  for (const control of [playbackFormatInput,hardwareInput,rememberInput])
+  for (const control of [playbackFormatInput,hardwareInput,rememberInput,removeWatchedInput])
     control.addEventListener("change",updatePlaybackSettings);
   const current = () => state.queue[state.current] || null;
 
@@ -461,8 +465,8 @@
   const renderQueue = () => {
     if (queueHover) queueHover.stop();
     queueView.replaceChildren();
-    // Preserve the full play history. The red current-item marker advances
-    // when an episode ends; watched items remain until manually removed.
+    // Keep queued items in their selected order. Finished entries can be
+    // automatically removed by the queue lifecycle preference.
     const pending = state.queue;
     byId("queueCount").textContent = pending.length ? pending.length + (pending.length === 1 ? " item" : " items") : "";
     pending.forEach((item, index) => {
@@ -1176,8 +1180,29 @@
     media.textTracks.addEventListener("removetrack", () => setTimeout(applySubtitlePreference, 0));
   }
   media.addEventListener("ended", () => {
+    const completed = current();
+    if (!completed) return;
     rememberPosition();
-    if (state.current < state.queue.length - 1) load(state.current + 1);
+    // A completed movie has no unfinished position to resume.
+    delete state.resume[completed.key];
+    write(store.resume, state.resume);
+    if (playbackSettings.removeWatched) {
+      const previousIndex = state.current;
+      state.queue.splice(previousIndex, 1);
+      // Detach the completed source before revoking the old object URL.
+      // Preserve the order of remaining movies; never replay past items.
+      state.current = -1;
+      if (previousIndex < state.queue.length) load(previousIndex, true);
+      else idle();
+      releaseArtwork(completed);
+      releaseCompatible(completed);
+      if (completed.kind === "file") URL.revokeObjectURL(completed.src);
+    } else if (state.current < state.queue.length - 1) {
+      load(state.current + 1, true);
+    } else {
+      updateButtons();
+      renderQueue();
+    }
   });
   media.addEventListener("error", () => {
     if (!current() || !media.error) return;

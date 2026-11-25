@@ -29,9 +29,10 @@ codec initialization records, durations and keyframe indexes without
 re-encoding, downloading codecs, or changing the original file. This uses
 the same HTML5 video player in both the browser and standalone editions.
 
-This initial implementation is deliberately restricted to **AVC without
-B-frame reordering**, ordinary AAC streams, no additional subtitle or
-audio tracks and files up to 1 GiB, with up to 130,000 samples per track.
+Build 6 originally required **AVC without B-frame reordering**, one AAC
+track and no extra tracks, with files up to 1 GiB and up to 130,000 samples
+per track. **Build 11** now allows additional source subtitle/audio tracks
+and video-only MKVs, while retaining the B-frame and size limits.
 More complex multi-audio, B-frame, large-file, and HEVC MKVs still require
 further work. When remuxing is not supported or Chromium lacks the codec,
 Kinehall leaves the original item alone and displays the limitation.
@@ -176,6 +177,24 @@ Add a **Playback Format** setting in the existing player settings, shared by the
 - Investigate an appropriate locally bundled transcoding backend (e.g., FFmpeg) for the standalone player. The web edition must truthfully handle browser sandbox limitations; do not promise support where browser APIs and bundled codecs cannot provide it.
 - Preserve play/pause, seeking, subtitles, audio selection, fullscreen, and Up Next behavior wherever the selected playback pipeline supports those features.
 - Treat this as **roadmap only** until an explicit build instruction. No feature implementation, compilation, tests, or downloadable package is authorized by this entry.
+
+## Build 11: more useful H.264 MKV to MP4 remuxing
+
+The existing bounded, lossless MP4 remuxer can now accept an MKV with
+one H.264 video track even when the source has **additional subtitle and
+audio tracks**. It picks the first compatible AAC soundtrack to copy,
+or produces a silent video-only MP4 if the source has no audio track.
+
+- Extra source tracks are **not copied into the MP4**. The source MKV
+  remains unchanged, and the player's original-MKV subtitle and audio
+  extractors can still access tracks directly from the original file
+  where independently supported.
+- Media Information reports which AAC track was copied, whether no
+  soundtrack was included, and how many original MKV tracks were
+  omitted from the MP4.
+- Files containing audio but **no AAC soundtrack** still require a
+  genuine audio transcoder. B-frame AVC, codecs requiring re-encoding,
+  and existing size/sample-count limits remain unsupported.
 
 ## Build 10: local poster and episode artwork from selected folders
 

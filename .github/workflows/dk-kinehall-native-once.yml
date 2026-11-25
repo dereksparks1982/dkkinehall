@@ -1,4 +1,5 @@
 name: One-time DK Kinehall native Linux executable
+# Retry 2 after fixing libmpv OpenGL initialization and subtitle menu action.
 on:
   push:
     branches: [main]

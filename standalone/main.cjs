@@ -154,6 +154,12 @@ function openWindow() {
         if (!folderState || folderState.passed !== true)
           throw new Error("Persistent media-folder test did not pass");
         console.log("DK_KINEHALL_FOLDER_ACCESS_PASS", JSON.stringify(folderState));
+        const codecTest = require("node:fs").readFileSync(
+          path.join(__dirname, "codec-smoke.js"), "utf8");
+        const codecState = await win.webContents.executeJavaScript(codecTest);
+        if (!codecState || codecState.passed !== true)
+          throw new Error("MKV codec/subtitle smoke test did not pass");
+        console.log("DK_KINEHALL_MKV_CODECS_PASS", JSON.stringify(codecState));
         app.exit(0);
       } catch (error) {
         console.error("DK_KINEHALL_SMOKE_FAILED", String(error));

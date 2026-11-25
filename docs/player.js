@@ -13,6 +13,7 @@
     lastMedia: "dkmedia.web.last-media.v1",
     subtitlePreference: "dkmedia.web.subtitle-preference.v1",
     audioPreferences: "dkmedia.web.audio-preferences.v1",
+    embeddedSubtitlePreferences: "dkmedia.web.mkv-subtitle-preferences.v1",
     folderName: "dkmedia.web.folder-name.v1"
   };
   const read = (key, fallback) => {
@@ -32,12 +33,16 @@
     subtitleObject: null, subtitleNode: null, lastResumeSave: 0,
     subtitleEpoch: 0, mkvSubtitleAbort: null, mkvSubtitlePending: false,
     activeEmbeddedTrack: null,
-    activePgsTrack: null, pgsEvents: null, pgsLastFrame: null,
+    activePgsTrack: null, pgsEvents: null, pgsLastFrame: null, subtitleRenderer: null,
     restoreHandle: null, pendingPickerMode: "open", stopped: false,
     folderHandle: null, folderScanVersion: 0, folderName: read("dkmedia.web.folder-name.v1", ""),
     audioPreferences: (() => {
       const saved = read(store.audioPreferences, {});
       return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    })(),
+    embeddedSubtitlePreferences: (() => {
+      const saved = read(store.embeddedSubtitlePreferences,{});
+      return saved && typeof saved==="object" && !Array.isArray(saved)?saved:{};
     })(),
     subtitlePreference: (() => {
       const pref = read(store.subtitlePreference, {mode: "off"});
@@ -154,7 +159,8 @@
     const detected = item && item.embeddedSubtitles ? item.embeddedSubtitles.length : 0;
     byId("subtitleLabel").textContent = state.mkvSubtitlePending ?
       "Reading embedded MKV subtitles…" : state.activePgsTrack ?
-      "Subtitles: " + state.activePgsTrack.label + " · PGS" : showing ?
+      "Subtitles: " + state.activePgsTrack.label + " · " +
+        (state.activePgsTrack.codec || "PGS") : showing ?
       "Subtitles: " + (showing.label || showing.language || "On") :
       detected ? "Subtitles off · " + detected + " embedded MKV track" +
         (detected === 1 ? "" : "s") + " found" : "Subtitles off";
@@ -206,14 +212,14 @@
     } else pgsCanvas.style.clipPath = "none";
   };
   const syncPgsOverlay = () => {
-    const api = window.DKPGS, events = state.pgsEvents;
+    const api = state.subtitleRenderer || window.DKPGS, events = state.pgsEvents;
     if (!pgsCanvas || !api || !state.activePgsTrack || !events ||
         !current() || state.stopped || screen.classList.contains("empty")) {
       if (pgsCanvas) pgsCanvas.hidden = true;
       return;
     }
     const frame = api.frameAt(events,media.currentTime);
-    if (!frame || !frame.regions.length) { pgsCanvas.hidden = true; return; }
+    if (!frame || (frame.regions && !frame.regions.length)) { pgsCanvas.hidden = true; return; }
     try {
       if (state.pgsLastFrame !== frame) {
         api.render(pgsCanvas,frame);
@@ -236,6 +242,7 @@
     state.mkvSubtitlePending = false;
     state.activeEmbeddedTrack = null;
     state.activePgsTrack = null;
+    state.subtitleRenderer = null;
     state.pgsEvents = null;
     state.pgsLastFrame = null;
     if (pgsCanvas) {
@@ -264,6 +271,16 @@
     node.addEventListener("error", () => status("The browser couldn't display this subtitle track."), {once: true});
     applySubtitlePreference();
   };
+  const rememberEmbeddedSubtitle = track => {
+    const item = current();
+    if (!item || !track) return;
+    state.embeddedSubtitlePreferences[item.key] = {number:track.number};
+    const keys = Object.keys(state.embeddedSubtitlePreferences);
+    if (keys.length > 120)
+      keys.slice(0,keys.length-120).forEach(key =>
+        delete state.embeddedSubtitlePreferences[key]);
+    write(store.embeddedSubtitlePreferences,state.embeddedSubtitlePreferences);
+  };
   const loadEmbeddedTrack = async track => {
     const item = current();
     if (!item || !item.file || !window.DKMkvSubtitles ||
@@ -282,6 +299,7 @@
           current() !== item) return;
       const label = (track.name || track.language || "Subtitle " + track.number) + " · MKV";
       installSubtitleVTT(result.vtt, label, track.language, track.number);
+      rememberEmbeddedSubtitle(track);
       status("Embedded MKV text subtitles loaded. Video playback still depends on browser codecs.", true);
     } catch (error) {
       if (controller.signal.aborted || epoch !== state.subtitleEpoch ||
@@ -313,10 +331,12 @@
       state.mkvSubtitleAbort = null;
       state.mkvSubtitlePending = false;
       state.pgsEvents = result.events;
+      state.subtitleRenderer = window.DKPGS;
       state.activePgsTrack = {
-        number:track.number,label:track.name || track.language || "PGS"
+        number:track.number,label:track.name || track.language || "PGS",codec:"PGS"
       };
       state.pgsLastFrame = null;
+      rememberEmbeddedSubtitle(track);
       updateSubtitleStatus();
       syncPgsOverlay();
       status("PGS subtitles loaded locally. Video still needs a supported browser codec.",true);
@@ -329,6 +349,57 @@
       status("Couldn't read PGS subtitles: " +
         (error && error.message ? error.message : "Unknown format"));
     }
+  };
+  const loadVobSubTrack = async track => {
+    const item = current();
+    if (!item?.file || !window.DKVobSub?.canRender(track.codec)) return;
+    clearSubtitles();
+    chooseSubtitleTrack(null);
+    const epoch = state.subtitleEpoch;
+    const controller = new AbortController();
+    state.mkvSubtitleAbort = controller;
+    state.mkvSubtitlePending = true;
+    updateSubtitleStatus();
+    status("Reading embedded VobSub graphics…");
+    try {
+      const result = await window.DKVobSub.extract(item.file,track,
+        {signal:controller.signal});
+      if (controller.signal.aborted || epoch !== state.subtitleEpoch ||
+          current() !== item) return;
+      state.mkvSubtitleAbort = null;
+      state.mkvSubtitlePending = false;
+      state.pgsEvents = result.events;
+      state.subtitleRenderer = window.DKVobSub;
+      state.activePgsTrack = {
+        number:track.number,label:track.name || track.language || "VobSub",
+        codec:"VobSub"
+      };
+      state.pgsLastFrame = null;
+      rememberEmbeddedSubtitle(track);
+      updateSubtitleStatus();
+      syncPgsOverlay();
+      status("Embedded VobSub subtitles loaded locally.",true);
+    } catch (error) {
+      if (controller.signal.aborted || epoch !== state.subtitleEpoch ||
+          current() !== item) return;
+      state.mkvSubtitleAbort = null;
+      state.mkvSubtitlePending = false;
+      updateSubtitleStatus();
+      status("Couldn't decode VobSub subtitles: " +
+        (error?.message || "Unsupported packet"));
+    }
+  };
+  const restoreEmbeddedSubtitlePreference = item => {
+    if (!item || item !== current() || state.mkvSubtitlePending ||
+        state.activePgsTrack || state.activeEmbeddedTrack !== null) return;
+    const saved = state.embeddedSubtitlePreferences[item.key];
+    if (!saved || !Number.isInteger(saved.number)) return;
+    const track = (item.embeddedSubtitles || []).find(t => t.number === saved.number);
+    if (!track) return;
+    if (window.DKPGS?.canRender(track.codec)) void loadPgsTrack(track);
+    else if (window.DKVobSub?.canRender(track.codec)) void loadVobSubTrack(track);
+    else if (window.DKMkvSubtitles?.canExtract(track.codec))
+      void loadEmbeddedTrack(track);
   };
   const updateButtons = () => {
     const item = current();
@@ -472,6 +543,8 @@
     renderQueue();
     updateTime();
     status("");
+    if (item.embeddedSubtitles?.length)
+      queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
     if (autoplay) playCurrent();
   };
   const removeItem = index => {
@@ -513,7 +586,7 @@
           item.embeddedSubtitles = result.tracks || [];
           item.embeddedAudio = result.audioTracks || [];
           item.mkvInspection = result.truncated ? "partial" : "complete";
-          if (current() === item) { updateSubtitleStatus(); restoreAudioPreference(); }
+          if (current() === item) { updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item); }
         }).catch(() => {
           item.mkvInspection = "unavailable";
           if (current() === item) updateSubtitleStatus();
@@ -935,7 +1008,11 @@
   media.addEventListener("loadeddata", applySubtitlePreference);
   // Register lazily: restoreAudioPreference is defined later in this module.
   media.addEventListener("loadeddata", () => restoreAudioPreference());
-  media.addEventListener("seeking", () => { if (mkvAudio) mkvAudio.restart(); });
+  // Stop old buffered audio during a seek. Re-prime after the media
+  // element reaches its final destination, avoiding repeated decode
+  // restarts while the user drags the timeline.
+  media.addEventListener("seeking", () => { if (mkvAudio) mkvAudio.hold(); });
+  media.addEventListener("seeked", () => { if (mkvAudio) mkvAudio.restart(); });
   media.addEventListener("ratechange", () => { if (mkvAudio) mkvAudio.restart(); });
   if (media.audioTracks && typeof media.audioTracks.addEventListener === "function") {
     // Audio tracks can become available after the metadata event.
@@ -1230,6 +1307,11 @@
       selectAudioTrack(target,false);
   };
   const switchSubtitles = index => {
+    const item = current();
+    if (item && state.embeddedSubtitlePreferences[item.key]) {
+      delete state.embeddedSubtitlePreferences[item.key];
+      write(store.embeddedSubtitlePreferences,state.embeddedSubtitlePreferences);
+    }
     const selected = index >= 0 ? subtitleTracks()[index] || null : null;
     if (state.mkvSubtitlePending || state.activePgsTrack ||
         (state.subtitleNode && (!selected || selected !== state.subtitleNode.track)))
@@ -1267,7 +1349,8 @@
           const text = !!(window.DKMkvSubtitles &&
             window.DKMkvSubtitles.canExtract(track.codec));
           const pgs = !!(window.DKPGS && window.DKPGS.canRender(track.codec));
-          const supported = text || pgs;
+          const vobsub = !!(window.DKVobSub && window.DKVobSub.canRender(track.codec));
+          const supported = text || pgs || vobsub;
           const selected = state.activePgsTrack ?
             state.activePgsTrack.number === track.number :
             state.activeEmbeddedTrack === track.number &&
@@ -1275,9 +1358,11 @@
               t === state.subtitleNode.track);
           addMenuItem(name + " · " + track.codec +
             (supported ? "" : " · Codec unsupported"),
-            () => { if (pgs) void loadPgsTrack(track); else void loadEmbeddedTrack(track); },
+            () => { if (pgs) void loadPgsTrack(track);
+              else if (vobsub) void loadVobSubTrack(track);
+              else void loadEmbeddedTrack(track); },
             {checked: supported ? selected : undefined, disabled: !supported,
-              reason: "This subtitle codec still requires a decoder (for example VobSub)."});
+              reason: "This subtitle codec is not yet supported by the player."});
         });
       } else if (item.mkvInspection === "pending") {
         addMenuItem("Checking MKV subtitle tracks…", () => {}, {disabled: true});

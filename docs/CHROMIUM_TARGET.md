@@ -34,3 +34,14 @@ DK Kinehall is a **Chromium-only** local media player. The primary target is the
   when persistent folder handles are unavailable.
 - The standalone edition uses the same Chromium APIs and source files, not
   an independent media library implementation.
+
+## Build 3 codec availability
+
+- MKV metadata inspection is not evidence that media can be decoded.
+- AAC/Opus track switching depends on Chromium's WebCodecs decoder availability
+  and actual Matroska codec headers. The selected audio must start a real
+  decoding path, and failures must be displayed without faking selection.
+- PGS and basic DVD VobSub bitmap subtitle packets render on the same local
+  canvas as video. The VobSub palette and frame size come from Matroska's
+  CodecPrivate data. Unsupported DVD commands must show an error.
+- Preserve the source player interface and native Chromium playback.

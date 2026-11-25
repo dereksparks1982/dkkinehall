@@ -69,3 +69,11 @@ folder** to ask for access again. The user can remove the saved handle with
 
 The directory picker is user-initiated and local. There is a one-session
 `webkitdirectory` fallback for contexts that cannot retain directory handles.
+
+## Local embedded codecs
+
+The standalone bundles the same player code as the web edition, including
+its local PGS and basic VobSub subtitle decoders and AAC/Opus WebCodecs
+fallback. No separate VLC, DLL, codec installation, or download occurs.
+Availability of specific codec profiles varies by the bundled Chromium
+runtime. Unsupported media cannot be made playable by listing track names.

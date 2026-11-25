@@ -33,6 +33,14 @@
 - New tests verify nested scanning, file limits, folder selection, queue noninterruption, re-opening without duplicates, and forgetting access. Automated tests cannot guarantee that a particular user's Chromium/Ubuntu permissions will persist.
 - The approved player appearance, fullscreen, previous autoplay behavior, and red selected-item marker remain unchanged.
 
+## Build 3: MKV embedded audio and subtitles (November 2026)
+- Keep the original common player UI and Chromium-first architecture. No separate standalone player and no system codec installation.
+- Add a packet decoder for basic `S_VOBSUB` DVD subpicture tracks in MKV, using the per-track CodecPrivate IDX palette and DVD subpicture control commands. Render selected subtitles over the video using the existing subtitle canvas. Report unsupported DVD control commands instead of treating a track label as playback.
+- Keep existing `S_HDMV/PGS` rendering and embedded text subtitle selection, with per-file remembered embedded subtitle preferences and subtitles off by default for unseen movies.
+- Harden the AAC/Opus MKV WebCodecs fallback: hold buffered audio while seeking, restart decoding at completed seeks, and re-prime audio after a pause to avoid stale buffered playback; retain native track selection when Chromium exposes it.
+- Include Node tests for AAC/Opus configuration, no-lacing and Xiph/fixed/EBML Matroska block lacing, DVD subpicture RLE/palette and decoder safety limits, MKV private metadata and PGS regressions. Also check WebCodecs capability and subtitle canvas rendering in a Linux Electron window.
+- The fallback does **not** add decoding of unsupported video codecs or all MKV audio profiles. Final sync/codec coverage must be verified using real user movies; do not claim universal Matroska support. Expanded format compatibility remains Build 4.
+
 ## Implemented in web source
 - Single-screen layout with DK Kinehall / ДК Кинехолл branding and English/Russian language selector, without Player/Library/Help navigation.
 - Original golden emblem, Open files, Restore last file and drag-and-drop, with a local-file-only welcome sentence.
@@ -56,7 +64,7 @@
 - Add on-device Matroska AAC/Opus audio demuxing through File slices and Chromium WebCodecs + WebAudio. The menu offers real audio decoding attempts for supported codecs and a return to native audio. Add initial clock-aligned playback, pause, seek, rate-change, volume and cleanup integration.
 - **Not compiled or run:** complete audio synchronization, WebCodecs profiles, laced packets, pause/seek behavior and long-file performance require Surface Pro Chromium testing. Other codecs remain out of scope for this increment.
 
-## Next major feature: format compatibility
+## Next major feature: format compatibility (Build 4)
 - Research and implement an optional client-side decoder/demuxer fallback for media that the host browser cannot play, potentially using a licensed WebAssembly-based codec engine.
 - Preserve Chromium's native playback for supported files, and make decoding limitations and resource costs clear.
 - Next: validate and harden the new WebCodecs AAC/Opus fallback on the Surface Pro, including synchronization, seeking, lacing, codec profiles and performance; then extend decoder coverage. Metadata-only listings do not count as switching.

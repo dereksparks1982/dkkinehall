@@ -12,7 +12,7 @@
   const TRACKS = 0x1654AE6B, ENTRY = 0xAE;
   const TYPE = 0x83, NUMBER = 0xD7, CODEC = 0x86, NAME = 0x536E;
   const LANGUAGE = 0x22B59C, LANGUAGE_IETF = 0x22B59D;
-  const DEFAULT = 0x88, FORCED = 0x55AA, AUDIO = 0xE1;
+  const DEFAULT = 0x88, FORCED = 0x55AA, AUDIO = 0xE1, PRIVATE = 0x63A2;
   const CHANNELS = 0x9F, FREQUENCY = 0xB5, BIT_DEPTH = 0x6264;
   const MAX_SCAN = 8 * 1024 * 1024;
   const vint = (bytes, start, stripMarker) => {
@@ -83,12 +83,13 @@
       children(bytes, from, to, (id, start, end) => {
         if (id !== ENTRY) return;
         const track = {number:0, type:0, codec:"", name:"", language:"",
-          channels:null, sampleRate:null, bitDepth:null, default:true, forced:false};
+          channels:null, sampleRate:null, bitDepth:null, default:true, forced:false, privateData:null};
         children(bytes, start, end, (key, a, b) => {
           if (key === TYPE) track.type = valueOf(bytes,a,b);
           else if (key === NUMBER) track.number = valueOf(bytes,a,b);
           else if (key === CODEC) track.codec = stringOf(bytes,a,b);
           else if (key === NAME) track.name = stringOf(bytes,a,b);
+          else if (key === PRIVATE && b-a<=4096) track.privateData=bytes.slice(a,b);
           else if (key === LANGUAGE) {
             if (!track.language) track.language = stringOf(bytes,a,b);
           } else if (key === LANGUAGE_IETF) track.language = stringOf(bytes,a,b);
@@ -108,7 +109,8 @@
         seen.add(fingerprint);
         const common = {number:track.number,codec:track.codec,name:track.name,
           language:track.language || "und"};
-        if (track.type === 17) subtitles.push(common);
+        if (track.type === 17) subtitles.push({...common,
+          ...(track.codec.toUpperCase()==="S_VOBSUB"?{privateData:track.privateData}:{} )});
         else audioTracks.push({...common,channels:track.channels,sampleRate:track.sampleRate,
           bitDepth:track.bitDepth,default:track.default,forced:track.forced});
       });

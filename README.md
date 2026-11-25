@@ -14,9 +14,29 @@ DK stands for **Дом культуры** (*Dom kultury*, “House of Culture”
 - **Playback controls.** Play, pause, stop, previous, next, 10-second rewind and forward, timeline seeking, volume, mute, playback speed, fullscreen, and picture-in-picture.
 - **Preview the timeline.** Hover over the progress bar to preview a scene when the video format allows it.
 - **Resume watching.** Remember playback position and, where Chromium permissions allow, reopen your last selected local file.
-- **Subtitles.** Load SRT or VTT subtitle files; select supported text and PGS subtitle tracks embedded in MKV files; turn subtitles off from the video menu.
-- **Audio tracks.** Choose browser-accessible audio tracks. Some MKV AAC and Opus streams can also be selected using Chromium's WebCodecs support, depending on codec availability.
+- **Subtitles.** Load SRT/VTT, select supported text, PGS or DVD VobSub tracks embedded in MKV files, and turn subtitles off. New files start with subtitles off; selected embedded tracks can be remembered per file.
+- **Audio tracks.** Switch Chromium-native tracks when exposed, or select supported embedded MKV AAC/Opus tracks using WebCodecs and WebAudio. Playback and synchronization depend on actual codec support.
+- **Embedded bitmap subtitles.** Local PGS and basic DVD VobSub bitmap subtitle decoding in MKV files, with subtitle selection from the existing right-click menu. Unsupported DVD display commands and encodings are reported rather than faked.
 - **English and Russian.** Switch the interface between English and Русский.
+
+## Build 3: MKV audio and subtitle playback
+
+The original right-click playback menu can attempt supported AAC/Opus audio
+track switching in MKV files. WebCodecs support varies by Chromium build and
+codec profile. Selecting a track must start an actual decoder or report a
+specific error; listing track metadata alone is not considered success.
+Audio pause and seek restart decoder scheduling against the video's clock.
+
+For embedded subtitles, Kinehall now reads the Matroska VobSub CodecPrivate
+palette and decodes supported DVD subpicture RLE packets to the same on-video
+subtitle canvas used for PGS. Both types use local files and no internet
+conversion service. Some DVD commands, malformed subtitle streams, codecs
+and configurations remain unsupported. **Subtitles begin off by default**;
+a successfully selected embedded track is remembered per movie and can be
+restored when the file is reopened.
+
+Audio and subtitle decoding are format dependent. The presence of a track
+label never guarantees that the browser can decode the track or video.
 
 ## Remembered media folder
 

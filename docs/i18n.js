@@ -118,6 +118,11 @@
     "Reading embedded PGS graphics…":"Чтение встроенных графических субтитров ПГС…",
     "PGS subtitles loaded locally. Video still needs a supported browser codec.":"Графические субтитры ПГС загружены. Для видео по-прежнему нужен поддерживаемый браузером кодек.",
     "Couldn't display PGS subtitles.":"Не удалось показать субтитры ПГС.",
+    "Reading embedded VobSub graphics…":"Чтение встроенных графических субтитров ВобСаб…",
+    "Embedded VobSub subtitles loaded locally.":"Встроенные субтитры ВобСаб загружены с устройства.",
+    "Couldn't decode VobSub subtitles:":"Не удалось декодировать субтитры ВобСаб:",
+    "This subtitle codec is not yet supported by the player.":"Этот формат субтитров пока не поддерживается проигрывателем.",
+    "VobSub":"ВобСаб",
     "PGS bitmap subtitle track":"Графическая дорожка ПГС",
     "This subtitle codec still requires a decoder (for example VobSub).":"Для этого формата субтитров по-прежнему необходим декодер.",
     "Codec unsupported":"Неподдерживаемый кодек",
@@ -257,6 +262,8 @@
       translated = "Аудиодорожка " + m[1];
     if (translated === null && (m = /^Audio track selected: (.+)$/.exec(plain)))
       translated = "Выбрана аудиодорожка: " + m[1];
+    if (translated === null && (m = /^Couldn't decode VobSub subtitles: (.+)$/.exec(plain)))
+      translated = "Не удалось декодировать субтитры ВобСаб: " + m[1];
     if (translated === null && (m = /^Couldn't read PGS subtitles: (.+)$/.exec(plain)))
       translated = "Не удалось прочитать субтитры ПГС: " + m[1];
     if (translated === null && (m = /^Couldn't read embedded MKV subtitles: (.+)$/.exec(plain)))

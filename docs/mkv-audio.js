@@ -195,7 +195,7 @@
   };
   const create=({media,onError=()=>{},isMuted=()=>false})=>{
     let epoch=0,ctx=null,gain=null,decoder=null,selection=null;
-    let level=1,scheduled=new Set(),recovering=false;
+    let level=1,scheduled=new Set(),recovering=false,pausedAt=0;
     const selectedNumber=()=>selection?selection.track.number:null;
     const active=()=>Boolean(selection&&decoder);
     const setVolume=value=>{
@@ -209,6 +209,7 @@
       if(old){try{old.close();}catch(_){}}
       for(const node of scheduled){try{node.stop();}catch(_){}}
       scheduled.clear();
+      pausedAt=0;
       const previous=ctx;ctx=null;gain=null;
       if(previous)void previous.close().catch(()=>{});
       media.muted=Boolean(isMuted());
@@ -319,14 +320,30 @@
         throw err;
       }
     };
+    const hold=()=>{
+      if(!ctx)return;
+      for(const node of scheduled){try{node.stop();}catch(_){}}
+      scheduled.clear();
+      void ctx.suspend().catch(()=>{});
+    };
     const restart=()=>{
       if(!selection)return;
       const {file,track}=selection;
       void start(file,track).catch(err=>onError(err));
     };
-    media.addEventListener("pause",()=>{if(ctx)void ctx.suspend().catch(()=>{});});
-    media.addEventListener("play",()=>{if(ctx)void ctx.resume().catch(()=>{});});
-    return {start,stop,restart,active,selectedNumber,setVolume,canAttempt};
+    media.addEventListener("pause",()=>{
+      if(selection)pausedAt=Date.now();
+      if(ctx)void ctx.suspend().catch(()=>{});
+    });
+    media.addEventListener("play",()=>{
+      if(!ctx)return;
+      // Decoder output may be discarded while paused. Reprime from the
+      // current video timestamp instead of resuming with an audio gap.
+      if(selection&&pausedAt&&Date.now()-pausedAt>200)restart();
+      else void ctx.resume().catch(()=>{});
+      pausedAt=0;
+    });
+    return {start,stop,hold,restart,active,selectedNumber,setVolume,canAttempt};
   };
-  return {create,canAttempt};
+  return {create,canAttempt,configFor,opusDuration,frameDuration,splitBlock};
 });

@@ -193,3 +193,22 @@ assert.match(js, /await restoreLastMedia\(\);\s*await restoreSavedFolder\(\)/);
 assert.match(js, /selections\.map\(e => e\.handle\), "queue"/);
 assert.match(css, /\.folder-access\s*\{/);
 console.log("PASS: folder-access web/player integration checks");
+
+/* Build 3: codec switching is functional, not just metadata listing. */
+const mkvAudioSource=fs.readFileSync(path.join(root,"mkv-audio.js"),"utf8");
+const vobSubSource=fs.readFileSync(path.join(root,"vobsub.js"),"utf8");
+new Function(mkvAudioSource);
+new Function(vobSubSource);
+assert.match(html, /src="\.\/vobsub\.js\?/);
+assert.match(js, /const loadVobSubTrack = async track =>/);
+assert.match(js, /window\.DKVobSub\.extract\(item\.file,track/);
+assert.match(js, /state\.subtitleRenderer = window\.DKVobSub/);
+assert.match(js, /embeddedSubtitlePreferences/);
+assert.match(js, /restoreEmbeddedSubtitlePreference\(item\)/);
+assert.match(js, /mkvAudio\.hold\(\)/);
+assert.match(js, /mkvAudio\.restart\(\)/);
+assert.match(mkvAudioSource, /const configFor=meta=>/);
+assert.match(mkvAudioSource, /const splitBlock=async\(reader,part,number\)=>/);
+require("./mkv-audio.cjs");
+require("./vobsub.cjs");
+console.log("PASS: MKV audio and DVD bitmap subtitle integration");

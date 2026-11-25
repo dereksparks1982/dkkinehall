@@ -4,8 +4,9 @@ const assert = require("node:assert/strict");
 const {parseHeader,parseTracksHeader,inspectFile} = require("../mkv-tracks.js");
 const ascii = text => [...Buffer.from(text,"ascii")];
 const element = (id, body) => {
-  assert.ok(body.length < 127);
-  return [...id, 0x80 | body.length, ...body];
+  assert.ok(body.length < 16384);
+  const len=body.length;
+  return [...id,...(len<127?[0x80|len]:[0x40|(len>>8),len&255]),...body];
 };
 const subtitles = element([0xAE], [
   ...element([0xD7], [2]),
@@ -38,6 +39,19 @@ assert.deepEqual(found.subtitles,parsed);
 assert.deepEqual(found.audioTracks,[{number:1,codec:"A_AC3",
   name:"English surround",language:"eng",channels:6,sampleRate:48000,
   bitDepth:16,default:true,forced:false}]);
+const codecPrivate="size: 720x480\npalette: "+
+  ["000000","ffffff",...Array(14).fill("888888")].join(", ");
+const vob=element([0xae],[
+  ...element([0xd7],[3]),
+  ...element([0x83],[17]),
+  ...element([0x86],ascii("S_VOBSUB")),
+  ...element([0x63,0xA2],ascii(codecPrivate))
+]);
+const vobHeader=Uint8Array.from([...element([0x16,0x54,0xAE,0x6B],vob)]);
+const vobTracks=parseTracksHeader(vobHeader).subtitles;
+assert.equal(vobTracks.length,1);
+assert.equal(vobTracks[0].codec,"S_VOBSUB");
+assert.equal(new TextDecoder().decode(vobTracks[0].privateData),codecPrivate);
 assert.deepEqual(parseTracksHeader(new Uint8Array([0,1,2,3])),
   {subtitles:[],audioTracks:[]});
 assert.deepEqual(parseHeader(new Uint8Array([0,1,2,3])),[]);

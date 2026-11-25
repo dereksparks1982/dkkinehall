@@ -22,6 +22,20 @@
     "＋ Open media":"＋ Открыть медиа", "Open media":"Открыть медиа",
     "Interface language":"Язык интерфейса",
     "Playback settings":"Настройки воспроизведения",
+    "Original mode skips conversion and keeps the local source unchanged.":"Оригинальный режим не изменяет файл.",
+    "Supported MKV files can be remuxed without re-encoding. Full transcoding and GPU switching are not installed.":"Совместимые файлы МКВ можно перепаковать без перекодирования. Полное перекодирование и переключение видеоускорения не установлены.",
+    "Chromium cannot play this WebM codec combination.":"Хромиум не поддерживает эту комбинацию кодеков ВебМ.",
+    "Requested playback format":"Выбранный формат воспроизведения",
+    "Actual playback method":"Применённый способ воспроизведения",
+    "Hardware acceleration preference":"Предпочтение аппаратного ускорения",
+    "Original source":"Исходный файл",
+    "Cached lossless remux":"Сохранённая перепаковка без потерь",
+    "WebM lossless remux":"Перепаковка в ВебМ без потерь",
+    "MP4 lossless remux":"Перепаковка в МП4 без потерь",
+    "Unsupported conversion":"Неподдерживаемое преобразование",
+    "Enabled (actual GPU use is controlled by Chromium)":"Включено (видеоускорением управляет Хромиум)",
+    "Disabled preference (Chromium controls GPU use)":"Выключено (видеоускорением управляет Хромиум)",
+
     "Playback format":"Формат воспроизведения",
     "Automatic":"Автоматически",
     "Original (no conversion)":"Оригинал (без преобразования)",
@@ -365,6 +379,19 @@
       const englishOption = selector.querySelector('option[value="en"]');
       if (englishOption) englishOption.textContent =
         language === "ru" ? "Английский" : "English";
+    }
+    const formatSelect = document.getElementById("playbackFormat");
+    if (formatSelect) {
+      const names = {
+        auto:["Automatic","Автоматически"],
+        original:["Original (no conversion)","Оригинал (без преобразования)"],
+        mp4:["MP4 (H.264/AAC)","МП4 (АШ.264/ААС)"],
+        webm:["WebM (VP9/Opus)","ВебМ (ВП9/Опус)"]
+      };
+      for (const option of formatSelect.options) {
+        const pair = names[option.value];
+        if (pair) option.textContent = pair[language === "ru" ? 1 : 0];
+      }
     }
     walk(document.body);
   }

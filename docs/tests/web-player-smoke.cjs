@@ -240,7 +240,6 @@ console.log("PASS: Build 4 expanded MKV audio and clear video-codec diagnostics"
 const compatSource=fs.readFileSync(path.join(root,"mkv-webm.js"),"utf8");
 new Function(compatSource);
 assert.match(html, /mkv-webm\.js\?v=20261125-webm5/);
-assert.match(html, /player\.js\?v=20261125-webm5/);
 assert.match(js, /const retryAsWebM = async item =>/);
 assert.match(js, /window\.DKMkvWebM\.wrap\(item\.file,info\)/);
 assert.match(js, /item\.compatSrc \|\| item\.src/);

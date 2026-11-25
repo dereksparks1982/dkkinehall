@@ -1,4 +1,4 @@
-name: DK Kinehall autoplay and application icon build
+name: DK Kinehall autoplay and application icon build (corrected checks)
 on:
   push:
     paths:

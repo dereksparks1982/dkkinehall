@@ -38,7 +38,7 @@ assert.match(css, /\.player-context-menu\s*\{/);
 assert.match(css, /images\/soviet-poster\.png/);
 assert.match(js, /screen\.addEventListener\("contextmenu"/);
 assert.match(js, /addMenuItem\("Subtitles off"/);
-assert.match(js, /Track selection not exposed by this browser/);
+assert.match(js, /audioApi\.selectNative\(media,index\)/);
 assert.match(js, /addMenuItem\("Media information"/);
 
 assert.match(html, /src="\.\/images\/golden-emblem\.png"/);
@@ -66,9 +66,9 @@ assert.match(css, /\.screen\.stopped > \.controls/);
 assert.match(js, /subtitlePreference: "dkmedia\.web\.subtitle-preference\.v1"/);
 assert.match(js, /const applySubtitlePreference = \(\) =>/);
 assert.match(js, /media\.textTracks\.addEventListener\("addtrack"/);
-assert.match(js, /track\.default = false/);
+assert.match(js, /track\.mode = track === selection \? "showing" : "disabled"/);
 assert.match(js, /DKMatroska\.inspectFile\(file\)/);
-assert.match(js, /MKV embedded tracks \(file header\)/);
+assert.match(js, /Detected MKV subtitle tracks/);
 
 /* English / Russian switch and compact context-menu regression checks. */
 const locale = fs.readFileSync(path.join(root, "i18n.js"), "utf8");

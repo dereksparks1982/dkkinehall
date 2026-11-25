@@ -162,6 +162,21 @@ file selector works for that session, but the folder must be selected again.
 - **Restore last file** reopens the saved movie and leaves it paused at its remembered position.
 - The web and standalone versions use this same player code.
 
+## Planned: Playback Format selector (not yet implemented)
+
+Add a **Playback Format** setting in the existing player settings, shared by the web player and the standalone Chromium edition.
+
+- **Automatic (default):** Prefer direct playback or lossless remuxing when supported, then use local on-the-fly transcoding only when necessary and available.
+- **Original:** Attempt playback without conversion; clearly report unsupported containers/codecs.
+- **MP4 (H.264/AAC):** Allow the user to request an MP4-compatible playback stream, remuxing without quality loss when possible and transcoding otherwise.
+- **WebM (VP9/Opus):** Allow the user to request WebM-compatible playback under the same remux-first approach.
+- **Hardware acceleration: enabled by default.** Use supported hardware encoding/decoding where available, with a graceful software fallback and honest resource/compatibility reporting.
+- **Remember preferred playback format: enabled by default.** Persist the selected playback-format preference locally across sessions, with Automatic as the initial selection.
+- Play as soon as sufficient converted output can be streamed; do **not** wait for whole-file conversion, alter the original file, upload media, or turn Kinehall into a media server.
+- Investigate an appropriate locally bundled transcoding backend (e.g., FFmpeg) for the standalone player. The web edition must truthfully handle browser sandbox limitations; do not promise support where browser APIs and bundled codecs cannot provide it.
+- Preserve play/pause, seeking, subtitles, audio selection, fullscreen, and Up Next behavior wherever the selected playback pipeline supports those features.
+- Treat this as **roadmap only** until an explicit build instruction. No feature implementation, compilation, tests, or downloadable package is authorized by this entry.
+
 ## Getting started
 
 1. Open **[DK Kinehall](https://dereksparks1982.github.io/dkkinehall/)** in Chromium or DK NetNav.

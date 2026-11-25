@@ -15,6 +15,7 @@ struct MediaTrack {
   QString type;
   QString title;
   QString language;
+  QString codec;
   bool selected = false;
 };
 

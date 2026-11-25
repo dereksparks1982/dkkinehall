@@ -43,6 +43,9 @@ function openWindow() {
   const player = path.join(playerRoot, "docs", "index.html");
   const playerURL = pathToFileURL(player).href;
   const icon = path.join(playerRoot, "docs", "icons", "dk-media-player-512.png");
+  const sourcePreload = path.join(playerRoot, "standalone", "preload.cjs");
+  const preload = fs.existsSync(sourcePreload) ? sourcePreload :
+    path.join(__dirname, "preload.cjs");
   console.log("DK_KINEHALL_PLAYER_SOURCE",
     playerRoot === __dirname ? "bundled" : "repository", player);
 
@@ -57,7 +60,7 @@ function openWindow() {
     title: "DK Kinehall",
     icon,
     webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+      preload,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -66,6 +69,19 @@ function openWindow() {
     }
   });
   Menu.setApplicationMenu(null);
+  // The renderer only sees a narrowly-scoped IPC bridge. The optional
+  // transcoder accepts File bytes, not arbitrary disk paths or network URLs.
+  const sourceTranscoder = path.join(playerRoot, "standalone", "transcoder.cjs");
+  const bundledTranscoder = path.join(__dirname, "transcoder.cjs");
+  const selectedTranscoder = fs.existsSync(sourceTranscoder) ?
+    sourceTranscoder : bundledTranscoder;
+  if (fs.existsSync(selectedTranscoder)) {
+    try {
+      require(selectedTranscoder).install({win, ipcMain, repositoryRoot:playerRoot});
+    } catch (error) {
+      console.error("DK_KINEHALL_TRANSCODER_UNAVAILABLE",String(error));
+    }
+  }
   win.once("ready-to-show", () => win.show());
 
   const broadcastFullscreen = () => {

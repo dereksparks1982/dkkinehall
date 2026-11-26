@@ -57,7 +57,12 @@ function verifyDVD(source){
     throw Error("DVD image unavailable or changed");
   return stat;
 }
+const isNetwork=source=>source?.kind==="network";
+// Restrict remote inputs to ordinary media containers, excluding playlists,
+// concat, image sequences, and other external-resource demuxers.
+const networkInputArgs=["-protocol_whitelist","http,tcp","-format_whitelist","mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","12000000","-http_proxy","","-probesize","8388608","-analyzeduration","5000000"];
 async function resolvePlaybackSource(value){
+  if(value?.kind==="network")return {kind:"network",token:value.token,url:await require("./library-host.cjs").resolveNetworkMedia(value.token)};
   if(value?.kind!=="dvd")return resolveSource(value,checkVideo);
   if(typeof value.id!=="string"||!/^dvd:[a-f0-9]{48}$/.test(value.id))throw Error("Invalid DVD selection");
   const source=dvdGrants.get(value.id);
@@ -202,7 +207,7 @@ function processOutput(command,args,timeout=15000,maxOutput=MAX_PROBE_OUTPUT) {
         let reason=(stderr.trim()||"Native codec process exited with an error")
           .slice(-500);
         for(const arg of args) {
-          if(typeof arg==="string" && path.isAbsolute(arg))
+          if(typeof arg==="string" && (path.isAbsolute(arg)||/^http:\/\/127\.0\.0\.1:/.test(arg)))
             reason=reason.split(arg).join("selected media");
         }
         settle(new Error(reason));
@@ -236,16 +241,17 @@ async function probe(localPath) {
   // Probing chapters and streams does not require a usable output encoder.
   if(!executable(binary("ffprobe")))throw new Error("Bundled FFprobe is missing");
   const dvd=isDVD(localPath)?localPath:null;
-  const file=dvd?dvd.path:selectedFile(localPath);
-  const stat=dvd?verifyDVD(dvd):fs.statSync(file);
-  const key=JSON.stringify([file,stat.size,stat.mtimeMs,dvd?.id||null]);
-  const cacheable=!dvd?.drive;
+  const network=isNetwork(localPath);
+  const file=network?await require("./library-host.cjs").resolveNetworkMedia(localPath.token):dvd?dvd.path:selectedFile(localPath);
+  const stat=network?null:dvd?verifyDVD(dvd):fs.statSync(file);
+  const key=JSON.stringify([file,stat?.size,stat?.mtimeMs,dvd?.id||null]);
+  const cacheable=!network&&!dvd?.drive;
   if(cacheable&&probeCache.has(key))return probeCache.get(key);
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json",...(dvd?dvdArgs(dvd):[]),"-i",file
+    "-show_chapters","-of","json",...(network?networkInputArgs:dvd?dvdArgs(dvd):[]),"-i",file
   ],dvd&&!dvd.drive?90000:30000);
   const json=JSON.parse(stdout);
   const streams=Array.isArray(json.streams)?json.streams:[];
@@ -389,7 +395,7 @@ function serve(req,res) {
   }
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
-    ...(active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...networkInputArgs,"-ss",String(active.position),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=[];
@@ -477,7 +483,8 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const info=await probe(localPath);
   const available=await status();
   const dvd=isDVD(localPath)?localPath:null;
-  const target=dvd?(verifyDVD(dvd),dvd.path):selectedFile(localPath);
+  const network=isNetwork(localPath);
+  const target=network?await require("./library-host.cjs").resolveNetworkMedia(localPath.token):dvd?(verifyDVD(dvd),dvd.path):selectedFile(localPath);
   let bitmapSubtitle=null;
   if(subtitleIndex!==-1){
     const track=info.subtitleTracks[subtitleIndex];
@@ -508,7 +515,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,dvd,position,duration:info.duration,format:selectedFormat,
+  session={token,path:target,dvd,network,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
     copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};

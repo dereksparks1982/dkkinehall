@@ -93,6 +93,7 @@ async function putBatch(table,rows){
 }
 function classify(name,relative=name){
   if(!/\.(mp4|m4v|mov|mkv|avi|webm|ogv|ts|mts|m2ts|mpeg|mpg|m2v|mxf|vob|wmv|asf|flv|f4v|3gp|3g2|dv|divx|rm|rmvb|mpv|nut)$/i.test(name))return null;
+  if(/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(name))return null;
   const parsed=typeof window!=="undefined"?window.DKMediaMetadata?.parseFilename?.(name):null;
   if(parsed?.type==="episode")return {
     kind:"tv",title:parsed.series,series:parsed.series,season:parsed.season,
@@ -112,7 +113,8 @@ function classify(name,relative=name){
       .exec(String(name).replace(/\.[^.]+$/,""));
     const season=found?Number(found[1]):NaN;
     const episode=indexed?Number(indexed[1]):NaN;
-    const series=folders[seasonAt-1].replace(/[._]+/g," ").trim();
+    let series=folders[seasonAt-1].replace(/[._]+/g," ").trim();
+    if(/^south[ ._-]+park$/i.test(series))series="South Park";
     if(Number.isSafeInteger(season)&&season<=99&&
        Number.isSafeInteger(episode)&&episode>=1&&episode<=999&&
        series.length>=2){
@@ -330,12 +332,17 @@ async function ingestNative(scan){
     if(!info)continue;
     seen.add(file.id);
     const previous=old.get(file.id);
-    if(previous&&previous.size===file.size&&
-       previous.modified===file.modified&&!previous.missing)continue;
+    const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
+      previous.season===info.season&&previous.episode===info.episode&&
+      (previous.movieMetadataVerified||previous.title===info.title);
+    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing)continue;
     changes.push({...previous,...info,
       // A verified metadata provider title survives unchanged film contents.
-      episodeTitle:previous?.metadataVerified?
+      episodeTitle:previous?.kind===info.kind&&previous?.metadataVerified?
         previous.episodeTitle:info.episodeTitle,
+      title:info.kind==="movie"&&previous?.movieMetadataVerified?previous.title:info.title,
+      year:info.kind==="movie"&&previous?.movieMetadataVerified?previous.year:info.year,
+      metadataVerified:previous?.kind===info.kind&&Boolean(previous?.metadataVerified),
       id:file.id,source:"native",nativePath:file.nativePath,
       nativeRoot:file.root,filename:file.filename,relative:file.relative,
       size:file.size,modified:file.modified,missing:false,
@@ -414,12 +421,14 @@ async function updateProgress(id,position,duration,completed=false){
   });
   if(saved)changed({progress:true,id});
 }
-async function updateMetadata(id,{episodeTitle}={}){
+async function updateMetadata(id,{episodeTitle,movieTitle,movieYear}={}){
   // Only verified metadata (from an actual provider result) is written.
   // Use a read/write transaction so a simultaneous playback-position save
   // cannot be overwritten by an older copy of a catalog record.
   const title=typeof episodeTitle==="string"?episodeTitle.trim().slice(0,180):"";
-  if(!title)return false;
+  const film=typeof movieTitle==="string"?movieTitle.trim().slice(0,180):"";
+  const year=Number(movieYear)||null;
+  if(!title&&!film)return false;
   const db=await open();
   let changedRow=false;
   await new Promise((resolve,reject)=>{
@@ -428,9 +437,14 @@ async function updateMetadata(id,{episodeTitle}={}){
     const request=s.get(id);
     request.onsuccess=()=>{
       const row=request.result;
-      if(!row||row.kind!=="tv"||
-         (row.episodeTitle===title && row.metadataVerified))return;
-      s.put({...row,episodeTitle:title,metadataVerified:true});
+      if(!row)return;
+      if(row.kind==="tv"&&title){
+        if(row.episodeTitle===title&&row.metadataVerified)return;
+        s.put({...row,episodeTitle:title,metadataVerified:true});
+      }else if(row.kind==="movie"&&film){
+        if(row.title===film&&row.movieMetadataVerified&&(!year||row.year===year))return;
+        s.put({...row,title:film,year:year||row.year,movieMetadataVerified:true});
+      }else return;
       changedRow=true;
     };
     tx.oncomplete=resolve;

@@ -4498,6 +4498,42 @@
     group.className="player-settings-section dk-voiceover";group.id="voiceoverSettings";
     group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option></select><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
     byId("playerSettingsPanel").append(group);
+    // Cache management remains usable even without installed speech models.
+    const cacheControls=document.createElement("div");
+    cacheControls.className="dk-voiceover-cache";
+    cacheControls.innerHTML='<strong>Voiceover cache</strong><span class="helper">Saved soundtracks: <output id="dkVoiceCacheCount">—</output></span><span class="helper">Stored audio size (MiB): <output id="dkVoiceCacheSize">—</output></span><button type="button" class="btn small" id="dkVoiceCacheClear" disabled>Clear voiceover cache</button><span class="helper" id="dkVoiceCacheStatus" role="status" aria-live="polite"></span>';
+    if(bridge.voiceoverCacheStats&&bridge.clearVoiceoverCache)group.append(cacheControls);
+    const cacheCount=cacheControls.querySelector("#dkVoiceCacheCount"),cacheSize=cacheControls.querySelector("#dkVoiceCacheSize");
+    const cacheClear=cacheControls.querySelector("#dkVoiceCacheClear"),cacheStatus=cacheControls.querySelector("#dkVoiceCacheStatus");
+    let cacheBusy=false,cacheEntries=0,cacheEpoch=0;
+    const cacheMessage=value=>{cacheStatus.textContent=value;window.DKLocale?.apply();};
+    const updateCacheButton=()=>{cacheClear.disabled=cacheBusy||busy||exporting||cacheEntries<=0;};
+    const refreshCache=async()=>{
+      if(!bridge.voiceoverCacheStats)return;
+      const epoch=++cacheEpoch;
+      try{
+        const info=await bridge.voiceoverCacheStats();
+        if(epoch!==cacheEpoch)return;
+        cacheEntries=Number.isSafeInteger(info.count)&&info.count>=0?info.count:0;
+        const size=Number.isFinite(info.bytes)&&info.bytes>=0?info.bytes:0;
+        const locale=window.DKLocale?.get()==="ru"?"ru-RU":"en-US";
+        cacheCount.value=new Intl.NumberFormat(locale).format(cacheEntries);
+        cacheSize.value=new Intl.NumberFormat(locale,{maximumFractionDigits:1}).format(size/1048576);
+      }catch(_){
+        if(epoch!==cacheEpoch)return;
+        cacheEntries=0;cacheCount.value="—";cacheSize.value="—";cacheMessage("Could not read voiceover cache.");
+      }finally{if(epoch===cacheEpoch)updateCacheButton();}
+    };
+    cacheClear.addEventListener("click",async()=>{
+      if(cacheClear.disabled)return;
+      cacheBusy=true;updateCacheButton();refreshVoiceover();
+      try{
+        const info=await bridge.clearVoiceoverCache(window.DKLocale?.get());
+        if(!info.cancelled)cacheMessage(info.failed||info.count?"Some saved soundtracks could not be removed.":"Voiceover cache cleared.");
+      }catch(_){cacheMessage("Could not clear voiceover cache.");}
+      finally{cacheBusy=false;await refreshCache();refreshVoiceover();}
+    });
+
     const direction=byId("dkVoiceDirection"),generate=byId("dkVoiceGenerate"),cancel=byId("dkVoiceCancel"),exportButton=byId("dkVoiceExport");
     const label=byId("dkVoiceStatus"),progress=byId("dkVoiceProgress"),percent=byId("dkVoicePercent");
     let ready=false,busy=false,ticket=0,checkTicket=0,result=null,exporting=false;
@@ -4630,7 +4666,9 @@
       speechExport.disabled=!validGenerated()||busy||exporting;
       cancel.disabled=!busy;
       exportButton.disabled=!result||busy||exporting||result.item!==current();
-      direction.disabled=busy||exporting;
+      direction.disabled=busy||exporting||cacheBusy;
+      if(cacheBusy){generate.disabled=true;speechButton.disabled=true;speechExport.disabled=true;exportButton.disabled=true;}
+      updateCacheButton();
       enabled.disabled=!result||busy||exporting||result.item!==current()||!bridge.voiceoverSource;
     };
     resetVoiceover=()=>{
@@ -4713,7 +4751,7 @@
         result={item,ticket:job};setProgress(100);
         setStatus(info.cached?(info.skipped?"Cached voiceover ready; some lines could not fit their timing.":"Cached voiceover audio ready."):(info.skipped?"Voiceover ready; some lines could not fit their timing.":"Voiceover audio ready."));
       }catch(_){if(job===ticket){setStatus("Voiceover generation failed; original playback unchanged.");setProgress(0);}}
-      finally{busy=false;refreshVoiceover();}
+      finally{busy=false;refreshVoiceover();void refreshCache();}
     });
     exportButton.addEventListener("click",async()=>{
       if(exportButton.disabled||!result)return;
@@ -4723,12 +4761,12 @@
       finally{exporting=false;refreshVoiceover();}
     });
     const localize=()=>{direction.options[0].textContent=window.DKLocale?.t("English → Russian")||"English → Russian";direction.options[1].textContent=window.DKLocale?.t("Russian → English")||"Russian → English";};
-    byId("languageSelect")?.addEventListener("change",localize);localize();
+    byId("languageSelect")?.addEventListener("change",()=>{localize();void refreshCache();});localize();
     media.addEventListener("timeupdate",refreshVoiceover);
     media.addEventListener("loadeddata",refreshVoiceover);
     media.textTracks?.addEventListener("change",refreshVoiceover);
-    settingsDetails?.addEventListener("toggle",()=>{if(settingsDetails.open&&!ready&&!busy)void check();});
-    void check();
+    settingsDetails?.addEventListener("toggle",()=>{if(settingsDetails.open){if(!ready&&!busy)void check();void refreshCache();}});
+    void check();void refreshCache();
   }
   setupVoiceover();
   if(window.DKLibraryBridge?.internalPages){

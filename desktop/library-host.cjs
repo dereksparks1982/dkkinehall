@@ -256,11 +256,13 @@ function translateLocal(event,pair,lines,ticket){
 // The separately provisioned TTS package/model must be explicitly installed.
 let voiceoverJob=null,voiceoverResult=null,voiceoverExporting=false;
 function serveVoiceover(req,res){
-  const entry=voiceoverResult;
   const fail=(code=404,headers={})=>{res.writeHead(code,{"Cache-Control":"no-store",...headers});res.end();};
-  if(!entry||entry.discarded||req.url!=="/voiceover/"+entry.token||
-    !["GET","HEAD"].includes(req.method)||entry.streams.size>=4)return fail();
-  const size=entry.size;
+  const match=/^\/voiceover\/([a-f0-9]{48})(?:\/(\d{1,3}))?$/.exec(req.url||"");
+  const entry=match&&[voiceoverResult,voiceoverJob?.preview].find(value=>value&&!value.discarded&&value.token===match[1]);
+  if(!entry||!["GET","HEAD"].includes(req.method)||entry.streams.size>=4)return fail();
+  const part=match[2]===undefined?(entry.complete?{output:entry.output,size:entry.size}:null):entry.chunks?.get(Number(match[2]));
+  if(!part)return fail();
+  const size=part.size;
   let start=0,end=size-1,status=200;
   const range=req.headers.range;
   if(range){
@@ -277,7 +279,7 @@ function serveVoiceover(req,res){
   if(status===206)headers["Content-Range"]="bytes "+start+"-"+end+"/"+size;
   res.writeHead(status,headers);
   if(req.method==="HEAD"){res.end();return;}
-  const stream=fs.createReadStream(entry.output,{start,end});
+  const stream=fs.createReadStream(part.output,{start,end});
   entry.streams.add(stream);
   stream.on("error",()=>res.destroy());stream.on("close",()=>entry.streams.delete(stream));
   res.on("close",()=>stream.destroy());stream.pipe(res);
@@ -289,7 +291,7 @@ function removeVoiceoverResult(entry){
   if(!entry.exporting)fs.rmSync(entry.dir,{recursive:true,force:true});
 }
 const voiceoverWorker=String.raw`
-import json, sys, wave
+import json, sys, wave, os
 from pathlib import Path
 import numpy as np
 import ctranslate2
@@ -298,6 +300,7 @@ import sherpa_onnx
 translation=Path(sys.argv[1])
 voice_paths={key:Path(value) for key,value in json.loads(sys.argv[2]).items()}
 output=sys.argv[3]
+progressive=sys.argv[4]=="1"
 rows=json.load(sys.stdin)
 source=spm.SentencePieceProcessor(model_file=str(translation/"source.model"))
 target=spm.SentencePieceProcessor(model_file=str(translation/"target.model"))
@@ -346,15 +349,53 @@ def synthesize(tts,text,speed):
 cursor=0
 skipped=0
 silence=b"\0"*(rate*2)
+# Publish immutable, complete WAV files at 30-second boundaries. Never
+# expose a growing WAV or a partially written header to Chromium.
+class ProgressiveWriter:
+    def __init__(self, main):
+        self.main=main
+        self.part=None
+        self.index=0
+        self.frames=0
+    def publish(self):
+        if self.part is None:
+            return
+        self.part.close()
+        target=Path(output).parent/("chunk-%03d.wav"%self.index)
+        os.replace(str(target)+".tmp",target)
+        print(json.dumps({"stage":"chunk","index":self.index,
+                          "frames":self.frames,"rate":rate,"total":len(rows)}),flush=True)
+        self.index+=1
+        self.part=None
+        self.frames=0
+    def writeframesraw(self, data):
+        self.main.writeframesraw(data)
+        if not progressive:
+            return
+        view=memoryview(data)
+        while len(view):
+            if self.part is None:
+                target=Path(output).parent/("chunk-%03d.wav"%self.index)
+                self.part=wave.open(str(target)+".tmp","wb")
+                self.part.setnchannels(1)
+                self.part.setsampwidth(2)
+                self.part.setframerate(rate)
+            n=min(len(view)//2,rate*30-self.frames)
+            self.part.writeframesraw(view[:n*2])
+            self.frames+=n
+            view=view[n*2:]
+            if self.frames==rate*30:
+                self.publish()
 def pad(wav,n):
     while n>0:
         chunk=min(n,rate)
         wav.writeframesraw(silence[:chunk*2])
         n-=chunk
-with wave.open(output,"wb") as wav:
-    wav.setnchannels(1)
-    wav.setsampwidth(2)
-    wav.setframerate(rate)
+with wave.open(output,"wb") as full:
+    full.setnchannels(1)
+    full.setsampwidth(2)
+    full.setframerate(rate)
+    wav=ProgressiveWriter(full)
     for i,(row,text) in enumerate(zip(rows,texts)):
         start=max(cursor,round(row["start"]*rate))
         end=round(row["end"]*rate)
@@ -378,6 +419,7 @@ with wave.open(output,"wb") as wav:
         print(json.dumps({"stage":"speech","done":i+1,"total":len(rows),"skipped":skipped}),flush=True)
     last=round(max(r["end"] for r in rows)*rate)
     pad(wav,max(0,last-cursor))
+    wav.publish()
 if skipped==len(rows):
     raise ValueError("No speech could fit the cue timing")
 print(json.dumps({"stage":"complete","done":len(rows),"total":len(rows),"skipped":skipped}),flush=True)
@@ -394,7 +436,8 @@ function voiceoverPaths(pair,profile="default"){
   return {...runtime,voices,ready};
 }
 function discardVoiceover(){
-  if(voiceoverJob){voiceoverJob.cancelled=true;voiceoverJob.child?.kill("SIGKILL");}
+  if(voiceoverJob){voiceoverJob.cancelled=true;voiceoverJob.child?.kill("SIGKILL");
+    const preview=voiceoverJob.preview;if(preview){preview.discarded=true;for(const stream of preview.streams)stream.destroy();}}
   const previous=voiceoverResult;voiceoverResult=null;removeVoiceoverResult(previous);
 }
 // Content-addressed local voiceover cache. Explicit generation is the only
@@ -468,7 +511,8 @@ function voiceCacheStats(){
 function removeVoiceCacheDirectory(dir){
   // Only delete known cache-owned names. Unexpected files are left intact.
   if(!fs.lstatSync(dir).isDirectory())throw Error("Invalid cache directory");
-  for(const name of ["voiceover.wav","result.json"]){
+  const names=["voiceover.wav","result.json",...fs.readdirSync(dir).filter(name=>/^chunk-\d{3}\.wav(?:\.tmp)?$/.test(name))];
+  for(const name of names){
     try{
       const file=path.join(dir,name),stat=fs.lstatSync(file);
       if(!stat.isFile())throw Error("Unexpected cache entry");
@@ -565,10 +609,11 @@ function voiceCacheSave(key,rows,output,skipped){
     voiceCachePrune();
   }catch(_){}finally{if(temp)try{fs.rmSync(temp,{recursive:true,force:true});}catch(_){}}
 }
-function generateVoiceover(event,pair,rows,ticket,profile="default"){
+function generateVoiceover(event,pair,rows,ticket,profile="default",progressive=false){
   const runtime=voiceoverPaths(pair,profile);
   if(!runtime.ready)throw Error("Voiceover runtime is not installed");
-  if(voiceoverJob||translationJob||asrJob||voiceoverExporting)throw Error("Offline speech or translation job already running");
+  if(voiceoverJob||translationJob||asrJob||voiceoverExporting||voiceCacheConfirming)throw Error("Offline speech or translation job already running");
+  if(typeof progressive!=="boolean")throw Error("Invalid progressive mode");
   if(!Number.isSafeInteger(ticket)||ticket<1||!Array.isArray(rows)||!rows.length||rows.length>6000||
     Buffer.byteLength(JSON.stringify(rows),"utf8")>2*1024*1024||
     rows.some((r,i)=>!r||!Number.isFinite(r.start)||!Number.isFinite(r.end)||r.start<0||r.end<=r.start||r.end>10800||
@@ -587,15 +632,16 @@ function generateVoiceover(event,pair,rows,ticket,profile="default"){
   const output=path.join(dir,"voiceover.wav");
   const cached=voiceCacheLoad(key,rows,output);
   if(cached){
-    voiceoverResult={dir,output,ticket,size:cached.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false};
+    voiceoverResult={dir,output,ticket,size:cached.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false,complete:true,chunks:new Map()};
     return Promise.resolve({skipped:cached.skipped,total:rows.length,cached:true});
   }
   return new Promise((resolve,reject)=>{
     let child;
-    try{child=spawn(runtime.python,["-I","-c",voiceoverWorker,runtime.model,JSON.stringify(runtime.voices),output],{
+    try{child=spawn(runtime.python,["-I","-c",voiceoverWorker,runtime.model,JSON.stringify(runtime.voices),output,progressive?"1":"0"],{
       shell:false,stdio:["pipe","pipe","pipe"],env:{...process.env,LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1",OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}
     });}catch(error){fs.rmSync(dir,{recursive:true,force:true});reject(error);return;}
-    const job={child,cancelled:false};voiceoverJob=job;
+    const preview={dir,output,ticket,size:0,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false,complete:false,chunks:new Map()};
+    const job={child,cancelled:false,preview};voiceoverJob=job;
     let pending="",complete=null,failed=false;
     const timer=setTimeout(()=>child.kill("SIGKILL"),90*60*1000);
     child.stdout.setEncoding("utf8");child.stderr.resume();
@@ -606,6 +652,18 @@ function generateVoiceover(event,pair,rows,ticket,profile="default"){
         const line=pending.slice(0,end);pending=pending.slice(end+1);
         try{
           const value=JSON.parse(line);
+          if(value.stage==="chunk"){
+            const {index,frames,rate}=value;
+            if(!progressive||!Number.isInteger(index)||index!==preview.chunks.size||index<0||index>=360||
+              !Number.isInteger(rate)||rate<8000||rate>32000||!Number.isInteger(frames)||frames<=0||frames>rate*30)
+              throw Error("Invalid generated audio segment");
+            const part=path.join(dir,"chunk-"+String(index).padStart(3,"0")+".wav");
+            const size=voiceCacheWav(part,[{end:frames/rate}]);
+            if(size!==44+frames*2)throw Error("Invalid generated audio segment size");
+            preview.chunks.set(index,{output:part,size,duration:frames/rate});
+            if(!job.cancelled&&!event.sender.isDestroyed())event.sender.send("dk-library:voiceover-progress",{ticket,stage:"chunk",index,duration:frames/rate});
+            continue;
+          }
           if(!["translation","speech","complete"].includes(value.stage)||!Number.isInteger(value.done)||value.done<0||
              value.done>rows.length||value.total!==rows.length)throw Error("Invalid worker progress");
           const skipped=Number.isInteger(value.skipped)?Math.max(0,Math.min(rows.length,value.skipped)):0;
@@ -619,10 +677,10 @@ function generateVoiceover(event,pair,rows,ticket,profile="default"){
       clearTimeout(timer);if(voiceoverJob===job)voiceoverJob=null;
       let stat;try{stat=fs.statSync(output);}catch(_){}
       if(code!==0||failed||job.cancelled||!complete||!stat?.isFile()||stat.size<44||stat.size>700*1024*1024){
-        fs.rmSync(dir,{recursive:true,force:true});reject(Error("Voiceover generation failed or was cancelled"));return;
+        removeVoiceoverResult(preview);reject(Error("Voiceover generation failed or was cancelled"));return;
       }
       if(key&&key===voiceCacheKey(runtime,pair,rows))voiceCacheSave(key,rows,output,complete.skipped);
-      voiceoverResult={dir,output,ticket,size:stat.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false};
+      preview.size=stat.size;preview.complete=true;voiceoverResult=preview;
       resolve({skipped:complete.skipped,total:rows.length,cached:false});
     });
     child.stdin.end(JSON.stringify(rows));
@@ -1341,19 +1399,22 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
     return voiceoverPaths(pair,profile).ready;
   });
-  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket,profile="default")=>{
+  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket,profile="default",progressive=false)=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
-    return generateVoiceover(event,pair,rows,ticket,profile);
+    return generateVoiceover(event,pair,rows,ticket,profile,progressive);
   });
   ipcMain.handle("dk-library:voiceover-discard",event=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
     discardVoiceover();return true;
   });
-  ipcMain.handle("dk-library:voiceover-source",async(event,ticket)=>{
-    if(!onlyPlayer(event)||!voiceoverResult||voiceoverResult.ticket!==ticket||voiceoverResult.discarded)throw Error("Voiceover source rejected");
-    const entry=voiceoverResult,port=await startNetworkProxy();
-    if(voiceoverResult!==entry||entry.discarded)throw Error("Voiceover source expired");
-    return "http://127.0.0.1:"+port+"/voiceover/"+entry.token;
+  ipcMain.handle("dk-library:voiceover-source",async(event,ticket,index=null)=>{
+    if(!onlyPlayer(event)||!Number.isSafeInteger(ticket)||
+      (index!==null&&(!Number.isInteger(index)||index<0||index>=360)))throw Error("Voiceover source rejected");
+    const entry=[voiceoverResult,voiceoverJob?.preview].find(value=>value&&value.ticket===ticket&&!value.discarded);
+    if(!entry||(index===null?!entry.complete:!entry.chunks.has(index)))throw Error("Voiceover source rejected");
+    const port=await startNetworkProxy();
+    if((voiceoverResult!==entry&&voiceoverJob?.preview!==entry)||entry.discarded)throw Error("Voiceover source expired");
+    return "http://127.0.0.1:"+port+"/voiceover/"+entry.token+(index===null?"":"/"+index);
   });
   ipcMain.handle("dk-library:voiceover-export",async(event,ticket,language)=>{
     if(!onlyPlayer(event)||voiceoverExporting||voiceoverJob||!voiceoverResult||voiceoverResult.ticket!==ticket)throw Error("Voiceover export rejected");

@@ -703,6 +703,17 @@ function connect(){
   // Standalone navigation only; leave the hosted library unchanged.
   if(nativeBridge?.internalPages){
     document.documentElement.classList.add("dk-standalone");
+    if(nativeBridge.openACP){
+      const footer=create("footer","footer dk-branded-footer");
+      const brand=create("span",null,"DK Kinehall ☭ DK Softworks");
+      const link=create("a",null,"ACP");link.href="https://acp.us/";
+      link.addEventListener("click",event=>{
+        event.preventDefault();
+        void nativeBridge.openACP().catch(()=>status("Could not open external website.","Не удалось открыть внешний сайт.",true));
+      });
+      footer.append(brand,link);
+      document.querySelector(".library-shell>main")?.after(footer);
+    }
     const labels=()=>{$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
     labels();$("languageSelect").addEventListener("change",()=>queueMicrotask(labels));
     $("scanLibrary").classList.remove("primary","ghost");

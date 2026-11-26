@@ -1990,20 +1990,52 @@
     updateButtons();
   });
   let volumeOverlayTimer = null;
-  // User-approved 0–100% volume in BOTH editions. No gain amplification
-  // or extra audio graph; the stream and its codec can switch freely.
-  const volumeLimit=100;
+  // Approved standalone range: 0–200%. Do not reduce this without user approval.
+  // Hosted web playback retains its original 0–100% behavior.
+  const desktopVolume=Boolean(window.DKLibraryBridge?.internalPages||
+    typeof window.DKStandalone?.setFullscreen==="function");
+  const AudioContextType=window.AudioContext||window.webkitAudioContext;
+  const supportsVolumeBoost=desktopVolume&&typeof AudioContextType==="function";
+  let volumeLimit=supportsVolumeBoost?200:100;
   const volumeSlider=byId("volume");
-  volumeSlider.max="100";
+  volumeSlider.max=String(volumeLimit);
+  let volumeAudioGraph=null;
+  const resumeBoost=()=>{
+    if(volumeAudioGraph?.context.state==="suspended")
+      void volumeAudioGraph.context.resume().catch(()=>{});
+  };
+  const ensureVolumeBoost=()=>{
+    if(volumeAudioGraph)return true;
+    if(!supportsVolumeBoost)return false;
+    let context=null;
+    try{
+      context=new AudioContextType();
+      const gain=context.createGain();
+      const source=context.createMediaElementSource(media);
+      source.connect(gain);gain.connect(context.destination);
+      volumeAudioGraph={context,gain};
+      media.addEventListener("play",resumeBoost);
+      resumeBoost();
+      return true;
+    }catch(_){
+      if(context)void context.close().catch(()=>{});
+      status("200% volume isn't available with this audio output.");
+      return false;
+    }
+  };
   const savedVolumeV2=read(store.volume,null);
   const legacyVolume=Number(read("dkmedia.web.volume.v1",1));
   let volumePercent=savedVolumeV2===null?
     Math.round(legacyVolume*100):Number(savedVolumeV2);
   if(!Number.isFinite(volumePercent))volumePercent=100;
-  volumePercent=Math.max(0,Math.min(100,Math.round(volumePercent)));
+  volumePercent=Math.max(0,Math.min(volumeLimit,Math.round(volumePercent)));
   const applyVolume = () => {
-    media.volume=volumePercent/100;
-    media.muted=mkvAudio&&mkvAudio.active()?true:userMuted;
+    const separateAudio=Boolean(mkvAudio?.active());
+    if(volumePercent>100&&!separateAudio&&!ensureVolumeBoost())volumePercent=100;
+    media.volume=volumeAudioGraph?1:Math.min(1,volumePercent/100);
+    if(volumeAudioGraph)volumeAudioGraph.gain.gain.value=userMuted||separateAudio?0:volumePercent/100;
+    media.muted=separateAudio||userMuted;
+    resumeBoost();
     if(mkvAudio)mkvAudio.setVolume(userMuted?0:volumePercent/100);
     volumeSlider.value=String(volumePercent);
     byId("volumeValue").textContent=(userMuted?0:volumePercent)+"%";
@@ -2017,11 +2049,12 @@
     volumeOverlayTimer = setTimeout(() => overlay.classList.remove("visible"), 950);
   };
   const setVolume = percent => {
-    const next=Math.max(0,Math.min(100,Math.round(Number(percent))));
+    const next=Math.max(0,Math.min(volumeLimit,Math.round(Number(percent))));
     if (!Number.isFinite(next)) return;
     volumePercent=next;
     userMuted = false;
     applyVolume();
+    resumeBoost();
     write(store.volume, volumePercent);
     showVolumeOverlay();
   };
@@ -2032,6 +2065,10 @@
   }, {passive: false});
 
   applyVolume();
+  if(supportsVolumeBoost){
+    document.addEventListener("pointerdown",resumeBoost,{passive:true});
+    document.addEventListener("keydown",resumeBoost);
+  }
   byId("volume").addEventListener("input", event => setVolume(event.target.value));
   byId("mute").addEventListener("click", () => {
     userMuted = !userMuted;

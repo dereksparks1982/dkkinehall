@@ -266,6 +266,7 @@
     else media.currentTime=value;
   };
   const rememberPosition = () => {
+    if(state.stopped)return;
     const item = current();
     const duration=playbackDuration(),position=playbackSeconds();
     if (!item || !Number.isFinite(duration) || duration <= 0) return;
@@ -1787,6 +1788,9 @@
     const item = current();
     if (!item) return;
     cancelVideoClick();
+    const preserveLibraryPosition=Boolean(window.DKLibraryBridge?.internalPages);
+    if(preserveLibraryPosition)rememberPosition();
+    state.stopped = true;
     media.pause();
     if(codecPlayback?.isActive(item)) {
       item.codecRestart=true;
@@ -1797,12 +1801,12 @@
       item.remuxAbort=null;
     }
     if (mkvAudio) mkvAudio.stop();
-    delete state.resume[item.key];
-    write(store.resume, state.resume);
-    if(item.libraryId&&window.DKLibraryStore)
-      void window.DKLibraryStore.updateProgress(item.libraryId,0,playbackDuration(),false)
-        .catch(()=>{});
-    state.stopped = true;
+    if(!preserveLibraryPosition){
+      delete state.resume[item.key];
+      write(store.resume,state.resume);
+      if(item.libraryId&&window.DKLibraryStore)
+        void window.DKLibraryStore.updateProgress(item.libraryId,0,playbackDuration(),false).catch(()=>{});
+    }
     try { media.currentTime = 0; } catch (_) {}
     screen.classList.add("empty", "stopped");
     syncPgsOverlay();
@@ -2883,6 +2887,22 @@
     return externalChain;
   };
   window.DKLibraryBridge?.onExternalReady?.(()=>{void acceptExternal();});
+  // Match durable identity first. A file opened by the OS can already have
+  // a native file ID/path even if the library ID was not set at that time.
+  function existingLibraryIndex(row){
+    const matches=state.queue.map((item,index)=>({item,index})).filter(({item})=>
+      item.kind==="file"&&(item.libraryId===row.id||item.file?.nativeId===row.id||
+        (row.nativePath&&item.file?.nativePath===row.nativePath)));
+    if(matches.length){
+      return matches.find(entry=>entry.index===state.current)?.index??matches[0].index;
+    }
+    // Only reuse an unambiguous manually opened file with no known
+    // conflicting library identity or native path.
+    const key="file:"+row.filename+":"+row.size+":"+row.modified;
+    const candidates=state.queue.map((item,index)=>({item,index})).filter(({item})=>
+      item.kind==="file"&&item.key===key&&!item.libraryId&&!item.file?.nativeId&&!item.file?.nativePath);
+    return candidates.length===1?candidates[0].index:-1;
+  }
   const openFromLibrary = async (selectionId=null) => {
     const params=new URLSearchParams(window.location.search);
     const external=params.get("externalItem");
@@ -2897,22 +2917,42 @@
     try{
       const row=await window.DKLibraryStore.item(id);
       if(!row)throw new Error("The library item was not found");
-      const selected=row.source==="native"?
-        window.DKNativeFile.create(row,
-          await window.DKLibraryBridge.nativeOpen(row.id,row.nativePath),
-          window.DKLibraryBridge):
-        await window.DKLibraryStore.openFile(row,{requestPermission:true});
       const metadataFilename=row.kind==="tv"&&
         window.DKMediaMetadata?.parseFilename(row.filename)?.type!=="episode"?
         row.series+".S"+String(row.season).padStart(2,"0")+
           "E"+String(row.episode).padStart(2,"0")+
           row.filename.slice(row.filename.lastIndexOf(".")):
         row.filename;
+      if(window.DKLibraryBridge?.internalPages){
+        const index=existingLibraryIndex(row);
+        if(index>=0){
+          const item=state.queue[index];
+          item.libraryId=id;
+          item.episodeTitle=row.episodeTitle||item.episodeTitle||"";
+          item.metadataFilename=metadataFilename;
+          if(!(Number(state.resume[item.key])>2)&&Number(row.position)>2)
+            state.resume[item.key]=Number(row.position);
+          if(index===state.current&&!state.stopped){
+            if(media.paused)playCurrent();
+          }else load(index,true);
+          return true;
+        }
+      }
+      const selected=row.source==="native"?
+        window.DKNativeFile.create(row,
+          await window.DKLibraryBridge.nativeOpen(row.id,row.nativePath),
+          window.DKLibraryBridge):
+        await window.DKLibraryStore.openFile(row,{requestPermission:true});
+
       addFiles([selected.file],[selected.handle],"open",{
         libraryId:id,libraryPosition:row.position||0,
         episodeTitle:row.episodeTitle||"",metadataFilename,
         nativeSrc:selected.src||null
       });
+      if(window.DKLibraryBridge?.internalPages){
+        const index=existingLibraryIndex(row);
+        if(index>=0&&index!==state.current)load(index,true);
+      }
       return true;
     }catch(error){
       status("Cannot open this library video. Reconnect its folder or grant permission.");
@@ -2924,11 +2964,11 @@
     librarySelectionChain=librarySelectionChain.catch(()=>{}).then(()=>openFromLibrary(id));
   });
   // Restore plain file selection only when this is not a library launch.
-  void (async()=>{
+  librarySelectionChain=librarySelectionChain.catch(()=>{}).then(async()=>{
     const selected=await openFromLibrary();
     if(!selected&&!await acceptExternal()){
       await restoreLastMedia();
       await restoreSavedFolder();
     }
-  })();
+  });
 })();

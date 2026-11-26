@@ -65,6 +65,8 @@ const nativeLibrary=Object.freeze({
   showLibrary:()=>libIpc.invoke("dk-library:show-home"),
   showPlayer:()=>libIpc.invoke("dk-library:show-player"),
   openSharedSettings:language=>libIpc.invoke("dk-library:settings-open",language==="ru"?"ru":"en"),
+  openMediaTool:kind=>libIpc.invoke("dk-library:open-media-tool",String(kind)),
+  onOpenMediaTool:callback=>subscribe("dk-library:open-media-tool",callback),
   changeSharedSetting:(id,action,value)=>libIpc.invoke("dk-library:settings-change",String(id),String(action),value),
   onActivatePlayer:callback=>subscribe("dk-library:activate-player",callback),
   discover:manual=>libIpc.invoke("dk-library:discover",Boolean(manual)),

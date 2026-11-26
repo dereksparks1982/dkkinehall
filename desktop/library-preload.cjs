@@ -49,6 +49,8 @@ const nativeLibrary=Object.freeze({
   onSpeechProgress:callback=>subscribe("dk-library:asr-progress",callback),
   exportGeneratedSRT:(content,language)=>libIpc.invoke("dk-library:export-translated-srt",String(content),language==="ru"?"ru":"en",true),
   voiceoverStatus:pair=>libIpc.invoke("dk-library:voiceover-status",String(pair)),
+  voiceoverCacheStats:()=>libIpc.invoke("dk-library:voiceover-cache-stats"),
+  clearVoiceoverCache:language=>libIpc.invoke("dk-library:voiceover-cache-clear",language==="ru"?"ru":"en"),
   generateVoiceover:(pair,rows,ticket)=>libIpc.invoke("dk-library:voiceover-generate",String(pair),rows,Number(ticket)),
   discardVoiceover:()=>libIpc.invoke("dk-library:voiceover-discard"),
   voiceoverSource:ticket=>libIpc.invoke("dk-library:voiceover-source",Number(ticket)),

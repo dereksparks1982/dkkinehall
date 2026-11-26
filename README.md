@@ -165,3 +165,32 @@ The approved Player sidebar has three rows: brown Choose folder / Reopen folder,
 - Refresh Metadata runs through available movies, TV episodes and one poster per TV series, sequentially with progress and a stop command. Existing cached data is retained on provider failures. Internet access is required for online providers; it does not rescan or modify video files.
 - Mouse Back and Forward navigate the current session's Library and Player history, including movie/TV mode, selected series and season. The persistent Player view is not recreated and changing views does not restart playback. Forward history is discarded when the user takes a new navigation path.
 - Standalone only; source changes committed to main. No runtime testing or compilation performed. Version stays at 0.9.3 for this incremental update.
+
+
+### Standalone playback fixes (v0.9.3)
+
+Shuffle and Loop use the same fixed 46 px height, two equal-width columns and 8 px gap as the Up Next action row. Off, One, All, shuffle on/off, hover, focus, pressed and disabled states keep the same geometry. Active and keyboard-focus indicators are inset; no expanding outer focus ring. Both controls remain white with dark text.
+
+During standalone playback, Left/Right arrows seek backward/forward ten seconds and reveal the existing controls. Repeated arrow presses restart the three-second inactivity timer, and the existing seek position/time display updates through the playback clock. Paused playback keeps the controls visible. Form inputs and open menus retain their own keyboard handling. No hosted player behavior changed.
+
+### Classic Windows Media Player feature-parity roadmap (standalone)
+
+All items are in scope, including network playback; none are deferred indefinitely. Source-level implementation and successful runtime acceptance are separate milestones.
+
+| Priority | Feature | Status |
+|---|---|---|
+| Preserve | Playback speed, fullscreen, mini-player, chapters | Existing; retain |
+| 1 | Brightness, contrast, saturation, hue, reset picture settings | Planned |
+| 2 | Gamma correction and sharpness | Planned |
+| 3 | Single-frame forward and reverse navigation | Planned; accurate reverse requires decoder work |
+| 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Planned/partial |
+| 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Planned |
+| 6 | Automatic volume leveling and dialogue enhancement | Planned |
+| 7 | Deinterlacing | Planned |
+| 8 | Video smoothing | Planned |
+| 9 | Physical DVD, ISO and VIDEO_TS playback, interactive menus, chapters, bonus material, audio/subtitle and angle selection | Planned; requires disc navigation backend |
+| 10 | DLNA/UPnP discovery, network shares and client-side streaming | Planned; not a media server |
+| 11 | Offline subtitle translation | In development; local runtime/model installation and acceptance outstanding |
+| Preserve | Video format conversion and 200% volume amplification | Existing source; retain and improve |
+
+Enhancements belong in the existing settings gear and must not modify original media files. Preserve the approved palette, icons, background and existing controls. No compiling, runtime testing or hosted development in this update.

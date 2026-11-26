@@ -54,8 +54,9 @@ for resource in index.html player.js player.css mkv-tracks.js \
   fi
 done
 if [[ ! -f "$WORK/repo/maintenance/sync_original_runtime.py" ||
-      ! -f "$WORK/repo/maintenance/install_linux_icon.py" ]]; then
-  echo "ERROR: Chromium synchronizer or desktop icon installer is missing." >&2
+      ! -f "$WORK/repo/maintenance/install_linux_icon.py" ||
+      ! -f "$WORK/repo/maintenance/make_icons_transparent.py" ]]; then
+  echo "ERROR: Chromium synchronizer, desktop icon installer or transparency fixer is missing." >&2
   exit 1
 fi
 
@@ -66,6 +67,13 @@ backup_ready=1
 
 echo "Updating existing web resources and Chromium runtime..."
 cp -a -- "$WORK/repo/docs/." "$APP/docs/"
+
+# The repository still contains the original approved, opaque emblem masters.
+# Restore the transparent outer corners EVERY update, BEFORE Chromium bundles
+# the icon, and BEFORE Ubuntu registers it for the executable and GNOME dock.
+echo "Restoring transparent corners on the approved DK emblem..."
+python3 "$WORK/repo/maintenance/make_icons_transparent.py" "$APP"
+
 python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP"
 
 echo "Registering the approved DK Kinehall icon for Ubuntu and the executable..."
@@ -79,9 +87,11 @@ echo "Backup: $BACKUP"
 # so a terminal updater invoked from Python can exit normally.
 if [[ "${DK_KINEHALL_NO_LAUNCH:-0}" != "1" ]]; then
   if [[ -x "$APP/DK Kinehall" ]]; then
-    echo "Opening DK Kinehall..."
+    echo "Opening the installed standalone Chromium DK Kinehall (not the website)..."
     (
       cd -- "$APP"
+      # Launch the installed binary and its bundled local resources directly.
+      # Never run a URL or xdg-open the separately hosted Web App.
       nohup "./DK Kinehall" </dev/null >/dev/null 2>&1 &
     )
   else

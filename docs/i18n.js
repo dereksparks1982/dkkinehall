@@ -385,7 +385,12 @@
   }
   function apply() {
     document.documentElement.lang = language;
-    document.title = language === "ru" ? "ДК Кинехолл | Веб" : "DK Kinehall | Web";
+    // Shared interface, different packaging: don't label the local Chromium
+    // desktop application "Web". Only the hosted website uses that title.
+    const standalone = typeof window.DKStandalone?.setFullscreen === "function";
+    document.title = standalone ?
+      (language === "ru" ? "ДК Кинехолл" : "DK Kinehall") :
+      (language === "ru" ? "ДК Кинехолл | Веб" : "DK Kinehall | Web");
     const manifest = document.querySelector('link[rel="manifest"]');
     if (manifest) manifest.href =
       language === "ru" ? "./manifest-ru.webmanifest?v=20261117-3" :

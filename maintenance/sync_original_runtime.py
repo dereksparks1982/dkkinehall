@@ -68,6 +68,8 @@ def sync(root):
                         host = host.replace(anchor, anchor + b"\n" + switch, 1)
                     if b'dk-media-player-512.png' not in host:
                         raise RuntimeError("Approved Chromium window icon is not configured")
+                    if b'void win.loadFile(player);' not in host:
+                        raise RuntimeError("Standalone Chromium must load the bundled local player, not a website")
                     entry.size = len(host)
                     after.addfile(entry, io.BytesIO(host))
                 elif entry.isfile() and relative in docs_map:

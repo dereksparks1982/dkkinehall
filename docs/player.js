@@ -66,6 +66,10 @@
     remember: savedPlayback?.remember !== false,
     removeWatched: savedPlayback?.removeWatched !== false
   };
+  const deinterlaceKey="dk-kinehall.deinterlace.v1";
+  const standaloneDeinterlace=Boolean(window.DKLibraryBridge?.internalPages&&window.DKCodecBridge?.probe);
+  const savedDeinterlace=standaloneDeinterlace?read(deinterlaceKey,"off"):"off";
+  let deinterlacePreference=["off","auto","on"].includes(savedDeinterlace)?savedDeinterlace:"off";
   let reapplyCurrentFormat = null;
   const playbackFormatInput = byId("playbackFormat");
   if(window.DKCodecBridge?.exportVideo){
@@ -1124,6 +1128,9 @@
     item.codecRestart = false;
     item.compatPending = false;
     item.requestedFormat = playbackSettings.format;
+    item.deinterlaceMode=standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
+    item.activeDeinterlace="off";
+    item.deinterlacePending=false;
     item.playbackMethod = (item.compatSrc && item.requestedFormat === "auto")
       ? "Cached lossless remux" : "Original source";
     const forcingContainer = item.requestedFormat === "mp4" || item.requestedFormat === "webm";
@@ -1169,6 +1176,7 @@
     status("");
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
+    const proceedNormal=()=>{
     // Standalone only: a playable picture does not prove audio is decodable.
     // Probe before normal playback; the web edition has no native bridge.
     if (codecPlayback && window.DKCodecBridge?.probe && item.file &&
@@ -1218,6 +1226,36 @@
     } else if (autoplay) {
       playCurrent();
     }
+    };
+    // Inspect field-order metadata before electing a native filtered stream.
+    // Off and Original preserve the old path; Auto never transcodes solely
+    // for progressive/unknown metadata. On explicitly forces the filter.
+    if(item.deinterlaceMode!=="off"&&item.file&&codecPlayback){
+      const epoch=item.playbackEpoch;
+      const valid=()=>current()===item&&item.playbackEpoch===epoch&&!state.stopped;
+      item.deinterlacePending=true;
+      void (async()=>{
+        let filtered=false;
+        try{
+          const info=await localCodecBridge.probe(item.file);
+          if(!valid())return;
+          mergeChapters(item,info.chapters);
+          const needed=info.hasVideo&&(item.deinterlaceMode==="on"||
+            ["tt","bb","tb","bt"].includes(info.fieldOrder));
+          if(needed){
+            status("Preparing deinterlaced video…");
+            filtered=await tryNativeCodec(item);
+          }
+        }catch(_){}
+        if(!valid())return;
+        item.deinterlacePending=false;
+        if(filtered)return;
+        // Failed/unsupported filter must not prevent ordinary playback.
+        item.deinterlaceMode="off";
+        item.codecAttempted=false;
+        proceedNormal();
+      })();
+    }else proceedNormal();
   };
   reapplyCurrentFormat = () => {
     if (!current()) return;
@@ -2152,6 +2190,26 @@
     if(typeof ResizeObserver==="function")new ResizeObserver(applyGeometry).observe(screen);
     applyGeometry();window.DKLocale?.apply();
   }
+  if(standaloneDeinterlace&&settingsDetails){
+    const section=document.createElement("section");
+    section.className="player-settings-section dk-picture-settings";
+    const title=document.createElement("strong");title.textContent="Deinterlacing";
+    const label=document.createElement("label");label.htmlFor="deinterlaceMode";label.textContent="Deinterlacing mode";
+    const select=document.createElement("select");select.id="deinterlaceMode";
+    for(const [value,text] of [["off","Off"],["auto","Automatic"],["on","On"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=text;select.append(option);
+    }
+    select.value=deinterlacePreference;
+    select.addEventListener("change",()=>{
+      deinterlacePreference=select.value;write(deinterlaceKey,deinterlacePreference);
+      status("Deinterlacing preference applies the next time a video opens.",true);
+    });
+    const note=document.createElement("p");note.className="helper";
+    note.textContent="Automatic uses interlaced stream metadata. On forces native deinterlacing. Original playback format bypasses conversion. Changes apply when a video next opens.";
+    section.append(title,label,select,note);
+    byId("playerSettingsPanel").append(section);
+    window.DKLocale?.apply();
+  }
   // Frame stepping uses actual source presentation timestamps. Pause before
   // seeking; do not substitute guessed 24/30-fps offsets when unavailable.
   let stepFrame=null;
@@ -2468,6 +2526,7 @@
     if (!current() || !media.error || state.stopped) return;
     const code = media.error.code;
     const item=current();
+    if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;
     if(codecPlayback?.isActive(item)){
       if(!item.nativeAlternateAttempted&&item.requestedFormat==="auto"){
         void codecPlayback.retryAlternate(item).then(ok=>{if(!ok&&current()===item)status("Included decoder output could not be played.");});

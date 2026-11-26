@@ -576,3 +576,9 @@ html.dk-desktop-fullscreen body {
 .playback-settings-panel input{accent-color:var(--accent)}
 .playback-settings-panel p{margin:0;font-size:.75rem;color:var(--muted);line-height:1.4}
 @media(max-width:530px){.playback-settings summary{font-size:0}.playback-settings summary::first-letter{font-size:18px}}
+
+/* Direct subtitle toggle beside the track selector. Keep existing player layout. */
+.subtitle-toggle{min-width:48px;padding:7px 13px;font-weight:750;border-color:#8c3c46;background:#32141d;color:#fff}
+.subtitle-toggle:hover:not(:disabled){background:#87323c}
+.subtitle-toggle[aria-pressed="true"]{background:#b9323b;border-color:#f65c68;color:#fff}
+.subtitle-toggle:disabled{opacity:.45}

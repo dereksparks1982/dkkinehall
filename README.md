@@ -22,7 +22,7 @@ The two editions are separate. The Web App remains available regardless of chang
 - **Up Next:** Build a playlist and move between movies or episodes.
 - **Playback controls:** Play, pause, stop, seek, previous, next, and 10-second rewind or fast-forward.
 - **Fullscreen:** Watch videos in fullscreen using the player controls.
-- **Subtitles and audio:** Open **Subtitles** to choose embedded MKV subtitle tracks or turn subtitles off. External SRT/VTT files are loaded separately. Available formats depend on browser playback support.
+- **Subtitles and audio:** Use the **On/Off** button beside **+ Subtitles** to enable or disable detected embedded MKV subtitles directly. Open **+ Subtitles** only to choose another track or load an external SRT/VTT file. Available formats depend on browser playback support.
 - **Playback resume:** Return to where you stopped in a movie when the edition can restore access to that file.
 - **Artwork:** Display movie posters, episode stills, and local cover images when available, with automatic recovery when an online artwork source fails.
 - **Languages:** English and Russian interface options.

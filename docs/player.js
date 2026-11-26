@@ -188,6 +188,24 @@
     return {eng:"en",spa:"es",fre:"fr",fra:"fr",ger:"de",deu:"de",
       rus:"ru",ita:"it",por:"pt",jpn:"ja"}[lang] || lang;
   };
+  const subtitleIsOn = () => !!state.activePgsTrack ||
+    state.activeEmbeddedTrack !== null || state.mkvSubtitlePending ||
+    subtitleTracks().some(track => track.mode === "showing");
+  const usableEmbeddedSubtitles = item => (item?.embeddedSubtitles || []).filter(track =>
+    (window.DKMkvSubtitles && window.DKMkvSubtitles.canExtract(track.codec)) ||
+    (window.DKPGS && window.DKPGS.canRender(track.codec)) ||
+    (window.DKVobSub && window.DKVobSub.canRender(track.codec)));
+  const updateSubtitleToggle = () => {
+    const button = byId("subtitleToggle");
+    const item = current();
+    const on = subtitleIsOn();
+    button.disabled = !item || (!on && !usableEmbeddedSubtitles(item).length &&
+      !subtitleTracks().length);
+    button.textContent = on ? "Off" : "On";
+    button.setAttribute("aria-pressed",String(on));
+    button.setAttribute("aria-label",on ? "Turn subtitles off" : "Turn subtitles on");
+    button.title = on ? "Turn subtitles off" : "Turn embedded subtitles on";
+  };
   const updateSubtitleStatus = () => {
     const showing = subtitleTracks().find(track => track.mode === "showing");
     const item = current();
@@ -199,6 +217,7 @@
       "Subtitles: " + (showing.label || showing.language || "On") :
       detected ? "Subtitles off · " + detected + " embedded MKV track" +
         (detected === 1 ? "" : "s") + " found" : "Subtitles off";
+    updateSubtitleToggle();
   };
   const applySubtitlePreference = () => {
     const tracks = subtitleTracks(), pref = state.subtitlePreference;
@@ -1876,6 +1895,29 @@
       '.context-section-toggle[data-menu-section="Subtitles"]');
     if (subtitleSection) subtitleSection.click();
     else fitContextMenu();
+  });
+  // One-click embedded subtitles. Never invokes the external SRT picker.
+  byId("subtitleToggle").addEventListener("click", () => {
+    const item = current();
+    if (!item) return;
+    if (subtitleIsOn()) {
+      switchSubtitles(-1);
+      status("Subtitles turned off.",true);
+      return;
+    }
+    const available = usableEmbeddedSubtitles(item);
+    const selected = available.find(track => track.default || track.flagDefault) ||
+      available.find(track => /^(en|eng)$/i.test(String(track.language || ""))) ||
+      available[0];
+    if (selected) {
+      if (window.DKPGS?.canRender(selected.codec)) void loadPgsTrack(selected);
+      else if (window.DKVobSub?.canRender(selected.codec)) void loadVobSubTrack(selected);
+      else void loadEmbeddedTrack(selected);
+    } else {
+      const native = subtitleTracks()[0];
+      if (native) chooseSubtitleTrack(native);
+      else status("No supported embedded subtitles were detected.");
+    }
   });
   byId("subtitlePicker").addEventListener("change", async event => {
     const file = event.target.files && event.target.files[0];

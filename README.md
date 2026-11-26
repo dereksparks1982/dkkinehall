@@ -185,12 +185,13 @@ All items are in scope, including network playback; none are deferred indefinite
 | 3 | Single-frame forward and reverse navigation | Source added; rendered-frame accuracy and decoder acceptance pending |
 | 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Source added; runtime acceptance pending |
 | 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Source added; runtime acceptance pending |
-| 6 | Automatic volume leveling and dialogue enhancement | Planned |
+| 6 | Automatic volume leveling and dialogue enhancement | Source added; runtime acceptance pending |
 | 7 | Deinterlacing | Planned |
 | 8 | Video smoothing | Planned |
 | 9 | Physical DVD, ISO and VIDEO_TS playback, interactive menus, chapters, bonus material, audio/subtitle and angle selection | Planned; requires disc navigation backend |
 | 10 | DLNA/UPnP discovery, network shares and client-side streaming | Planned; not a media server |
 | 11 | Offline subtitle translation | In development; local runtime/model installation and acceptance outstanding |
+| 12 | DK Voiceover (offline English/Russian translated speech) | Planned; [detailed roadmap](docs/VOICEOVER_ROADMAP.md) |
 | Preserve | Video format conversion and 200% volume amplification | Existing source; retain and improve |
 
 Enhancements belong in the existing settings gear and must not modify original media files. Preserve the approved palette, icons, background and existing controls. No compiling, runtime testing or hosted development in this update.
@@ -228,3 +229,14 @@ The playback settings gear now includes an optional ten-band graphic equalizer (
 The same Web Audio effect topology is used by the normal media element, loopback native codec stream and separate MKV WebCodecs audio path. Nonzero stereo balance can downmix surround sound. No change to original media, export, transport, icons or crimson background. Actual local-file and loopback audio behavior, separate audio switching, frequency response and output compatibility are unverified. No compiling or testing.
 
 Next priority: automatic volume leveling and dialogue enhancement. Master roadmap updated.
+
+
+### Standalone volume leveling, dialogue and context menu
+
+The settings gear adds independent, off-by-default Automatic volume leveling and Dialogue enhancement switches, 0–100% strength adjustments, saved preferences and reset. Leveling uses dynamic range compression and modest makeup gain, not measured integrated loudness normalization. Dialogue enhancement uses speech-frequency emphasis (not voice isolation or translated speech). Master volume gain remains downstream of processing, including 200% amplification. Normal, native-transcoded and separately decoded MKV audio share the effect topology. Web Audio compression and stereo balance can downmix surround channels; clipping, latency/lip sync, audio output and channel-aware processing remain acceptance work.
+
+The approved top-level right-click palette uses red Playback, gold Playback format/Speed/Picture, and white Subtitles/Audio tracks/Media information. Other sections stay brown/gold; nested entries remain unchanged. Focus indicators are inset. No icon/background changes.
+
+**DK Voiceover:** the full offline translated movie speech feature is now tracked in [docs/VOICEOVER_ROADMAP.md](docs/VOICEOVER_ROADMAP.md) and the master roadmap. Candidate local ASR, translation and TTS/diarization engines require pinned models, license review, provisioning, secure processing, mixing, synchronized playback, cache/export and real runtime verification. No engine/model downloads or voiceover implementation yet.
+
+Next priority: deinterlacing. Standalone source only; no compilation, testing or terminal commands.

@@ -1000,6 +1000,7 @@ async function navigateHistory(direction,origin="renderer"){
 let maintenanceBusy=false;
 let metadataRefreshing=false;
 function maintenanceStatus(value){
+  if(home&&!home.isDestroyed())home.webContents.send("dk-library:maintenance-status",value);
   if(installedWindow())player.webContents.send("dk-library:maintenance-status",value);
 }
 
@@ -1494,6 +1495,7 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:scan-state",(event,value)=>{
     if(!allowed(event))throw Error("Scan state rejected");
     scanActive=Boolean(value);
+    if(home&&!home.isDestroyed())home.webContents.send("dk-library:scan-state",scanActive);
     if(installedWindow())player.webContents.send("dk-library:scan-state",scanActive);
     return true;
   });

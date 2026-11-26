@@ -1158,6 +1158,12 @@
     if(!codecPlayback||!item?.file||item.codecAttempted ||
        current()!==item||state.stopped)return false;
     item.codecAttempted=true;
+    // The previous MKV WebCodecs audio path must be shut down when the
+    // complete native FFmpeg stream takes over video AND sound.
+    if(mkvAudio) {
+      mkvAudio.stop();
+      applyVolume();
+    }
     const resume=Number(state.resume[item.key]||0);
     const at=Number.isFinite(resume)&&resume>0?resume:
       (Number.isFinite(media.currentTime)?Math.max(0,media.currentTime):0);

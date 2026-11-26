@@ -20,7 +20,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Features
 
-- **Local playback:** Open video and music stored on your device. Explicitly selected uncommon formats are passed to the playback engine for probing rather than rejected solely by extension.
+- **Local playback:** Open video and music stored on your device. Explicitly selected uncommon formats are passed to the playback engine for probing rather than rejected solely by extension. Folder scanning also recognizes many older container extensions, although recognition alone does not prove the file is decodable.
 - **Up Next:** Reorder queued videos with mouse/touch drag handles or keyboard arrows without interrupting the playing video.
 - **Shuffle / repeat:** Shuffle upcoming videos. Repeat Off, One or All; remember these preferences. Repeat modes keep played entries available.
 - **Chapters:** A visible **Chapters** button selects real MKV or supported native-text-track chapter markers. Right-click is optional.

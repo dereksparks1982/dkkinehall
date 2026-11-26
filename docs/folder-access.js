@@ -13,7 +13,9 @@
   const MAX_DEPTH = 6;
   const MAX_ARTWORK = 1000;
   const posterImage = name => /\.(?:jpe?g|png|webp)$/i.test(name);
-  const playable = name => /\.(mp4|m4v|mov|mkv|avi|webm|ogg|ogv|mp3|m4a|aac|wav|flac|opus|ts)$/i.test(name);
+  // Recognition covers legacy and modern extensions; decoding remains
+  // the playback backend's responsibility, never inferred from suffixes.
+  const playable = name => /\.(mp4|m4v|mov|mkv|avi|webm|ogg|ogv|mp3|m4a|aac|wav|flac|opus|ts|mts|m2ts|mpeg|mpg|m2v|mxf|vob|wmv|asf|flv|f4v|3gp|3g2|dv|divx|rm|rmvb|mpv|nut|mka|mp2|aiff?|ape|alac|wma|m4b|caf|dsf|dff|amr|ac3|dts)$/i.test(name);
   const byName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
   async function scan(handle, options = {}) {
     if (!handle || handle.kind !== "directory" || typeof handle.entries !== "function")

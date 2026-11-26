@@ -17,7 +17,8 @@
     embeddedSubtitlePreferences: "dkmedia.web.mkv-subtitle-preferences.v1",
     folderName: "dkmedia.web.folder-name.v1",
     playbackSettings: "dkmedia.web.playback-settings.v1",
-    queueOrder: "dk-kinehall.queue-order.v1"
+    queueOrder: "dk-kinehall.queue-order.v1",
+    queueSequence: "dk-kinehall.queue-sequence.v1"
   };
   const read = (key, fallback) => {
     try {
@@ -90,6 +91,25 @@
   for (const control of [playbackFormatInput,hardwareInput,rememberInput,removeWatchedInput])
     control.addEventListener("change",updatePlaybackSettings);
   const current = () => state.queue[state.current] || null;
+  const queueIdentity = item =>
+    item.kind+"|"+String(item.path||item.name||"")+"|"+String(item.key||"");
+  const rememberQueueSequence = () => {
+    write(store.queueSequence,state.queue.slice(0,500).map(queueIdentity));
+  };
+  const restoreQueueSequence = () => {
+    const saved=read(store.queueSequence,[]);
+    if(!Array.isArray(saved)||!saved.length||playbackOrder.shuffle)return;
+    const ranks=new Map(saved.slice(0,500)
+      .filter(key=>typeof key==="string").map((key,index)=>[key,index]));
+    const active=current();
+    state.queue.sort((a,b)=>{
+      const rankA=ranks.get(queueIdentity(a)),rankB=ranks.get(queueIdentity(b));
+      return (rankA===undefined?Infinity:rankA)-
+        (rankB===undefined?Infinity:rankB);
+    });
+    state.current=active?state.queue.indexOf(active):-1;
+    renderQueue();
+  };
   const savedOrder = read(store.queueOrder, {});
   const playbackOrder = {
     shuffle: savedOrder?.shuffle === true,
@@ -103,6 +123,7 @@
       const other = start + Math.floor(Math.random() * (i - start + 1));
       [state.queue[i],state.queue[other]] = [state.queue[other],state.queue[i]];
     }
+    rememberQueueSequence();
   };
   const updateOrderButtons = () => {
     const shuffle = byId("shuffleQueue"), loop = byId("loopQueue");
@@ -647,6 +668,7 @@
     if (targetIndex<0) {state.queue.splice(from,0,source); return false;}
     state.queue.splice(targetIndex+(after?1:0),0,source);
     state.current=state.queue.indexOf(nowPlaying);
+    rememberQueueSequence();
     renderQueue(); // Only queue DOM changes; media.src and playback remain intact.
     return true;
   };
@@ -1111,6 +1133,7 @@
     releaseArtwork(old);
     releaseCompatible(old);
     if (old.kind === "file") URL.revokeObjectURL(old.src);
+    rememberQueueSequence();
   };
   // Open files selects a movie to watch now unless another is playing.
   // The Up Next button queues without ever interrupting current playback.
@@ -1243,6 +1266,7 @@
       // A previously watched file can be recovered through a still-approved
       // directory handle even if its individual file handle expired.
       if (reason === "startup" && !current()) {
+        restoreQueueSequence();
         const saved = read(store.lastMedia, null);
         const previous = saved ? state.queue.findIndex(item =>
           saved.key ? item.key === saved.key : item.name === saved.name) : -1;
@@ -1321,7 +1345,10 @@
     ++state.folderScanVersion;
     state.folderHandle = null;
     state.folderName = "";
-    try { localStorage.removeItem(store.folderName); } catch (_) {}
+    try {
+      localStorage.removeItem(store.folderName);
+      localStorage.removeItem(store.queueSequence);
+    } catch (_) {}
     try { await storedHandle("delete", null, folderHandleKey); } catch (_) {}
     updateFolderUI();
     status("Folder forgotten. Queued movies remain available this session.", true);
@@ -1378,7 +1405,9 @@
       for (const handle of handles) {
         try {
           const file = await handle.getFile();
-          if (fileIsMedia(file)) selected.push({file, handle});
+          // Explicitly selected files are probed by the playback engine;
+          // never reject an unusual codec solely by its filename extension.
+          selected.push({file, handle});
         } catch (_) { /* Continue opening remaining files. */ }
       }
       if (selected.length) addFiles(selected.map(item => item.file),
@@ -1483,6 +1512,7 @@
       releaseCompatible(item);
       if (item.kind === "file") URL.revokeObjectURL(item.src);
     });
+    rememberQueueSequence();
     renderQueue();
     status("Up Next cleared.", true);
   });

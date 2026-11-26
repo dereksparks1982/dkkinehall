@@ -11,11 +11,11 @@ The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved r
 - Mouse/touch/keyboard Up Next reordering, Shuffle, Loop Off/One/All.
 - Visible Chapters button with embedded Matroska chapter reading and native cue fallback.
 - Resizable video, Float/Dock in the application, Chromium native Picture-in-Picture.
-- Reordering preserves the Up Next scroll position. Both editions enforce the approved 0–100% volume range without an amplification layer.
+- Reordering preserves the Up Next scroll position and stores user-selected order for reopened, permission-approved folders. Both editions enforce the approved 0–100% volume range without amplification.
 - Episode show title on line one; SxxExx and episode name together on the wrapping second line.
 - Source-level native Qt/libmpv chapter menu, queue drag ordering, Shuffle/Loop and wider file selection.
 - Native prototype: TVmaze episode lookup from series and SxxExx only, cached verified names and stills, with original release filename kept for playback and local poster priority.
-- File selection no longer depends on a narrow filename suffix list; actual decoding remains required.
+- Explicit file selection no longer depends on a narrow filename suffix list; folder scanning recognizes additional modern and older video/audio formats. Actual decoding remains required.
 - Source-level Electron codec backend: guarded preload IPC, FFprobe metadata, loopback-only FFmpeg output inside the existing video element, seek/resume original-time adapter, alternate audio stream selection, FFprobe embedded chapter retrieval beyond MKV, Repeat One stream restart, real playback-event confirmation (no premature success message), and all-or-nothing backend archive staging.
 - Native portable packaging audits FFmpeg codec libraries, includes FFmpeg/FFprobe executables, records decoder/demuxer inventories and ships third-party notices.
 

@@ -587,6 +587,29 @@ function allowed(event){
 function installedWindow(){
   return player&&!player.webContents.isDestroyed();
 }
+// One language preference for the two persistent standalone views.
+let interfaceLanguage=null,languageRevision=0;
+const languageFile=()=>path.join(app.getPath("userData"),"interface-language.json");
+function readInterfaceLanguage(fallback){
+  if(interfaceLanguage)return interfaceLanguage;
+  try{
+    const saved=JSON.parse(fs.readFileSync(languageFile(),"utf8"));
+    if(["en","ru"].includes(saved.language))interfaceLanguage=saved.language;
+  }catch(_){}
+  if(!interfaceLanguage)interfaceLanguage=fallback==="ru"?"ru":"en";
+  return interfaceLanguage;
+}
+function writeInterfaceLanguage(value){
+  const dest=languageFile(),temp=dest+".tmp";
+  fs.mkdirSync(path.dirname(dest),{recursive:true});
+  fs.writeFileSync(temp,JSON.stringify({language:value}),{mode:0o600});
+  fs.renameSync(temp,dest);
+  interfaceLanguage=value;languageRevision++;
+  const state={language:value,revision:languageRevision};
+  if(home&&!home.isDestroyed())home.webContents.send("dk-library:language-changed",state);
+  if(installedWindow())player.webContents.send("dk-library:language-changed",state);
+  return state;
+}
 function resizePlayer(){
   if(!home||home.isDestroyed()||!installedWindow())return;
   const [width,height]=home.getContentSize();
@@ -706,6 +729,14 @@ function install(originalWindow,originalPlayer){
   });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
+  ipcMain.handle("dk-library:language-get",(event,fallback)=>{
+    if(!allowed(event)&&!onlyPlayer(event))throw Error("Language request rejected");
+    return {language:readInterfaceLanguage(fallback),revision:languageRevision};
+  });
+  ipcMain.handle("dk-library:language-set",(event,value)=>{
+    if((!allowed(event)&&!onlyPlayer(event))||!["en","ru"].includes(value))throw Error("Language request rejected");
+    return writeInterfaceLanguage(value);
+  });
   ipcMain.handle("dk-network:discover",event=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return discoverNetwork();
   });
@@ -869,7 +900,7 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event)||activePage!=="library")throw Error("Settings request rejected");
     await openPlayer(null,false,true);
     if(!installedWindow()||activePage!=="library")throw Error("Settings unavailable");
-    return player.webContents.executeJavaScript("window.DKSharedSettings.snapshot("+JSON.stringify(language==="ru"?"ru":"en")+")");
+    return player.webContents.executeJavaScript("window.DKSharedSettings.snapshot()");
   });
   ipcMain.handle("dk-library:settings-change",async(event,id,action,value)=>{
     if(!allowed(event)||activePage!=="library"||!installedWindow()||

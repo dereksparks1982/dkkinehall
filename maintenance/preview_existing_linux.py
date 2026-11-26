@@ -43,9 +43,7 @@ def main():
         mainfile=app/"main.cjs"
         data=bundle.patch_main(mainfile.read_bytes())
         data=data.replace(b'require("./desktop/codec-host.cjs").install(win);',b'')
-        # Set isolated userData after app identity setup, before original
-        # ready callbacks are registered. Preserve the strict-mode directive.
-        # Also disable destructive library actions for preview use.
+        # Confirm original bootstrap before staging preview-only changes.
         anchor=b'require("./desktop/library-host.cjs").install(win, player);'
         if data.count(anchor)!=1:raise RuntimeError("Unexpected library bootstrap")
         mainfile.write_bytes(data)
@@ -81,6 +79,12 @@ def main():
         old="return native.deleteVideo(id,filePath,{dialog,shell,window:home});"
         if old not in data:raise RuntimeError("Cannot disable preview deletion")
         host.write_text(data.replace(old,'throw new Error("Deletion is disabled in the development preview");'))
+        # System executables must not load stale bundled FFmpeg libraries.
+        codec=app/"desktop/codec-host.cjs"
+        code=codec.read_text()
+        old_env='LD_LIBRARY_PATH:libs+path.delimiter+(process.env.LD_LIBRARY_PATH||""),'
+        if old_env not in code:raise RuntimeError("Unexpected codec environment")
+        codec.write_text(code.replace(old_env,'LD_LIBRARY_PATH:"",'))
         (app/"bin").mkdir(exist_ok=True)
         for name,exe in tools.items():
             dest=app/"bin"/name
@@ -88,6 +92,7 @@ def main():
             dest.symlink_to(Path(exe).resolve())
         profile=work/"profile"
         profile.mkdir()
+        (profile/"userData").mkdir()
         env=dict(os.environ,XDG_CONFIG_HOME=str(profile/"config"),XDG_CACHE_HOME=str(profile/"cache"),XDG_DATA_HOME=str(profile/"data"))
         # Ensure Electron's single-instance lock and browser storage are private.
         data=mainfile.read_text()

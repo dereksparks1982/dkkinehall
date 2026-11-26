@@ -988,3 +988,32 @@ html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue):focus-visib
 html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue):disabled{
   opacity:.55;cursor:default;
 }
+
+
+/* Standalone playback-only picture enhancements. SVG definitions are
+   off-layout, not display:none, so the local fragment filters can resolve. */
+html.dk-standalone .dk-picture-filter-defs{
+  position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;
+}
+html.dk-standalone .dk-picture-settings>strong{color:var(--dk-gold)}
+html.dk-standalone .dk-picture-adjustment{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;
+  gap:2px 10px;align-items:center;
+}
+html.dk-standalone .dk-picture-adjustment label{
+  color:#eee0e3;font-size:.81rem;font-weight:650;
+}
+html.dk-standalone .dk-picture-adjustment output{
+  color:var(--dk-gold);font-size:.8rem;font-variant-numeric:tabular-nums;
+}
+html.dk-standalone .dk-picture-adjustment input{
+  grid-column:1/-1;width:100%;min-width:0;height:23px;
+  margin:0;accent-color:var(--dk-gold);cursor:pointer;
+}
+html.dk-standalone .playback-settings-panel .dk-picture-reset{
+  background:#462a25;border-color:#a58039;color:#e2b956;
+  min-height:34px;padding:6px 10px;
+}
+html.dk-standalone .playback-settings-panel .dk-picture-reset:hover{
+  background:#53322b;border-color:#e2b956;
+}

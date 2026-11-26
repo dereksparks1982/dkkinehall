@@ -67,6 +67,15 @@
   };
   let reapplyCurrentFormat = null;
   const playbackFormatInput = byId("playbackFormat");
+  if(window.DKCodecBridge?.exportVideo){
+    const button=document.createElement("button");
+    button.type="button";button.className="btn ghost";button.id="nativeExportVideo";
+    const language=()=>byId("languageSelect").value==="ru"?"ru":"en";
+    const refresh=()=>{button.textContent=language()==="ru"?"Конвертировать видео…":"Convert video…";};
+    button.addEventListener("click",()=>{void window.DKCodecBridge.exportVideo(language()).catch(()=>{});});
+    byId("playbackFormatNote").after(button);
+    byId("languageSelect").addEventListener("change",()=>queueMicrotask(refresh));refresh();
+  }
   const hardwareInput = byId("playbackHardware");
   const rememberInput = byId("playbackRemember");
   const removeWatchedInput = byId("removeWatched");

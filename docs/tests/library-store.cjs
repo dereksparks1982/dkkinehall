@@ -144,6 +144,29 @@ async function run(){
   assert.equal((await store.entries()).find(row=>row.kind==="movie").missing,false);
   // Only a metadata/cache record is written; no video bytes are stored.
   assert.ok(!("blob" in newEpisode));
+  const nativeId="native:"+"f".repeat(64);
+  const discovered={
+    id:nativeId,nativePath:"/home/example/Videos/Film.2024.mp4",
+    filename:"Film.2024.mp4",relative:"Videos/Film.2024.mp4",
+    root:"/home/example",size:12345,modified:42
+  };
+  const imported=await store.ingestNative({items:[discovered],complete:true});
+  assert.equal(imported.added,1);
+  assert.equal((await store.item(nativeId)).source,"native");
+  assert.equal((await store.item(nativeId)).kind,"movie");
+  await store.updateProgress(nativeId,40,120);
+  await store.ingestNative({items:[discovered],complete:true});
+  assert.equal((await store.item(nativeId)).position,40,
+    "Automatic rescans preserve Continue Watching positions");
+  await store.ingestNative({items:[],complete:false});
+  assert.equal((await store.item(nativeId)).missing,false,
+    "Partial scans never hide disconnected media");
+  await store.ingestNative({items:[],complete:true});
+  assert.equal((await store.item(nativeId)).missing,true,
+    "Completed scans mark missing media without deleting it");
+  assert.equal(await store.removeEntry(nativeId),true);
+  assert.equal(await store.item(nativeId),undefined,
+    "Completed filesystem deletion removes cached entry");
   console.log("PASS: Movies/TV-only catalog, Season 0, cache, progress, rename, missing and restored files");
 }
 run().catch(error=>{console.error(error);process.exitCode=1});

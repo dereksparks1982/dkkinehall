@@ -312,6 +312,65 @@ async function scanAll({manual=false,onProgress=()=>{},signal}={}){
   }
   return results;
 }
+async function ingestNative(scan){
+  if(!scan||!Array.isArray(scan.items)||scan.items.length>MAX_FILES)
+    throw new Error("Invalid native library scan");
+  const existing=(await entries()).filter(row=>row.source==="native");
+  const old=new Map(existing.map(row=>[row.id,row]));
+  const seen=new Set(),changes=[];
+  let added=0,updated=0,missing=0;
+  for(const file of scan.items){
+    if(!file||typeof file.id!=="string"||
+       !/^native:[a-f0-9]{64}$/.test(file.id)||
+       typeof file.nativePath!=="string"||
+       !file.nativePath.startsWith("/")||
+       !Number.isFinite(file.size)||!Number.isFinite(file.modified))
+      continue;
+    const info=classify(file.filename,file.relative);
+    if(!info)continue;
+    seen.add(file.id);
+    const previous=old.get(file.id);
+    if(previous&&previous.size===file.size&&
+       previous.modified===file.modified&&!previous.missing)continue;
+    changes.push({...previous,...info,
+      // A verified metadata provider title survives unchanged film contents.
+      episodeTitle:previous?.metadataVerified?
+        previous.episodeTitle:info.episodeTitle,
+      id:file.id,source:"native",nativePath:file.nativePath,
+      nativeRoot:file.root,filename:file.filename,relative:file.relative,
+      size:file.size,modified:file.modified,missing:false,
+      position:previous?.position||0,duration:previous?.duration||0,
+      lastPlayed:previous?.lastPlayed||0,completed:previous?.completed||false,
+      updatedAt:Date.now()});
+    if(previous)updated++;else added++;
+  }
+  if(scan.complete===true){
+    for(const row of existing){
+      if(!seen.has(row.id)&&!row.missing){
+        changes.push({...row,missing:true});
+        missing++;
+      }
+    }
+  }
+  for(let i=0;i<changes.length;i+=80)
+    await putBatch("entries",changes.slice(i,i+80));
+  if(changes.length)changed({entries:true,native:true});
+  return {added,updated,missing,found:seen.size,complete:scan.complete===true};
+}
+async function removeEntry(id){
+  const itemRow=await item(id);
+  if(!itemRow)return false;
+  const db=await open();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(["entries","art"],"readwrite");
+    tx.objectStore("entries").delete(id);
+    tx.objectStore("art").delete(id);
+    tx.oncomplete=resolve;
+    tx.onabort=()=>reject(tx.error||new Error("Unable to remove library entry"));
+  });
+  changed({entries:true,id});
+  return true;
+}
 async function openFile(row,{requestPermission=false}={}){
   if(!row||row.missing)throw new Error("This file is unavailable. Reconnect its drive and scan the library.");
   const folder=await get("folders",row.folderId);
@@ -390,6 +449,7 @@ async function saveArtwork(id,blob,credit=""){
 }
 return Object.freeze({
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
+  ingestNative,removeEntry,
   checkReadPermission,openFile,updateProgress,updateMetadata,artwork,saveArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });

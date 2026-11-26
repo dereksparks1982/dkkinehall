@@ -5,6 +5,8 @@
 (() => {
 "use strict";
 const store=window.DKLibraryStore;
+const nativeBridge=window.DKLibraryBridge?.nativeLibrary?
+  window.DKLibraryBridge:null;
 if(!store)return;
 const $=id=>document.getElementById(id);
 const storedMode=()=>{
@@ -15,6 +17,7 @@ let mode=storedMode(),selectedSeries=null,selectedSeason=null;
 let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
 let bottomObserver=null;
+let contextRow=null;
 let deferredProgress=false;
 const imageUrls=new Set();
 const imageQueue=[],activeArtwork=new Map();
@@ -111,6 +114,16 @@ function createCard(row,{landscape=false,series=false}={}){
   }
   if(row.missing)card.title=say("File unavailable: reconnect its drive",
     "Файл недоступен: подключите накопитель");
+  card.addEventListener("contextmenu",event=>{
+    if(!nativeBridge)return;
+    event.preventDefault();
+    if(series){
+      status("Open the TV show to delete an individual episode.",
+        "Откройте сериал и выберите серию для удаления.");
+      return;
+    }
+    showContextMenu(row,event.clientX,event.clientY);
+  });
   card.addEventListener("click",()=>{
     if(series){
       selectedSeries=row.series;
@@ -187,6 +200,19 @@ async function findArtwork(row,id,series=false){
   }
   const cache=await store.artwork(id);
   if(cache?.blob)return cache.blob;
+  if(nativeBridge&&row.source==="native"&&row.nativePath){
+    try{
+      const picture=await nativeBridge.localCover(
+        row.id,row.nativePath,series,row.kind);
+      if(picture?.bytes&&picture.mime){
+        const blob=new Blob([picture.bytes],{type:picture.mime});
+        if(blob.size<=3*1024*1024){
+          await store.saveArtwork(id,blob,"Local artwork");
+          return blob;
+        }
+      }
+    }catch(_){}
+  }
   const folder=folders.find(x=>x.id===row.folderId);
   if(folder?.handle){
     try{
@@ -259,6 +285,44 @@ async function pumpArtwork(){
         pumpArtwork();
       }
     })();
+  }
+}
+function hideContextMenu(){
+  contextRow=null;
+  const menu=$("libraryContextMenu");
+  if(menu)menu.hidden=true;
+}
+function showContextMenu(row,x,y){
+  const menu=$("libraryContextMenu");
+  if(!menu||!nativeBridge||!row?.nativePath)return;
+  contextRow=row;
+  menu.hidden=false;
+  menu.style.left=Math.max(4,Math.min(x,
+    window.innerWidth-menu.offsetWidth-8))+"px";
+  menu.style.top=Math.max(4,Math.min(y,
+    window.innerHeight-menu.offsetHeight-8))+"px";
+  $("deleteFromDisk").focus();
+}
+async function deleteFromDisk(){
+  const row=contextRow;
+  hideContextMenu();
+  if(!nativeBridge||!row?.nativePath)return;
+  try{
+    // The desktop main process performs its own filesystem validation
+    // and native OS confirmation, including an irreversible-delete warning.
+    const result=await nativeBridge.deleteVideo(row.id,row.nativePath);
+    if(!result?.deleted)return;
+    await store.removeEntry(row.id);
+    await render();
+    status(result.method==="trash"?
+      "Video moved to Trash and removed from your library.":
+      "Video permanently deleted from disk and removed from your library.",
+      result.method==="trash"?
+      "Видео перемещено в корзину и удалено из медиатеки.":
+      "Видео безвозвратно удалено с диска и из медиатеки.");
+  }catch(error){
+    status("Could not delete the file: "+(error?.message||""),
+      "Не удалось удалить файл с диска.",true);
   }
 }
 async function openVideo(row){
@@ -348,6 +412,18 @@ async function render(){
   $("collectionCount").textContent=cards.length+" "+
     say(cards.length===1?"title":"titles","наименований");
   $("emptyLibrary").hidden=all.length>0;
+  if(nativeBridge){
+    $("addLibraryFolder").hidden=true;
+    $("addFirstFolder").hidden=true;
+    const empty=$("emptyLibrary");
+    const heading=empty?.querySelector("h3");
+    const info=empty?.querySelector("p");
+    if(heading)heading.textContent=say("No movies or TV shows discovered yet",
+      "Фильмы и сериалы пока не найдены");
+    if(info)info.textContent=say(
+      "DK Kinehall searches your device and connected drives automatically. Use Scan Library to search again.",
+      "ДК Кинехолл автоматически ищет видео на устройстве и подключённых накопителях. Повторите поиск кнопкой проверки.");
+  }
   visibleCount=Math.min(visibleCount,cards.length);
   list.replaceChildren(...cards.slice(0,visibleCount)
     .map(row=>createCard(row,{series:tv&&!selectedSeries})));
@@ -370,26 +446,55 @@ async function render(){
     },{rootMargin:"350px"});
     bottomObserver.observe(more);
   }
-  $("folderSummary").textContent=folders.length?
-    say("Saved local folders: ","Сохранённые локальные папки: ")+
-      folders.map(folder=>folder.name).join(" · "):
-    say("No media folders selected. Local video files are never copied into the library.",
-      "Папки не выбраны. Видеофайлы не копируются в медиатеку.");
+  $("folderSummary").textContent=nativeBridge?
+    say("Automatic local media discovery · no media server · no duplicated video files",
+      "Автоматический поиск местных видео · без медиасервера · без копирования видео"):
+    folders.length?
+      say("Saved local folders: ","Сохранённые локальные папки: ")+
+        folders.map(folder=>folder.name).join(" · "):
+      say("No media folders selected. Local video files are never copied into the library.",
+        "Папки не выбраны. Видеофайлы не копируются в медиатеку.");
   if(!scanning)status(
-    folders.length?"Library loaded from local cache.":"Add a local folder to begin.",
-    folders.length?"Медиатека загружена из локального хранилища.":
+    nativeBridge?"Library loaded from local cache.":
+      folders.length?"Library loaded from local cache.":"Add a local folder to begin.",
+    nativeBridge||folders.length?
+      "Медиатека загружена из локального хранилища.":
       "Добавьте локальную папку.");
   pumpArtwork();
 }
 async function scan(manual=false){
   if(scanning){
     controller?.abort();
+    if(nativeBridge)void nativeBridge.cancelScan();
     return;
   }
   scanning=true;controller=new AbortController();
   $("scanLibrary").textContent=say("Stop Scan","Остановить");
   $("scanLibrary").setAttribute("aria-pressed","true");
+  let stopListening=null;
   try{
+    if(nativeBridge){
+      stopListening=nativeBridge.onScanProgress(progress=>{
+        status("Searching device: "+progress.found+" videos found…",
+          "Поиск на устройстве: найдено видео "+progress.found+"…");
+      });
+      const discovered=await nativeBridge.discover(manual);
+      if(controller.signal.aborted)return;
+      const counts=await store.ingestNative(discovered);
+      await render();
+      status((discovered.partial?"Scan incomplete. ":"Scan complete. ")+
+        counts.found+" videos found. "+
+        counts.added+" added, "+counts.updated+" updated, "+
+        counts.missing+" unavailable."+
+        (discovered.partial?" Some folders could not be searched or scan limits were reached.":""),
+        (discovered.partial?"Проверка не завершена. ":"Проверка завершена. ")+
+        "Найдено видео: "+counts.found+
+        ". Добавлено: "+counts.added+
+        ". Обновлено: "+counts.updated+
+        ". Недоступно: "+counts.missing+".",
+        discovered.partial);
+      return;
+    }
     const results=await store.scanAll({
       manual,signal:controller.signal,
       onProgress:progress=>status(
@@ -421,6 +526,7 @@ async function scan(manual=false){
     status(controller.signal.aborted?"Scan stopped.":"Scan failed: "+error.message,
       controller.signal.aborted?"Проверка остановлена.":"Ошибка проверки.",true);
   }finally{
+    stopListening?.();
     scanning=false;controller=null;
     $("scanLibrary").textContent=say("Scan Library","Проверить медиатеку");
     $("scanLibrary").setAttribute("aria-pressed","false");
@@ -446,6 +552,14 @@ async function chooseFolder(){
   }
 }
 function connect(){
+  $("deleteFromDisk").addEventListener("click",()=>void deleteFromDisk());
+  document.addEventListener("pointerdown",event=>{
+    if(!event.target.closest("#libraryContextMenu"))hideContextMenu();
+  });
+  document.addEventListener("keydown",event=>{
+    if(event.key==="Escape")hideContextMenu();
+  });
+  window.addEventListener("blur",hideContextMenu);
   $("tabMovies").addEventListener("click",()=>switchMode("movie"));
   $("tabTV").addEventListener("click",()=>switchMode("tv"));
   $("addLibraryFolder").addEventListener("click",()=>void chooseFolder());
@@ -494,7 +608,7 @@ function connect(){
     // Render saved posters immediately. A bounded, one-shot rescan is
     // attempted only after initialization; no daemon or persistent server.
     const start=()=>{
-      if(folders.length)void scan(false);
+      if(nativeBridge||folders.length)void scan(false);
     };
     if("requestIdleCallback" in window)
       requestIdleCallback(start,{timeout:3500});

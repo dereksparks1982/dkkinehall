@@ -990,7 +990,8 @@
       item.compatSrc = null;
     }
     const directFormat = item.name.toLowerCase().endsWith("." + item.requestedFormat);
-    const needsRemux = forcingContainer && !directFormat && /\.mkv$/i.test(item.name) && !!item.file;
+    const needsRemux = forcingContainer && !directFormat &&
+      /\.mkv$/i.test(item.name) && !!item.file && !item.file.nativeVirtual;
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     if (needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
@@ -1142,7 +1143,10 @@
     }
   };
   const tryCompatibleFallback = async item => {
-    if(!item?.file || item.requestedFormat === "original") return false;
+    // Electron-discovered media are not whole-memory Blobs. Their MKV
+    // inspection uses range reads, while format changes use native FFmpeg.
+    if(!item?.file || item.file.nativeVirtual ||
+       item.requestedFormat === "original") return false;
     const info=compatibleInfo(item);
     if(item.requestedFormat === "mp4") {
       if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
@@ -1241,7 +1245,8 @@
         // Metadata-only name for Show/Season 1/01 - Title layouts.
         // The actual media file, handle, MIME and decoder path are unchanged.
         metadataFilename:artData?.metadataFilename||file.name,
-        file, src: URL.createObjectURL(file), handle,
+        file, src:file.nativeVirtual&&artData?.nativeSrc?
+          artData.nativeSrc:URL.createObjectURL(file), handle,
         path, folderArtwork: posterMap.get(path) || null,
         size: file.size, mime: file.type || "",
         key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
@@ -2627,9 +2632,11 @@
     try{
       const row=await window.DKLibraryStore.item(id);
       if(!row)throw new Error("The library item was not found");
-      const selected=await window.DKLibraryStore.openFile(row,{
-        requestPermission:true
-      });
+      const selected=row.source==="native"?
+        window.DKNativeFile.create(row,
+          await window.DKLibraryBridge.nativeOpen(row.id,row.nativePath),
+          window.DKLibraryBridge):
+        await window.DKLibraryStore.openFile(row,{requestPermission:true});
       const metadataFilename=row.kind==="tv"&&
         window.DKMediaMetadata?.parseFilename(row.filename)?.type!=="episode"?
         row.series+".S"+String(row.season).padStart(2,"0")+
@@ -2638,7 +2645,8 @@
         row.filename;
       addFiles([selected.file],[selected.handle],"open",{
         libraryId:id,libraryPosition:row.position||0,
-        episodeTitle:row.episodeTitle||"",metadataFilename
+        episodeTitle:row.episodeTitle||"",metadataFilename,
+        nativeSrc:selected.src||null
       });
       return true;
     }catch(error){

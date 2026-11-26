@@ -40,7 +40,7 @@ def sync(root, codec_source=None):
                 "mkv-subtitles.js","pgs-subtitles.js","vobsub.js",
                 "queue-autoplay.js","folder-access.js","i18n.js",
                 "library.html","library-home.css","library-home.js",
-                "library-store.js"}
+                "library-store.js","native-file.js"}
     if not required.issubset(docs_map):
         raise RuntimeError("Missing original web player resources: " +
                            str(sorted(required - docs_map.keys())))
@@ -91,8 +91,11 @@ def sync(root, codec_source=None):
                         b'')
                     entry.size = len(host)
                     after.addfile(entry, io.BytesIO(host))
-                elif entry.isfile() and name == "resources/app/desktop/library-host.cjs":
-                    data = library_bundle.host.read_bytes()
+                elif entry.isfile() and name in (
+                        "resources/app/desktop/library-host.cjs",
+                        "resources/app/desktop/library-indexer.cjs"):
+                    data = (library_bundle.host if name.endswith("library-host.cjs")
+                            else library_bundle.indexer).read_bytes()
                     entry.size = len(data)
                     after.addfile(entry, io.BytesIO(data))
                 elif entry.isfile() and codec_bundle.enabled and name in codec_bundle.extra:
@@ -146,6 +149,7 @@ def sync(root, codec_source=None):
             assert b'library.html' in host
             assert b'library-host.cjs' in host
             assert archive.extractfile("./resources/app/desktop/library-host.cjs").read()
+            assert archive.extractfile("./resources/app/desktop/library-indexer.cjs").read()
             assert archive.extractfile("./electron").read(1)
             if codec_bundle.enabled:
                 assert b'codec-host.cjs' in archive.extractfile(

@@ -66,6 +66,7 @@ PYTHON
 for resource in desktop/codec-host.cjs desktop/codec-preload.cjs \
                 desktop/codec-policy.cjs \
                 desktop/library-host.cjs desktop/library-preload.cjs \
+                desktop/library-indexer.cjs \
                 maintenance/library_bundle.py maintenance/fetch_release_codecs.py \
                 maintenance/prepare_desktop_codecs.py; do
   if [[ ! -f "$WORK/repo/$resource" ]]; then
@@ -78,7 +79,8 @@ python3 "$WORK/repo/maintenance/fetch_release_codecs.py" "$WORK/repo"
 # Abort before touching the installed player if the source is incomplete.
 for resource in index.html player.js player.css mkv-tracks.js \
                 mkv-subtitles.js pgs-subtitles.js vobsub.js i18n.js \
-                library.html library-home.js library-home.css library-store.js; do
+                library.html library-home.js library-home.css library-store.js \
+                native-file.js; do
   if [[ ! -f "$WORK/repo/docs/$resource" ]]; then
     echo "ERROR: GitHub source is missing $resource." >&2
     exit 1

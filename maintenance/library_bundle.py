@@ -11,6 +11,7 @@ import tarfile
 PREFIX="resources/app/"
 MAIN="resources/app/main.cjs"
 HOST="resources/app/desktop/library-host.cjs"
+INDEXER="resources/app/desktop/library-indexer.cjs"
 MARKER=b"/* DK Kinehall library preload start */"
 END=b"/* DK Kinehall library preload end */"
 ORIGINAL=b"void win.loadFile(player);"
@@ -22,7 +23,9 @@ class LibraryBundle:
         self.root=Path(source_root)
         self.host=self.root/"desktop"/"library-host.cjs"
         self.preload=self.root/"desktop"/"library-preload.cjs"
-        missing=[str(p) for p in (self.host,self.preload) if not p.is_file()]
+        self.indexer=self.root/"desktop"/"library-indexer.cjs"
+        missing=[str(p) for p in (self.host,self.preload,self.indexer)
+                 if not p.is_file()]
         if missing:raise RuntimeError("Library Home runtime sources missing: "+", ".join(missing))
         self.main_count=0
         self.preload_count=0
@@ -66,9 +69,10 @@ class LibraryBundle:
             raise RuntimeError("Library Home/player two-window wiring is incomplete")
 
     def add_host(self,archive,existing):
-        if HOST in existing:return
-        content=self.host.read_bytes()
-        info=tarfile.TarInfo("./"+HOST)
-        info.size=len(content)
-        info.mode=0o644
-        archive.addfile(info,io.BytesIO(content))
+        for name,source in ((HOST,self.host),(INDEXER,self.indexer)):
+            if name in existing:continue
+            content=source.read_bytes()
+            info=tarfile.TarInfo("./"+name)
+            info.size=len(content)
+            info.mode=0o644
+            archive.addfile(info,io.BytesIO(content))

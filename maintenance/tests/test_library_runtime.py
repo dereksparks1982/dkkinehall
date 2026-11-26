@@ -61,6 +61,9 @@ class LibraryRuntimeTest(unittest.TestCase):
         code=(ROOT/"desktop"/"library-host.cjs").read_text()
         self.assertIn("new BrowserWindow",code)
         self.assertIn("player.loadFile(playerFile",code)
+        self.assertIn('dk-library:discover',code)
+        self.assertIn('dk-library:delete-video',code)
+        self.assertTrue((ROOT/"desktop"/"library-indexer.cjs").is_file())
         self.assertNotIn("jellyfin-server",code)
         self.assertNotIn("plex-server",code)
 

@@ -29,6 +29,8 @@
     "Entire Collection":"Вся коллекция",
     "Add Folder":"Добавить папку",
     "Scan Library":"Проверить медиатеку",
+    "Delete from Disk…":"Удалить с диска…",
+    "No movies or TV shows discovered yet":"Пока фильмы и сериалы не найдены",
     "Stop Scan":"Остановить",
     "Back to TV Shows":"Вернуться к сериалам",
     "Season":"Сезон",

@@ -20,13 +20,33 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Local Library Home (new source; release not verified)
 
+**Standalone automatic discovery:** No folder selection is required. On startup
+DK Kinehall loads its saved collection immediately, then performs one bounded
+scan of the user's home and connected volumes mounted under `/media/$USER`,
+`/run/media/$USER` or `/mnt`. The visible **Scan Library** button forces
+another scan. Media files are opened from validated native paths without a
+browser folder-selection prompt. App caches, hidden/system folders, symlinks and Trash are
+excluded to limit CPU, I/O and accidental catalog entries. Scans have depth,
+time and item limits and report incomplete results; a partial scan never
+marks all unseen files as deleted. The scanner runs only in the existing
+Electron application, not as a separate server.
+
+**Delete actual files:** Right-click an individual movie or episode and choose
+**Delete from Disk…**. The standalone native dialog offers Cancel, Move to
+Trash, or Delete Permanently. Permanent removal requires a second
+confirmation. Filesystem validation and scope checks happen in Electron main;
+only after a successful filesystem operation does the catalog entry disappear.
+Right-clicking a TV series header does not delete every episode at once.
+The hosted website cannot discover or erase arbitrary local files because
+browsers prohibit that access; it retains its folder-permission workflow.
+
 - **Movies | TV Shows:** Only these two library categories, with TV Season 0 specials included when present. Folder structures such as `South Park/Season 1/01 - Episode Name.mkv` are recognized as TV even without SxxExx in the filename. Audio-only Ogg files are not treated as movies. A **Continue Watching** row appears above the full collection for the selected category. Television series open into seasons and episodes. No music, Recently Added or server dashboard sections in the library.
 - **TV naming:** The existing player and Up Next show the series name above SxxExx and the episode title, including when TV organization comes from a season folder. A metadata-only display alias does not change the actual file name or decoding path.
 - **Two windows:** On the standalone edition, the Library Home opens first, and a movie or episode opens the **existing DK Kinehall Player** in another window. The Library Home stays available while playback continues. The hosted web edition opens the same player in another browser window.
 - **Same appearance:** Library Home loads the exact same `docs/player.css` and `docs/images/soviet-poster.png` backdrop, fonts, colors, and approved icons. No substitute image or replacement video player.
 - **Local persistent database:** IndexedDB retains chosen folders, categorized filenames and file information, watched/resume positions, verified episode titles, and separate TV-series posters and episode stills. Movie/video bytes are **not** cached or duplicated.
 - **Collection browsing:** The full selected collection loads in small batches while scrolling, so large libraries stay accessible without creating thousands of poster elements at once.
-- **Manual scanning:** A visible **Scan Library** button performs a bounded incremental scan of approved movie/TV folders, finds new or changed files, conservatively reconciles uniquely identifiable renamed videos without losing progress or artwork, and marks genuinely missing entries unavailable without erasing history. A cancel option is available while scanning. Incomplete or permission-blocked scans are reported honestly rather than claiming a complete scan.
+- **Manual scanning:** A visible **Scan Library** button checks automatically discovered movie/TV locations in the standalone app (or permissioned folders in the hosted web version), finds new or changed files, conservatively reconciles uniquely identifiable renamed videos without losing progress or artwork, and marks genuinely missing entries unavailable without erasing history. A cancel option is available while scanning. Incomplete or permission-blocked scans are reported honestly rather than claiming a complete scan.
 - **Startup:** Cached catalog and artwork render before a one-shot, bounded background-in-the-window check. Continue Watching repainting is deferred when the Library Home is unfocused, so playback does not continually redraw the poster grid. Scans query the selected folder's database index instead of rereading every catalog entry for each folder; repeated poster requests for the same TV show are shared. No continuously running process, media server, account, or subscription. Reconnect prompts are user-initiated if folder permission expires.
 - **Resume accuracy:** Stopping at 0:00 clears Continue Watching for that file and cannot accidentally mark short videos as fully watched. Verified TV episode names and posters are kept across recognized renames.
 - **Efficient metadata updates:** A verified episode name updates the visible episode card directly without re-rendering the entire library grid on the Surface Pro.

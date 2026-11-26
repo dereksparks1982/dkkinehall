@@ -335,6 +335,32 @@
     if (codecPlayback?.isActive(item))void codecPlayback.seek(item,value);
     else media.currentTime=value;
   };
+  // Keep catalog writes ordered even if playback ends during identity recovery.
+  const saveLibraryProgress=(item,position,duration,completed=false)=>{
+    const catalog=window.DKLibraryStore;
+    if(!catalog||!item)return;
+    if(!window.DKLibraryBridge?.internalPages){
+      if(item.libraryId)void catalog.updateProgress(item.libraryId,position,duration,completed).catch(()=>{});
+      return;
+    }
+    if(!item.file||item.audio)return;
+    item.historyWrites=(item.historyWrites||Promise.resolve()).catch(()=>{}).then(async()=>{
+      const id=item.libraryId||item.file.nativeId;
+      if(id&&await catalog.updateProgress(id,position,duration,completed)){
+        item.libraryId=id;return;
+      }
+      // A scan may not have indexed this file yet. Retry periodically, not
+      // on every clock tick, and always attempt a final completion write.
+      const now=Date.now();
+      if(!completed&&now-(item.historyLookupAt||0)<15000)return;
+      item.historyLookupAt=now;
+      const row=await catalog.resolvePlaybackEntry(item.file,id);
+      if(!row)return;
+      if(await catalog.updateProgress(row.id,position,duration,completed)){
+        item.libraryId=row.id;
+      }
+    }).catch(()=>{});
+  };
   const rememberPosition = () => {
     if(state.stopped)return;
     const item = current();
@@ -352,9 +378,7 @@
       if (position >= duration - 4) delete state.resume[item.key];
       else if (position > 2) state.resume[item.key] = position;
     }
-    if(item.libraryId&&window.DKLibraryStore)
-      void window.DKLibraryStore.updateProgress(
-        item.libraryId,position,duration,false).catch(()=>{});
+    saveLibraryProgress(item,position,duration,false);
     const keys = Object.keys(state.resume);
     if (keys.length > 160) keys.slice(0, keys.length - 160).forEach(key => delete state.resume[key]);
     write(store.resume, state.resume);
@@ -1498,7 +1522,8 @@
     const newItems = [];
     for (const {file, handle, path} of accepted) {
       const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:[],
-        libraryId:artData?.libraryId||null,
+        libraryId:artData?.libraryId||(window.DKLibraryBridge?.internalPages&&
+          String(file.nativeId||"").startsWith("native:")?file.nativeId:null),
         episodeTitle:artData?.episodeTitle||"",
         // Metadata-only name for Show/Season 1/01 - Title layouts.
         // The actual media file, handle, MIME and decoder path are unchanged.
@@ -1842,8 +1867,11 @@
             state.resume["file:"+selected.file.name+":"+selected.file.size+":"+selected.file.lastModified]=state.resume[saved.key];
         }
         if(read(store.lastMedia,null)?.key!==saved.key||current())return false;
+        if(!catalogRow)catalogRow=await window.DKLibraryStore?.resolvePlaybackEntry?.(
+          selected.file,saved.libraryId).catch(()=>null);
+        if(read(store.lastMedia,null)?.key!==saved.key||current())return false;
         addFiles([selected.file],[],"restore",{
-          nativeSrc:selected.src,libraryId:saved.libraryId||catalogRow?.id||null,
+          nativeSrc:selected.src,libraryId:catalogRow?.id||saved.libraryId||null,
           libraryPosition:catalogRow?.position||0,episodeTitle:catalogRow?.episodeTitle||""
         });
         status("Last file restored. Press Play to resume.",true);
@@ -2533,9 +2561,7 @@
     if (!completed) return;
     rememberPosition();
     // A completed movie has no unfinished position to resume.
-    if(completed.libraryId&&window.DKLibraryStore)
-      void window.DKLibraryStore.updateProgress(
-        completed.libraryId,playbackDuration(),playbackDuration(),true).catch(()=>{});
+    saveLibraryProgress(completed,playbackDuration(),playbackDuration(),true);
     delete state.resume[completed.key];
     write(store.resume, state.resume);
     if (playbackOrder.loop === "one") {

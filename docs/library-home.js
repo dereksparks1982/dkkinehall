@@ -14,6 +14,7 @@ const storedMode=()=>{
 let mode=storedMode(),selectedSeries=null,selectedSeason=null;
 let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
+let bottomObserver=null;
 const imageUrls=new Set();
 const imageQueue=[],activeArtwork=new Map();
 let artworkBusy=0;
@@ -235,10 +236,12 @@ function switchMode(value){
   void render();
 }
 async function render(){
-  renderEpoch++;
+  const epoch=++renderEpoch;
+  if(bottomObserver)bottomObserver.disconnect();
   imageQueue.length=0;cleanImageUrls();
   folders=await store.folders();
   all=await store.entries();
+  if(epoch!==renderEpoch)return;
   try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
   catch(_){legacyResume={};}
   const tv=mode==="tv";
@@ -290,13 +293,28 @@ async function render(){
   $("collectionCount").textContent=cards.length+" "+
     say(cards.length===1?"title":"titles","наименований");
   $("emptyLibrary").hidden=all.length>0;
+  visibleCount=Math.min(visibleCount,cards.length);
   list.replaceChildren(...cards.slice(0,visibleCount)
     .map(row=>createCard(row,{series:tv&&!selectedSeries})));
-  $("loadMoreLibrary").hidden=cards.length<=visibleCount;
-  $("loadMoreLibrary").onclick=()=>{
-    visibleCount+=72;
-    void render();
+  const more=$("loadMoreLibrary");
+  more.hidden=cards.length<=visibleCount;
+  const appendMore=()=>{
+    if(epoch!==renderEpoch||visibleCount>=cards.length)return;
+    const start=visibleCount;
+    visibleCount=Math.min(visibleCount+72,cards.length);
+    list.append(...cards.slice(start,visibleCount)
+      .map(row=>createCard(row,{series:tv&&!selectedSeries})));
+    more.hidden=visibleCount>=cards.length;
+    pumpArtwork();
   };
+  more.onclick=appendMore;
+  if(typeof IntersectionObserver==="function"){
+    bottomObserver=new IntersectionObserver(entries=>{
+      if(entries.some(entry=>entry.isIntersecting)&&
+         !more.hidden&&epoch===renderEpoch)appendMore();
+    },{rootMargin:"350px"});
+    bottomObserver.observe(more);
+  }
   $("folderSummary").textContent=folders.length?
     say("Saved local folders: ","Сохранённые локальные папки: ")+
       folders.map(folder=>folder.name).join(" · "):

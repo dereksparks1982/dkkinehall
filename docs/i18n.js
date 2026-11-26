@@ -253,6 +253,8 @@
     "Cancel translation":"Отменить перевод",
     "Restore original subtitles":"Восстановить исходные субтитры",
     "Empty Trash":"Очистить корзину",
+    "Current playback and nearby segments are generated first. Unfinished audio uses the original soundtrack.":"Сначала создаётся озвучивание текущего и ближайших фрагментов. Пока озвучивание не готово, звучит оригинальная дорожка.",
+    "Translating and generating speech…":"Перевод и синтез речи…",
     "Remove from Library":"Убрать из медиатеки",
     "File Information":"Сведения о файле",
     "Picture enhancements":"Улучшение изображения",

@@ -632,6 +632,14 @@ function install(originalWindow,originalPlayer){
   // Use the existing persistent Player renderer as the sole settings owner.
   // Library requests are limited to its explicit shared settings API, never
   // renderer-provided JavaScript, selectors or localStorage keys.
+  ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
+    if(!allowed(event)||activePage!=="library"||!["network","disc"].includes(kind))throw Error("Media tool request rejected");
+    await openPlayer(null,false,true);
+    if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
+    showPage("player");
+    player.webContents.send("dk-library:open-media-tool",kind);
+    return true;
+  });
   ipcMain.handle("dk-library:settings-open",async(event,language)=>{
     if(!allowed(event)||activePage!=="library")throw Error("Settings request rejected");
     await openPlayer(null,false,true);

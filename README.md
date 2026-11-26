@@ -8,7 +8,7 @@
 
 **[Open DK Kinehall Web App](https://dereksparks1982.github.io/dkkinehall/)**
 
-Play local media directly in your web browser, with the familiar DK Kinehall interface, Up Next queue, artwork, and playback controls. Browser security and codec restrictions can limit file access, MKV playback, embedded subtitles, and other advanced features.
+Open the **Movies/TV Library Home** first, then launch media in the separate original player window. Both share the same background, icons, artwork and playback controls. All library files remain on your device. Browser security and codec restrictions can limit file access, MKV playback, embedded subtitles, and other advanced features.
 
 ### Standalone Linux
 
@@ -17,6 +17,18 @@ DK Kinehall also has a standalone Linux edition that uses the **same web player 
 The updater preserves the existing **approved DK cinema emblem, launcher and dock icon** without changing or re-registering them. After a successful update, it opens the **installed standalone Chromium player**, not the hosted Web App. The original Chromium player is preserved.
 
 The two editions are separate. The Web App remains available regardless of changes to the standalone version.
+
+## Local Library Home (new source; release not verified)
+
+- **Movies | TV Shows:** Only these two library categories. A **Continue Watching** row appears above the full collection for the selected category. Television series open into seasons and episodes. No music, Recently Added or server dashboard sections in the library.
+- **Two windows:** On the standalone edition, the Library Home opens first, and a movie or episode opens the **existing DK Kinehall Player** in another window. The Library Home stays available while playback continues. The hosted web edition opens the same player in another browser window.
+- **Same appearance:** Library Home loads the exact same `docs/player.css` and `docs/images/soviet-poster.png` backdrop, fonts, colors, and approved icons. No substitute image or replacement video player.
+- **Local persistent database:** IndexedDB retains chosen folders, categorized filenames and file information, watched/resume positions, and cached poster images. Movie/video bytes are **not** cached or duplicated.
+- **Manual scanning:** A visible **Scan Library** button performs a bounded incremental scan of approved movie/TV folders, finds new or changed files, and marks missing entries unavailable without erasing progress or artwork. A cancel option is available while scanning.
+- **Startup:** Cached catalog and artwork render before a one-shot, bounded background-in-the-window check. No continuously running process, media server, account, or subscription. Reconnect prompts are user-initiated if folder permission expires.
+- **Sources:** See [third_party/SOURCES.md](third_party/SOURCES.md). MPV and auxiliary metadata/subtitle sources are pinned for audited build-time integration; Jellyfin remains an architectural reference, **not** a dependency or media server.
+
+**Status:** The new library and two-window wiring are committed as source-level development, not yet verified as a finished Linux package. The updater remains closed.
 
 ## Features
 
@@ -39,7 +51,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Native codec integration under development
 
-The existing Chromium-based player has source code for a guarded desktop decoding adapter. When an FFmpeg/FFprobe payload is actually bundled and its Electron bridge works, an unsupported local file can be transcoded inside the application into MP4 (H.264/AAC) or WebM (VP9/Opus, where available) and played through the **same video surface and controls**. FFprobe metadata is cached in memory per file size and modification time so repeated seeking and audio-track changes do not unnecessarily re-probe an unchanged file. The decoder source also offers on-demand selection of supported embedded text subtitles in more containers. FFmpeg converts those to WebVTT, and the player realigns timestamps after a native seek. Text subtitles remain Off until selected; graphical subtitles such as PGS/VobSub need separate verification. When bundled FFmpeg takes over playback, the previous MKV audio decoder is stopped to prevent duplicate or muted audio. The adapter reports playback success only after the video actually begins playing, not merely after FFmpeg returns a stream URL. The current installed standalone has **not** been verified with this backend. No user codec installations, other media players or manual conversion should be necessary in the finished release. The explicit **Original (no conversion)** setting does not engage native transcoding; Automatic remains the normal broad-format mode.
+The existing Chromium-based player has source code for a guarded desktop decoding adapter. The new desktop window router must attach native codec IPC to the second **Player** window rather than the Library Home. When an FFmpeg/FFprobe payload is actually bundled and its Electron bridge works, an unsupported local file can be transcoded inside the application into MP4 (H.264/AAC) or WebM (VP9/Opus, where available) and played through the **same video surface and controls**. FFprobe metadata is cached in memory per file size and modification time so repeated seeking and audio-track changes do not unnecessarily re-probe an unchanged file. The decoder source also offers on-demand selection of supported embedded text subtitles in more containers. FFmpeg converts those to WebVTT, and the player realigns timestamps after a native seek. Text subtitles remain Off until selected; graphical subtitles such as PGS/VobSub need separate verification. When bundled FFmpeg takes over playback, the previous MKV audio decoder is stopped to prevent duplicate or muted audio. The adapter reports playback success only after the video actually begins playing, not merely after FFmpeg returns a stream URL. The current installed standalone has **not** been verified with this backend. No user codec installations, other media players or manual conversion should be necessary in the finished release. The explicit **Original (no conversion)** setting does not engage native transcoding; Automatic remains the normal broad-format mode.
 
 ## Additional decoding source progress
 
@@ -52,6 +64,10 @@ The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). The native prot
 ## Getting started
 
 Choose the **Web App** link above to play media in a browser, or use the standalone Linux edition for native playback. Open a local movie or music file, then use **Up Next** to queue more. You can also drop files directly onto the player: they play automatically when nothing is loaded, or join **Up Next** without interrupting the loaded movie.
+
+## Pinned third-party integrations
+
+The Git repository pins build/reference sources for libmpv packaging, official render examples, MediaInfo.js, and JavascriptSubtitlesOctopus. Their independent licenses remain intact. No GPL Jellyfin desktop code is imported into DK Kinehall, and no third-party library is advertised as bundled until it is actually packaged and verified. See [third_party/SOURCES.md](third_party/SOURCES.md).
 
 ## License
 

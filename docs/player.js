@@ -262,6 +262,9 @@
     if (!item || !Number.isFinite(duration) || duration <= 0) return;
     if (position >= duration - 4) delete state.resume[item.key];
     else if (position > 2) state.resume[item.key] = position;
+    if(item.libraryId&&window.DKLibraryStore)
+      void window.DKLibraryStore.updateProgress(
+        item.libraryId,position,duration,false).catch(()=>{});
     const keys = Object.keys(state.resume);
     if (keys.length > 160) keys.slice(0, keys.length - 160).forEach(key => delete state.resume[key]);
     write(store.resume, state.resume);
@@ -1231,12 +1234,20 @@
     const newItems = [];
     for (const {file, handle, path} of accepted) {
       const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:[],
+        libraryId:artData?.libraryId||null,
+        episodeTitle:artData?.episodeTitle||"",
         file, src: URL.createObjectURL(file), handle,
         path, folderArtwork: posterMap.get(path) || null,
         size: file.size, mime: file.type || "",
         key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
         embeddedSubtitles: [], embeddedAudio: [], embeddedVideo: [], mkvInspection: "not-mkv"};
       newItems.push(item);
+      if(item.libraryId&&Number(artData?.libraryPosition)>2 &&
+         !Number.isFinite(Number(state.resume[item.key])))
+        state.resume[item.key]=Number(artData.libraryPosition);
+      else if(item.libraryId&&Number(artData?.libraryPosition)>2 &&
+              !Number(state.resume[item.key]))
+        state.resume[item.key]=Number(artData.libraryPosition);
       if (/\.mkv$/i.test(file.name) && window.DKMkvChapters) {
         void window.DKMkvChapters.inspectFile(file).then(chapters=>{
           if (!state.queue.includes(item)) return;
@@ -1557,6 +1568,16 @@
     await openLocalFiles("restore");
   });
   byId("openEmpty").addEventListener("click", () => { void openLocalFiles("open"); });
+  byId("returnToLibrary").addEventListener("click",()=>{
+    if(window.DKLibraryBridge?.showLibrary) {
+      void window.DKLibraryBridge.showLibrary();
+    }else if(window.opener&&!window.opener.closed) {
+      window.opener.focus();
+    }else{
+      const home=window.open("./library.html","dk-kinehall-library");
+      if(!home)window.location.assign("./library.html");
+    }
+  });
   byId("addQueueFiles").addEventListener("click", () => { void openLocalFiles("queue"); });
   byId("filePicker").addEventListener("change", event => {
     const mode = state.pendingPickerMode;
@@ -1803,6 +1824,9 @@
     if (!completed) return;
     rememberPosition();
     // A completed movie has no unfinished position to resume.
+    if(completed.libraryId&&window.DKLibraryStore)
+      void window.DKLibraryStore.updateProgress(
+        completed.libraryId,playbackDuration(),playbackDuration(),true).catch(()=>{});
     delete state.resume[completed.key];
     write(store.resume, state.resume);
     if (playbackOrder.loop === "one") {
@@ -2580,9 +2604,37 @@
     state.queue.forEach(item => { releaseArtwork(item); releaseCompatible(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
   });
   idle();
-  // A restored file stays paused until the user presses Play.
-  void (async () => {
-    await restoreLastMedia();
-    await restoreSavedFolder();
+  // Library selections launch in this original player window, not a new
+  // playback implementation. Their durable ID resolves to the user's own
+  // permissioned file, while the database stores no duplicated movie bytes.
+  const openFromLibrary = async () => {
+    const id=new URLSearchParams(window.location.search).get("libraryItem");
+    if(!id)return false;
+    if(!window.DKLibraryStore){
+      status("The local library is unavailable.");return true;
+    }
+    try{
+      const row=await window.DKLibraryStore.item(id);
+      if(!row)throw new Error("The library item was not found");
+      const selected=await window.DKLibraryStore.openFile(row,{
+        requestPermission:true
+      });
+      addFiles([selected.file],[selected.handle],"open",{
+        libraryId:id,libraryPosition:row.position||0,
+        episodeTitle:row.episodeTitle||""
+      });
+      return true;
+    }catch(error){
+      status("Cannot open this library video. Reconnect its folder or grant permission.");
+      return true;
+    }
+  };
+  // Restore plain file selection only when this is not a library launch.
+  void (async()=>{
+    const selected=await openFromLibrary();
+    if(!selected){
+      await restoreLastMedia();
+      await restoreSavedFolder();
+    }
   })();
 })();

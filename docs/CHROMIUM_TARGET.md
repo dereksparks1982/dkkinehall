@@ -2,6 +2,21 @@
 
 DK Kinehall is a **Chromium-only** local media player. The primary target is the Chromium engine used by **DK NetNav** (the separate browser project), along with Chromium itself. Other browser engines are outside the project scope. Do not spend DK Kinehall development time on compatibility shims, separate code paths, or test matrices for other engines.
 
+## Separate local Library Home (development)
+
+The local Library Home is `docs/library.html`, using the **same**
+`player.css` and backdrop as the video player. It contains Movies and TV Shows
+only, Continue Watching, and the full selected collection, backed by IndexedDB.
+The standalone runtime starts with the Home window and launches the *existing*
+player as a second Electron BrowserWindow through a narrow IPC bridge.
+No server is started. A visible Scan Library control triggers bounded,
+incremental, manual scans; a one-shot scan after startup never requests
+permission automatically. Cache image blobs and metadata, **not movies**.
+
+Source-level implementation is not evidence that Electron's original preload
+or filesystem permissions have been verified. Keep the release gate closed
+until the installed standalone package has been checked.
+
 ## Local files and saved playback
 
 - Use Chromium's `showOpenFilePicker` and File System Access permission model for user-selected media. Handle references may be stored in origin-scoped IndexedDB; file bytes are never uploaded.

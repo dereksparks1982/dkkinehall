@@ -1,0 +1,74 @@
+/* Library Home inherits the EXACT player.css body background, topbar,
+   colors, font and approved icon. Do not redeclare the backdrop or image. */
+.library-shell{min-height:100vh}
+.library-tools{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.library-tabs{display:flex;align-items:center;gap:8px;margin:4px 0 14px}
+.library-tabs button{min-width:150px;padding:12px 24px;min-height:44px;
+  border:1px solid rgba(235,116,89,.25);color:#c6b8c0;font-weight:800;
+  background:rgba(18,13,19,.86);border-radius:11px}
+.library-tabs button[aria-selected="true"]{background:#9a252e;
+  color:#fff;border-color:#fc626a}
+.library-tabs button:hover{background:#68202a;color:#fff}
+.library-status{font-size:.84rem;min-height:26px;color:#d9babe;margin-bottom:15px}
+.library-status.error{color:#ff9299}
+.library-section{margin-bottom:29px}
+.library-section .section-heading h2{font-size:clamp(1.15rem,2.4vw,1.45rem)}
+.library-section .section-heading p{font-size:.8rem;color:#bcaab3}
+.library-continue{display:grid;grid-auto-flow:column;
+  grid-auto-columns:minmax(170px,240px);gap:13px;overflow-x:auto;
+  padding:3px 2px 12px;scrollbar-color:#79363e transparent;min-height:150px}
+.library-continue:empty::before{content:"Nothing to resume yet";
+  font-size:.9rem;color:#b49fa8;padding:28px 8px}
+html[lang="ru"] .library-continue:empty::before{content:"Пока нечего продолжать"}
+.library-posters{display:grid;grid-template-columns:repeat(auto-fill,minmax(145px,1fr));
+  gap:19px 15px;align-items:start;min-height:145px}
+.library-card{min-width:0;display:flex;flex-direction:column;gap:6px;
+  border:0;background:transparent;color:var(--text);
+  text-align:left;padding:0;cursor:pointer}
+.library-card:hover .library-poster,.library-card:focus-visible .library-poster{
+  border-color:#f35b65;box-shadow:0 0 0 2px rgba(242,76,89,.28)}
+.library-poster{position:relative;width:100%;aspect-ratio:2/3;
+  overflow:hidden;display:flex;align-items:center;justify-content:center;
+  border-radius:12px;border:1px solid rgba(229,112,94,.3);
+  background:linear-gradient(145deg,#271016,#0c0c13 78%);transition:border-color .15s}
+.library-poster img{position:absolute;inset:0;width:100%;height:100%;
+  object-fit:cover;display:block}
+.library-poster .library-poster-placeholder{display:flex;align-items:center;
+  justify-content:center;flex-direction:column;gap:9px;color:#ab777f;
+  font-size:1.8rem;pointer-events:none}
+.library-poster-placeholder small{font-size:.66rem;color:#b29aa2;font-weight:600}
+.library-card-title{display:-webkit-box;overflow:hidden;overflow-wrap:anywhere;
+  -webkit-box-orient:vertical;-webkit-line-clamp:2;
+  line-height:1.35;font-weight:750;font-size:.87rem}
+.library-card-detail{color:#beaab2;font-size:.74rem;line-height:1.3}
+.library-unavailable{opacity:.6}
+.library-unavailable .library-poster:after{content:"Unavailable";position:absolute;
+  right:6px;bottom:7px;background:#210b10e8;color:#fff;
+  border-radius:5px;font-size:.66rem;padding:4px 6px}
+html[lang="ru"] .library-unavailable .library-poster:after{content:"Недоступно"}
+.library-continue .library-poster{aspect-ratio:16/9}
+.library-continue .library-card{width:100%}
+.library-continue .library-poster img{object-fit:cover}
+.library-progress{position:absolute;bottom:0;left:0;right:0;
+  height:5px;background:#140c10bb}
+.library-progress>span{display:block;background:#ed444c;height:100%}
+.library-continue .library-card-title{font-size:.8rem}
+.library-continue .library-poster-placeholder{font-size:1.3rem}
+.library-season-row{display:flex;align-items:center;gap:10px;margin:12px 0 20px}
+.library-season-row label{font-size:.84rem;color:#d9c8cc}
+.library-series-detail h2{margin:14px 0 0}
+.library-series-detail .btn{min-height:34px;padding:6px 13px}
+.library-load-more{display:flex;margin:24px auto;min-width:180px}
+.library-empty{text-align:center;display:flex;align-items:center;
+  flex-direction:column;gap:8px;padding:50px 15px}
+.library-empty[hidden],#seriesDetail[hidden]{display:none}
+.library-empty img{object-fit:contain}
+.library-empty h3{margin:3px 0 0}
+.library-empty p{color:var(--muted);max-width:430px}
+.library-footer-status{color:#bcadb2;font-size:.8rem;padding:6px 2px 20px}
+@media(max-width:520px){
+  .library-tabs button{min-width:0;flex:1;padding:10px}
+  .library-posters{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .library-continue{grid-auto-columns:minmax(160px,70vw)}
+  .library-tools .btn{padding:7px 11px;min-height:38px}
+}

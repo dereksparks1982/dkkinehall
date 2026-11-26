@@ -18,6 +18,27 @@
     "Episode artwork":"Изображение серии",
     "Movie posters require an optional TMDb token":"Для обложек фильмов необходим ключ ТМДБ",
     "DK Kinehall home":"Главная страница ДК Кинехолл",
+    "DK Kinehall Library":"Медиатека ДК Кинехолл",
+    "Library Home":"Медиатека",
+    "Media collection":"Коллекция",
+    "Movies":"Фильмы",
+    "TV Shows":"Сериалы",
+    "Continue Watching":"Продолжить просмотр",
+    "Your Entire Movie Collection":"Вся коллекция фильмов",
+    "Your Entire TV Collection":"Вся коллекция сериалов",
+    "Entire Collection":"Вся коллекция",
+    "Add Folder":"Добавить папку",
+    "Scan Library":"Проверить медиатеку",
+    "Stop Scan":"Остановить",
+    "Back to TV Shows":"Вернуться к сериалам",
+    "Season":"Сезон",
+    "Show More":"Показать ещё",
+    "Episodes":"Серии",
+    "No local movies or TV shows yet":"Пока нет фильмов или сериалов",
+    "Add your movie or television folder to start your collection. Files stay on your device.":"Добавьте папку с фильмами или сериалами. Файлы останутся на вашем устройстве.",
+    "Loading saved library…":"Загрузка сохранённой коллекции…",
+    "Select a media folder":"Выбрать папку с видео",
+    "Media folder access":"Доступ к папке с видео",
     "Player":"Плеер", "Library":"Медиатека", "Help":"Справка",
     "＋ Open media":"＋ Открыть медиа", "Open media":"Открыть медиа",
     "Interface language":"Язык интерфейса",
@@ -422,9 +443,11 @@
     // Shared interface, different packaging: don't label the local Chromium
     // desktop application "Web". Only the hosted website uses that title.
     const standalone = typeof window.DKStandalone?.setFullscreen === "function";
-    document.title = standalone ?
-      (language === "ru" ? "ДК Кинехолл" : "DK Kinehall") :
-      (language === "ru" ? "ДК Кинехолл | Веб" : "DK Kinehall | Web");
+    document.title = document.querySelector(".library-shell") ?
+      (language === "ru" ? "ДК Кинехолл | Медиатека" : "DK Kinehall | Library") :
+      standalone ?
+        (language === "ru" ? "ДК Кинехолл" : "DK Kinehall") :
+        (language === "ru" ? "ДК Кинехолл | Веб" : "DK Kinehall | Web");
     const manifest = document.querySelector('link[rel="manifest"]');
     if (manifest) manifest.href =
       language === "ru" ? "./manifest-ru.webmanifest?v=20261117-3" :

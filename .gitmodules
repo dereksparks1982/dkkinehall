@@ -1,0 +1,12 @@
+[submodule "third_party/mpv-prebuilt"]
+	path = third_party/mpv-prebuilt
+	url = https://github.com/jason-yau/mpv-prebuilt.git
+[submodule "third_party/mpv-examples"]
+	path = third_party/mpv-examples
+	url = https://github.com/mpv-player/mpv-examples.git
+[submodule "third_party/mediainfo.js"]
+	path = third_party/mediainfo.js
+	url = https://github.com/buzz/mediainfo.js.git
+[submodule "third_party/JavascriptSubtitlesOctopus"]
+	path = third_party/JavascriptSubtitlesOctopus
+	url = https://github.com/libass/JavascriptSubtitlesOctopus.git

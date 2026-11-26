@@ -23,6 +23,19 @@ licenses plus accurate FFmpeg build flags and decoder/encoder inventories.
 DK Softworks' sale restrictions do not replace those third-party licenses.
 A codec-enabled Electron release has not yet been verified or distributed.
 
+## Pinned upstream sources (source only)
+
+The `third_party/` repository entries pin upstream source trees for:
+**mpv-prebuilt** (MIT build scripts; generated LGPL/GPL libraries have independent
+terms), **mpv-examples** (review each example's license before incorporating),
+**mediainfo.js** (BSD-2-Clause), and **JavascriptSubtitlesOctopus** (MIT
+wrapper; libass and associated WASM dependencies retain their own terms).
+These are auditable source references and do not mean the final standalone
+package already contains those compiled libraries. Jellyfin Desktop (GPL)
+and other GPL components are **not** imported into the proprietary-restricted
+DK Softworks source license. Full pinned references are in
+`third_party/SOURCES.md`.
+
 ## Online artwork providers
 
 DK Kinehall can query TVmaze for episode artwork , Cinemeta for keyless film poster links, and the Apple iTunes Search

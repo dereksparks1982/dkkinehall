@@ -259,8 +259,15 @@ function onlyWindow(event) {
     event.senderFrame?.url?.startsWith("file://");
 }
 function install(win) {
-  if(installed)return;
   if(!win?.webContents)throw new Error("A DK Kinehall window is required");
+  // Re-opened Player windows must reconnect to the same IPC service.
+  if(installed){
+    if(windowRef&&!windowRef.isDestroyed()&&windowRef!==win)
+      throw new Error("A native decoder is already attached to another player");
+    windowRef=win;
+    win.once("closed",()=>{cancelStream();server?.close();server=null;windowRef=null;});
+    return;
+  }
   installed=true;windowRef=win;
   ipcMain.handle("dk-codec:status",async event=>
     onlyWindow(event)?status():{ready:false});
@@ -280,7 +287,7 @@ function install(win) {
     if(!onlyWindow(event))return;
     cancelStream();return true;
   });
-  win.once("closed",()=>{cancelStream();server?.close();server=null;});
+  win.once("closed",()=>{cancelStream();server?.close();server=null;windowRef=null;});
   app.once("before-quit",()=>{cancelStream();server?.close();server=null;});
 }
 module.exports={install};

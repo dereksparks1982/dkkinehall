@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "maintained_in": "DK Kinehall",
+  "use": "pinned source only; no end-user downloads or background services",
+  "selected": [
+    {
+      "repo": "jason-yau/mpv-prebuilt",
+      "sha": "2da537b8e25b875bed911cb9058785d9a77f13e9",
+      "role": "native LGPL SDK build source",
+      "status": "pinned"
+    },
+    {
+      "repo": "mpv-player/mpv-examples",
+      "sha": "e0d1a84c99e8c469b58fde31a1541401acfb0eb2",
+      "role": "libmpv rendering reference",
+      "status": "pinned"
+    },
+    {
+      "repo": "buzz/mediainfo.js",
+      "sha": "3efad558d3ea34b6f1a99d0dd061ea16956f47a1",
+      "role": "codec metadata WASM integration candidate",
+      "status": "pinned-source"
+    },
+    {
+      "repo": "libass/JavascriptSubtitlesOctopus",
+      "sha": "fccf9c1fa51127ea3802a3c7d24e40a33f6c19f1",
+      "role": "ASS SSA subtitle WASM integration candidate",
+      "status": "pinned-source"
+    }
+  ],
+  "reference_only": [
+    {
+      "repo": "jellyfin/jellyfin-desktop",
+      "sha": "70930139f7ef0c59b6ac98e8d0be436953c79083",
+      "reason": "GPL desktop with server dependency"
+    },
+    {
+      "repo": "jellyfin/jellyfin-ffmpeg",
+      "sha": "64bf9db0fcc51454f129eb6f8d817ad43f476695",
+      "reason": "FFmpeg packaging/licensing reference"
+    },
+    {
+      "repo": "yscoder/electron-mpv-video",
+      "sha": "4944079b4133715848ea3c3bdaf99742b8c68406",
+      "reason": "No Linux implementation yet"
+    }
+  ]
+}

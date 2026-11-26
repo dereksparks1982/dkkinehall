@@ -14,6 +14,7 @@ HOST="resources/app/desktop/codec-host.cjs"
 PRELOAD="resources/app/desktop/codec-preload.cjs"
 BOOT=b'require("./desktop/codec-host.cjs").install(win);'
 MAIN_ANCHOR=b"void win.loadFile(player);"
+LIBRARY_ANCHOR=b'void win.loadFile(player.replace(/index\\.html$/, "library.html"));'
 
 class CodecBundle:
     def __init__(self,root):
@@ -64,10 +65,11 @@ class CodecBundle:
         if not self.enabled:return data
         if name=="resources/app/main.cjs":
             self.main_count+=1
-            if data.count(MAIN_ANCHOR)!=1:
-                raise RuntimeError("Cannot find unique original Chromium player bootstrap")
-            if BOOT not in data:
-                data=data.replace(MAIN_ANCHOR,MAIN_ANCHOR+b"\n"+BOOT,1)
+            marker=MAIN_ANCHOR if MAIN_ANCHOR in data else LIBRARY_ANCHOR
+            if data.count(marker)!=1:
+                raise RuntimeError("Cannot find unique approved Chromium player bootstrap")
+            # Codec IPC is installed by desktop/library-host.cjs on each
+            # actual Player window. Never attach it to the Library Home.
             self.main_done=True
         elif name.startswith(APP_PREFIX) and name.endswith((".cjs",".js")) and \
              name!="resources/app/main.cjs":

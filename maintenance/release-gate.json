@@ -15,7 +15,12 @@
     "english_russian_verified": false,
     "original_window_and_icons_verified": false,
     "full_package_playback_verified": false,
-    "licenses_and_notices_verified": false
+    "licenses_and_notices_verified": false,
+    "library_two_windows_verified": false,
+    "library_persistent_cache_verified": false,
+    "library_manual_scan_verified": false,
+    "library_visual_parity_verified": false,
+    "third_party_integration_licenses_verified": false
   },
   "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player.",
   "codec_bundle_asset_url": null,

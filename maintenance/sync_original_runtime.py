@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 
 from codec_bundle import CodecBundle
+from library_bundle import LibraryBundle
 
 CHUNK = 70 * 1024 * 1024
 PREFIX = "resources/app/docs/"
@@ -32,10 +33,14 @@ def sync(root, codec_source=None):
         raise RuntimeError("Original desktop runtime, launcher or docs missing")
     docs_map = {file.relative_to(docs).as_posix(): file
                 for file in docs.rglob("*") if file.is_file()}
-    codec_bundle = CodecBundle(codec_source if codec_source is not None else root)
+    source_root = codec_source if codec_source is not None else root
+    codec_bundle = CodecBundle(source_root)
+    library_bundle = LibraryBundle(source_root)
     required = {"index.html","player.js","player.css","mkv-tracks.js",
                 "mkv-subtitles.js","pgs-subtitles.js","vobsub.js",
-                "queue-autoplay.js","folder-access.js","i18n.js"}
+                "queue-autoplay.js","folder-access.js","i18n.js",
+                "library.html","library-home.css","library-home.js",
+                "library-store.js"}
     if not required.issubset(docs_map):
         raise RuntimeError("Missing original web player resources: " +
                            str(sorted(required - docs_map.keys())))
@@ -73,12 +78,24 @@ def sync(root, codec_source=None):
                         host = host.replace(anchor, anchor + b"\n" + switch, 1)
                     if b'dk-media-player-512.png' not in host:
                         raise RuntimeError("Approved Chromium window icon is not configured")
-                    if b'void win.loadFile(player);' not in host:
-                        raise RuntimeError("Standalone Chromium must load the bundled local player, not a website")
+                    if (b'void win.loadFile(player);' not in host and
+                        b'void win.loadFile(player.replace(' not in host):
+                        raise RuntimeError("Original Chromium player entrypoint could not be identified")
                     host = codec_bundle.patch(name, host)
+                    host = library_bundle.patch_main(host)
+                    # Legacy development runtimes attached FFmpeg to the
+                    # single old main window. The new Library Home must not
+                    # own decoding: the separate Player window does.
+                    host = host.replace(
+                        b'require("./desktop/codec-host.cjs").install(win);',
+                        b'')
                     entry.size = len(host)
                     after.addfile(entry, io.BytesIO(host))
-                elif entry.isfile() and codec_bundle.enabled and                      name in codec_bundle.extra:
+                elif entry.isfile() and name == "resources/app/desktop/library-host.cjs":
+                    data = library_bundle.host.read_bytes()
+                    entry.size = len(data)
+                    after.addfile(entry, io.BytesIO(data))
+                elif entry.isfile() and codec_bundle.enabled and name in codec_bundle.extra:
                     # Replace previously bundled native codec binaries,
                     # libraries and bridge scripts on subsequent updates.
                     src = codec_bundle.extra[name]
@@ -93,10 +110,14 @@ def sync(root, codec_source=None):
                     entry.size = len(data)
                     after.addfile(entry, io.BytesIO(data))
                     replaced.add(relative)
-                elif entry.isfile() and codec_bundle.enabled and                      name.startswith("resources/app/") and                      name.endswith((".js", ".cjs")) and                      "/node_modules/" not in name:
-                    # Locate and extend the original preload. Abort if the
-                    # expected DKStandalone bridge cannot be identified.
-                    data = codec_bundle.patch(name, before.extractfile(entry).read())
+                elif (entry.isfile() and name.startswith("resources/app/")
+                      and name.endswith((".js", ".cjs"))
+                      and "/node_modules/" not in name):
+                    # Keep the existing DKStandalone preload intact. Add
+                    # library IPC without replacing its original functions.
+                    data = library_bundle.patch_preload(
+                        name, before.extractfile(entry).read())
+                    data = codec_bundle.patch(name, data)
                     entry.size = len(data)
                     after.addfile(entry, io.BytesIO(data))
                 elif entry.isfile():
@@ -112,6 +133,8 @@ def sync(root, codec_source=None):
                 existing.add(PREFIX + name)
             # Never publish a runtime with only one half of the Electron
             # native-codec bridge. The archive remains staged until verified.
+            library_bundle.assert_ready()
+            library_bundle.add_host(after, existing)
             codec_bundle.assert_ready()
             codec_bundle.add_entries(after, existing)
         with tarfile.open(updated, "r:gz") as archive:
@@ -120,9 +143,13 @@ def sync(root, codec_source=None):
             host = archive.extractfile("./resources/app/main.cjs").read()
             assert b'app.commandLine.appendSwitch("class", "dk-kinehall");' in host
             assert b'dk-media-player-512.png' in host
+            assert b'library.html' in host
+            assert b'library-host.cjs' in host
+            assert archive.extractfile("./resources/app/desktop/library-host.cjs").read()
             assert archive.extractfile("./electron").read(1)
             if codec_bundle.enabled:
-                assert b'codec-host.cjs' in host
+                assert b'codec-host.cjs' in archive.extractfile(
+                    "./resources/app/desktop/library-host.cjs").read()
                 assert archive.extractfile("./resources/app/desktop/codec-host.cjs").read()
                 assert archive.extractfile("./resources/app/bin/ffmpeg").read(4) == b"\x7fELF"
                 assert archive.extractfile("./resources/app/bin/ffprobe").read(4) == b"\x7fELF"

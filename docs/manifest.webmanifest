@@ -2,7 +2,7 @@
   "name": "DK Kinehall",
   "short_name": "DK Kinehall",
   "description": "Free browser video and audio player from DK Softworks",
-  "start_url": "./",
+  "start_url": "./library.html",
   "scope": "./",
   "display": "standalone",
   "background_color": "#0b0d12",

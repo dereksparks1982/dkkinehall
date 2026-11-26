@@ -6,6 +6,15 @@ The current installed standalone edition uses **the approved DK Kinehall shared 
 
 The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved replacement for that UI. The older roadmap falsely said Chromium artifacts were deleted; they are still present on `main`.
 
+## Local Library Home scope
+
+- Start in a separate **Library Home** window. The existing Chromium player opens as a second window, not a replacement. Preserve the exact player background, approved icons and styles.
+- **Movies / TV Shows only**. Continue Watching above the entire selected collection; TV series group by title with season/episode drilldown. No music library, no Recently Added and **no media server**.
+- Cache folder handles and catalog records in IndexedDB, plus optional local/online artwork blobs. Video files never enter the cache. Remember playing position and completed status between application launches.
+- Visible manual **Scan Library**: inspect saved folders, add/update changed files, mark missing files without deleting history, show progress and allow cancel. Startup loads cached catalog immediately and later performs one bounded check with no permission prompts.
+- Pinned upstream source integrations are documented at `third_party/SOURCES.md`. Use LGPL-oriented libmpv SDK builds and retain third-party licenses. Jellyfin Desktop/FFmpeg and the not-yet-Linux Electron mpv addon are reference-only.
+- All new native-window and library code is **source-level and not installed, compiled or playback-verified**; never mark the release gate complete on source commits alone.
+
 ## Source changes on main
 
 - Mouse/touch/keyboard Up Next reordering, Shuffle, Loop Off/One/All.
@@ -30,7 +39,8 @@ These are source-level changes, not a claim that a final release has been fully 
 4. **Playback/queue UI.** Verify fullscreen, resume, play-now vs queue-only, auto-next, shuffle, repeat, drag, chapters, Picture-in-Picture, float/dock, mouse/touch and keyboard.
 5. **Episode artwork/metadata.** Verify show, episode number and episode name; posters, episode stills, provider retrieval and local fallback.
 6. **Release packaging.** Ship a self-contained executable with actual codec libraries, correct licensing and notices, and unchanged approved icons. Verify English/Russian interface.
-7. **Final release gate.** The existing updater checks `maintenance/release-gate.json` before changing the installed player. It remains closed until all acceptance checks pass. The future native-codec payload is built by the maintainer-only release asset script and delivered as a checksum-pinned DK Kinehall GitHub release asset, independently verified before installation. No update command, download instruction or announcement that "everything" is finished before verification of the actual packaged standalone player.
+7. **Library acceptance.** Verify both windows together, file and folder permission persistence in the installed Chromium runtime, TV/movie grouping, correct cached posters, manual/startup scans, missing drives, progress and resume after reboot, large collections and low idle resource usage. Compare the exact background image and player icons before release.
+8. **Final release gate.** The existing updater checks `maintenance/release-gate.json` before changing the installed player. It remains closed until all acceptance checks pass. The future native-codec payload is built by the maintainer-only release asset script and delivered as a checksum-pinned DK Kinehall GitHub release asset, independently verified before installation. No update command, download instruction or announcement that "everything" is finished before verification of the actual packaged standalone player.
 
 A decoder cannot literally handle every encrypted, malformed, unpublished or unknown future codec. Target broad coverage with automatic bundled support, never substitute an extension whitelist or metadata inspection for actual video/audio decoding.
 

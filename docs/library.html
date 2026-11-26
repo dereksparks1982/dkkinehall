@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#350307">
+<meta name="application-name" content="DK Kinehall">
+<title>DK Kinehall | Library</title>
+<link rel="manifest" href="./manifest.webmanifest?v=20261126-library1">
+<link rel="icon" href="./icons/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
+<link rel="stylesheet" href="./player.css?v=20261126-features2">
+<link rel="stylesheet" href="./library-home.css?v=20261126-library1">
+<script defer src="./jellyfin-artwork.js?v=20261116-1"></script>
+<script defer src="./episode-metadata.js?v=20261126-queue-3lines5"></script>
+<script defer src="./library-store.js?v=20261126-library1"></script>
+<script defer src="./library-home.js?v=20261126-library1"></script>
+<script defer src="./i18n.js?v=20261126-library1"></script>
+</head>
+<body>
+<div class="shell library-shell">
+  <header class="topbar">
+    <a class="brand" href="./library.html" aria-label="DK Kinehall Library">
+      <img class="brandmark" src="./icons/dk-media-player-128.png" width="45" height="45" alt="" decoding="async">
+      <span class="brandname">DK KINEHALL</span>
+    </a>
+    <div class="header-tools library-tools">
+      <button type="button" class="btn ghost" id="addLibraryFolder">Add Folder</button>
+      <button type="button" class="btn primary" id="scanLibrary">Scan Library</button>
+      <label for="languageSelect" class="visually-hidden">Interface language</label>
+      <select id="languageSelect" class="language-select" aria-label="Interface language"><option value="en">English</option><option value="ru">Русский</option></select>
+    </div>
+  </header>
+  <main>
+    <nav class="library-tabs" role="tablist" aria-label="Media collection">
+      <button id="tabMovies" type="button" role="tab" aria-selected="true" aria-controls="libraryCollection">Movies</button>
+      <button id="tabTV" type="button" role="tab" aria-selected="false" aria-controls="libraryCollection">TV Shows</button>
+    </nav>
+    <div id="libraryStatus" class="library-status" role="status" aria-live="polite">Loading saved library…</div>
+    <section id="continueSection" class="library-section" aria-label="Continue Watching">
+      <div class="section-heading"><h2>Continue Watching</h2></div>
+      <div id="continueWatching" class="library-continue" aria-live="polite"></div>
+    </section>
+    <section class="library-section" aria-label="Entire Collection">
+      <div class="section-heading">
+        <div><h2 id="collectionTitle">Your Entire Movie Collection</h2><p id="collectionCount"></p></div>
+      </div>
+      <div id="seriesDetail" class="library-series-detail" hidden>
+        <button type="button" class="btn ghost" id="backToSeries">Back to TV Shows</button>
+        <h2 id="seriesTitle"></h2>
+        <div class="library-season-row"><label for="seasonSelect">Season</label><select id="seasonSelect" class="select"></select></div>
+      </div>
+      <div id="libraryCollection" class="library-posters" role="tabpanel" aria-live="polite"></div>
+      <button type="button" id="loadMoreLibrary" class="btn ghost library-load-more" hidden>Show More</button>
+      <div id="emptyLibrary" class="library-empty panel" hidden>
+        <img src="./images/golden-emblem.png" alt="" width="156" height="88" decoding="async">
+        <h3>No local movies or TV shows yet</h3>
+        <p>Add your movie or television folder to start your collection. Files stay on your device.</p>
+        <button type="button" class="btn primary" id="addFirstFolder">Add Folder</button>
+      </div>
+    </section>
+    <div class="library-footer-status" id="folderSummary" aria-live="polite"></div>
+  </main>
+</div>
+<input type="file" id="libraryFolderFallback" webkitdirectory multiple hidden aria-label="Select a media folder">
+</body>
+</html>

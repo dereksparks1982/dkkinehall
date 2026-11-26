@@ -242,10 +242,18 @@
     byId("restoreMedia").hidden = true;
     byId("restoreHint").hidden = true;
   };
+  let statusTimer=null;
   const status = (message, good = false) => {
     const node = byId("status");
     node.textContent = message;
     node.classList.toggle("good", good);
+    if(window.DKLibraryBridge?.internalPages){
+      clearTimeout(statusTimer);
+      node.classList.toggle("dk-notice-visible",Boolean(message));
+      if(message)statusTimer=setTimeout(()=>{
+        node.classList.remove("dk-notice-visible");
+      },5000);
+    }
   };
   const time = seconds => {
     if (!Number.isFinite(seconds) || seconds < 0) return "0:00";

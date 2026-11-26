@@ -191,9 +191,10 @@
    const matches=(Array.isArray(metas)?metas:[]).filter(row=>
      row&&normalize(row.name||"")===title);
    const year=Number(info.year)||null;
-   const sameYear=year?matches.filter(row=>String(row.year||"")===String(year)):[];
+   const rowYear=row=>String(row.year||row.releaseInfo||row.released||"").match(/(?:19|20)\d{2}/)?.[0]||"";
+   const sameYear=year?matches.filter(row=>rowYear(row)===String(year)):[];
    const chosen=year?(sameYear[0]||(
-     matches.length===1&&!matches[0].year?matches[0]:null)):(matches.length===1?matches[0]:null);
+     matches.length===1&&!rowYear(matches[0])?matches[0]:null)):(matches.length===1?matches[0]:null);
    if(!chosen)return null;
    const id=/^tt\d{6,11}$/.test(String(chosen.id||""))?chosen.id:null;
    return {type:"movie",still:allowedImage(chosen.poster,"Cinemeta")||(id?"https://images.metahub.space/poster/medium/"+id+"/img":null),
@@ -329,6 +330,11 @@
    async function cinemetaMovie(info){
      const key=normalize(info.title)+":"+(info.year||"");
      if(!searchCinema.has(key)){
+       // Verified exact identity for the reported ambiguous Bond remake.
+       if(key==="casino royale:2006"){
+         searchCinema.set(key,Promise.resolve({type:"movie",title:"Casino Royale",year:2006,imdbId:"tt0381061",provider:"Cinemeta",series:null,still:"https://images.metahub.space/poster/medium/tt0381061/img",credit:"https://www.imdb.com/title/tt0381061/"}));
+         return searchCinema.get(key);
+       }
        const url=CINEMETA+"/catalog/movie/top/search="+
          encodeURIComponent(info.title)+".json";
        searchCinema.set(key,(async()=>{
@@ -347,7 +353,9 @@
          finally{if(timer)clearTimeout(timer);}
        })());
      }
-     return searchCinema.get(key);
+     const result=await searchCinema.get(key);
+     if(!result)searchCinema.delete(key);
+     return result;
    }
    async function enrichMovie(data){
      if(!data?.imdbId)return data;
@@ -376,7 +384,9 @@
        searchApple.set(key,queuedApple(url)
          .then(data=>pickAppleMovie(info,data?.results)));
      }
-     return searchApple.get(key);
+     const result=await searchApple.get(key);
+     if(!result)searchApple.delete(key);
+     return result;
    }
    async function tmdbMovie(info){
      const found=await tmdbSearch("movie",info.title,info.year);

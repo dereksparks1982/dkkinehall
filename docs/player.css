@@ -906,3 +906,22 @@ html.dk-standalone .folder-actions #playerScanLibrary{
   grid-column:2;grid-row:2;
 }
 html.dk-standalone .folder-actions #forgetFolder{grid-column:1;grid-row:2}
+
+/* Tiny white chapter ticks stay inside the existing gold seek track.
+   The larger transparent hit area does not change its visible thickness. */
+html.dk-standalone .screen .controls .dk-chapter-markers{
+  position:absolute;left:8px;right:8px;top:50%;height:5px;
+  transform:translateY(-50%);z-index:2;pointer-events:none;
+}
+html.dk-standalone .screen .controls .dk-chapter-marker{
+  position:absolute;top:50%;transform:translate(-50%,-50%);
+  display:block;width:9px;height:17px;min-width:0;min-height:0;
+  padding:0;border:0;border-radius:0;background:transparent;
+  box-shadow:none;pointer-events:auto;cursor:pointer;
+}
+html.dk-standalone .screen .controls .dk-chapter-marker::after{
+  content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:1.5px;height:5px;background:#fff;border-radius:0;
+}
+html.dk-standalone .screen .controls .dk-chapter-marker:hover::after,
+html.dk-standalone .screen .controls .dk-chapter-marker:focus-visible::after{background:#fff;width:2px}

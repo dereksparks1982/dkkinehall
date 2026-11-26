@@ -199,12 +199,14 @@ function serve(req,res) {
   }else{
     // Prefer an LGPL-compatible OpenH264 build when supplied. libx264
     // carries GPL obligations and must never be silently mandatory.
-    if(active.encoder==="libopenh264")
+    if(active.copyVideo)
+      args.push("-c:v","copy");
+    else if(active.encoder==="libopenh264")
       args.push("-c:v","libopenh264","-b:v","2400k");
     else
       args.push("-c:v","libx264","-preset","veryfast","-crf","23");
-    args.push("-pix_fmt","yuv420p","-g","48",
-      "-c:a","aac","-b:a","160k",
+    if(!active.copyVideo)args.push("-pix_fmt","yuv420p","-g","48");
+    args.push("-c:a","aac","-ac","2","-b:a","160k",
       "-movflags","+frag_keyframe+empty_moov+default_base_moof",
       "-frag_duration","1000000","-f","mp4","pipe:1");
   }
@@ -271,7 +273,9 @@ async function start(localPath,offset=0,format="auto",audioIndex=0) {
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,position,duration:info.duration,format:selectedFormat,
-    encoder:available.h264Encoder,audioOrdinal,process:null,response:null};
+    encoder:available.h264Encoder,audioOrdinal,
+    copyVideo:selectedFormat==="mp4"&&info.videoCodec==="h264"&&position===0,
+    process:null,response:null};
   return {...info,position,format:selectedFormat,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }

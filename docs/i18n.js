@@ -278,6 +278,8 @@
     "No readable video or audio file was selected.":"Не выбран доступный для чтения видео- или аудиофайл.",
     "The file picker could not open. Try dragging a file onto the player.":"Не удалось открыть окно выбора файлов. Попробуйте перетащить файл в проигрыватель.",
     "Last stream restored. Press Play to resume.":"Последний поток восстановлен. Нажмите «Воспроизвести», чтобы продолжить.",
+    "Restore the previously selected file.":"Восстановить ранее выбранный файл.",
+    "Saved file unavailable. Reconnect its drive or scan Library.":"Сохранённый файл недоступен. Подключите диск или просканируйте медиатеку.",
     "Last file restored. Press Play to resume.":"Последний файл восстановлен. Нажмите «Воспроизвести», чтобы продолжить.",
     "File restored. Press Play to resume.":"Файл восстановлен. Нажмите «Воспроизвести», чтобы продолжить.",
     "Choose the same file again to resume where you stopped.":"Выберите тот же файл, чтобы продолжить просмотр.",

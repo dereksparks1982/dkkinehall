@@ -865,7 +865,7 @@ function connect(){
     const body=create("div","playback-settings-panel dk-library-settings-content");
     header.append(title,close);dlg.append(header,feedback,body);document.body.append(dlg);
     let epoch=0,busy=false,selectedCategory=null;
-    const categories=[["playback","Playback"],["picture","Picture"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["general","General"]];
+    const categories=[["playback","Playback"],["picture","Picture Settings"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["general","General"]];
     const nav=create("div","dk-settings-category-nav");dlg.insertBefore(nav,body);
     const back=create("button","btn small","Back to settings");back.type="button";nav.append(back);
     const categoryButtons=new Map();

@@ -55,7 +55,7 @@
    const movie=/^(.+?)\s+((?:19|20)\d{2})(?:\s|$)/.exec(withoutTags);
    let title=movie?movie[1].trim():withoutTags;
    // Collection labels are not part of the canonical film title.
-   title=title.replace(/^007\s+James\s+Bond\s*[:\-–—]?\s+/i,"").trim();
+   title=title.replace(/^(?:007\s+James\s+Bond|James\s+Bond\s+007)\s*[:\-–—]?\s+/i,"").trim();
    if(title.length<2)return null;
    return {type:"movie",title:title.slice(0,120),year:movie?Number(movie[2]):null};
  }

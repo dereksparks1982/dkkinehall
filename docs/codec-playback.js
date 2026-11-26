@@ -49,7 +49,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         if(token!==generation||current()!==item)return false;
         onStatus("Preparing video with included codecs…");
         const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),
-          format,audioIndex,frameStep,item.deinterlaceMode||"off");
+          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off");
         if(token!==generation||current()!==item||!result?.url)return false;
         item.historyReady=false;
         active={item,url:result.url,offset:Number(result.position)||0,
@@ -57,6 +57,8 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
             null:(Number.isFinite(Number(result.duration))?Number(result.duration):null)};
         item.playbackMethod=result.deinterlace&&result.deinterlace!=="off"?"Bundled native decoder (deinterlaced)":"Bundled native decoder";
         item.activeDeinterlace=result.deinterlace||"off";
+        item.activeSmoothing=Number(result.smoothing)||0;
+        if(item.activeSmoothing)item.playbackMethod="Bundled native decoder (motion interpolation)";
         item.nativeOutputFormat=result.format||format;
         item.nativeMediaInfo={hasVideo:result.hasVideo,hasAudio:result.hasAudio,videoCodec:result.videoCodec,audioCodec:result.audioCodec,format:result.format};
         if(result.hasVideo===false&&result.hasAudio){item.audio=true;media.closest(".screen")?.classList.add("audio");}

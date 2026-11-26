@@ -2,6 +2,7 @@
   "use strict";
   const byId = id => document.getElementById(id);
   const media = byId("media");
+  let translationRun=0,translationBusy=false,translationReady=false,translationOriginals=null;
   let mkvAudio = null;
   let userMuted = false;
   const screen = byId("screen");
@@ -356,6 +357,7 @@
     updateSubtitleToggle();
     updateSubtitleDelayControls();
     refreshSubtitleTrackOptions();
+    refreshTranslationControls();
   };
   const applySubtitlePreference = () => {
     const tracks = subtitleTracks(), pref = state.subtitlePreference;
@@ -371,6 +373,7 @@
     updateSubtitleStatus();
   };
   const chooseSubtitleTrack = track => {
+    resetTranslation();
     state.subtitlePreference = track ? {
       mode: "track", label: String(track.label || ""),
       language: String(track.language || "")
@@ -426,6 +429,7 @@
     }
   };
   const clearSubtitles = (keepNative = false) => {
+    resetTranslation();
     if (!keepNative)state.nativeSubtitle=null;
     // Invalidate pending reads when changing video, subtitle choice or closing.
     state.subtitleEpoch++;
@@ -1850,6 +1854,7 @@
     const preserveLibraryPosition=Boolean(window.DKLibraryBridge?.internalPages);
     if(preserveLibraryPosition)rememberPosition();
     state.stopped = true;
+    resetTranslation();
     media.pause();
     if(codecPlayback?.isActive(item)) {
       item.codecRestart=true;
@@ -3015,6 +3020,105 @@
       return true;
     }
   };
+  // Translate the currently selected text track in place only after the
+  // complete result arrives; the original cue text and timing stay intact.
+  function refreshTranslationControls(){
+    const start=byId("dkTranslateStart");if(!start)return;
+    const track=subtitleTracks().find(t=>t.mode==="showing");
+    start.disabled=!translationReady||translationBusy||!current()||state.stopped||
+      !!state.activePgsTrack||!track?.cues?.length||!!translationOriginals;
+    byId("dkTranslateCancel").disabled=!translationBusy;
+    byId("dkTranslateRestore").disabled=!translationOriginals;
+    byId("dkTranslateDirection").disabled=translationBusy;
+  }
+  function resetTranslation(){
+    translationRun++;
+    if(translationBusy)void window.DKLibraryBridge?.cancelTranslation?.().catch(()=>{});
+    if(translationOriginals){
+      for(const {cue,text} of translationOriginals)try{cue.text=text;}catch(_){}
+      translationOriginals=null;
+    }
+    const progress=byId("dkTranslateProgress");
+    if(progress)progress.textContent="";
+    const label=byId("dkTranslateStatus");
+    if(label)label.textContent=translationReady?"Select a text subtitle track":"Offline language model not installed";
+    refreshTranslationControls();
+  }
+  function setupTranslation(){
+    const bridge=window.DKLibraryBridge;
+    if(!bridge?.internalPages||!bridge.translateSubtitles)return;
+    const section=byId("subtitleTrackSelect")?.closest(".player-settings-section");
+    if(!section)return;
+    const group=document.createElement("div");
+    group.className="player-settings-section dk-translation";
+    group.innerHTML='<strong>Offline subtitle translation</strong><label for="dkTranslateDirection">Translation direction</label><select id="dkTranslateDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option></select><button type="button" class="btn ghost small" id="dkTranslateStart">Translate selected subtitles</button><button type="button" class="btn ghost small" id="dkTranslateCancel" disabled>Cancel translation</button><button type="button" class="btn ghost small" id="dkTranslateRestore" disabled>Restore original subtitles</button><span class="helper" id="dkTranslateStatus" role="status" aria-live="polite"></span><output id="dkTranslateProgress" aria-live="polite"></output>';
+    section.after(group);
+    const direction=byId("dkTranslateDirection"),label=byId("dkTranslateStatus"),progress=byId("dkTranslateProgress");
+    const refreshLanguage=()=>{
+      const tr=t=>window.DKLocale?.t(t)||t;
+      direction.options[0].textContent=tr("English → Russian");
+      direction.options[1].textContent=tr("Russian → English");
+    };
+    let statusTicket=0;
+    const check=async()=>{
+      const ticket=++statusTicket;translationReady=false;refreshTranslationControls();
+      label.textContent="Checking offline translation model…";
+      const ready=await bridge.translationStatus(direction.value).catch(()=>false);
+      if(ticket!==statusTicket)return;
+      translationReady=ready;
+      label.textContent=ready?"Select a text subtitle track":"Offline language model not installed";
+      refreshTranslationControls();
+    };
+    direction.addEventListener("change",()=>{resetTranslation();void check();});
+    byId("languageSelect")?.addEventListener("change",refreshLanguage);
+    refreshLanguage();
+    byId("dkTranslateCancel").addEventListener("click",resetTranslation);
+    byId("dkTranslateRestore").addEventListener("click",resetTranslation);
+    bridge.onTranslationProgress?.(({done,total})=>{
+      if(translationBusy&&total>0)progress.textContent=Math.min(100,Math.floor(done*100/total))+"%";
+    });
+    byId("dkTranslateStart").addEventListener("click",async()=>{
+      if(translationBusy||!translationReady||translationOriginals)return;
+      const item=current(),track=subtitleTracks().find(t=>t.mode==="showing");
+      if(!item||state.stopped||!track?.cues?.length||state.activePgsTrack)return;
+      const originals=[],lines=[];
+      for(const cue of Array.from(track.cues)){
+        if(typeof cue.text!=="string")continue;
+        // Use decoded text, never insert translated text as HTML.
+        let plain=cue.text;
+        try{plain=cue.getCueAsHTML().textContent;}catch(_){}
+        const pieces=plain.split(/\r?\n/).map(part=>{
+          if(!part.trim())return {blank:part};
+          const index=lines.length;lines.push(part);return {index};
+        });
+        if(pieces.some(p=>p.index!==undefined))originals.push({cue,text:cue.text,pieces});
+      }
+      if(!lines.length){label.textContent="No readable text subtitles";return;}
+      const ticket=++translationRun;translationBusy=true;
+      label.textContent="Translating subtitles locally…";progress.textContent="0%";refreshTranslationControls();
+      const valid=()=>ticket===translationRun&&current()===item&&!state.stopped&&track.mode==="showing";
+      try{
+        const translated=await bridge.translateSubtitles(direction.value,lines);
+        if(!valid())return;
+        const escapeText=value=>String(value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        translationOriginals=originals;
+        for(const row of originals){
+          row.cue.text=row.pieces.map(p=>p.index===undefined?p.blank:escapeText(translated[p.index])).join("\n");
+        }
+        label.textContent="Translated subtitles ready";progress.textContent="100%";
+      }catch(_){
+        if(valid()){
+          if(translationOriginals){for(const row of translationOriginals)try{row.cue.text=row.text;}catch(_){}translationOriginals=null;}
+          label.textContent="Translation failed; original subtitles kept";progress.textContent="";
+        }
+      }finally{translationBusy=false;refreshTranslationControls();}
+    });
+    media.textTracks?.addEventListener("change",refreshTranslationControls);
+    media.addEventListener("loadeddata",refreshTranslationControls);
+    media.addEventListener("timeupdate",()=>{if(!translationBusy)refreshTranslationControls();});
+    void check();
+  }
+  setupTranslation();
   let librarySelectionChain=Promise.resolve();
   window.DKLibraryBridge?.onLibrarySelection?.(id=>{
     librarySelectionChain=librarySelectionChain.catch(()=>{}).then(()=>openFromLibrary(id));

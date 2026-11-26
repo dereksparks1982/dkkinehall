@@ -20,7 +20,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Local Library Home (new source; release not verified)
 
-- **Movies | TV Shows:** Only these two library categories. A **Continue Watching** row appears above the full collection for the selected category. Television series open into seasons and episodes. No music, Recently Added or server dashboard sections in the library.
+- **Movies | TV Shows:** Only these two library categories, with TV Season 0 specials included when present. Audio-only Ogg files are not treated as movies. A **Continue Watching** row appears above the full collection for the selected category. Television series open into seasons and episodes. No music, Recently Added or server dashboard sections in the library.
 - **Two windows:** On the standalone edition, the Library Home opens first, and a movie or episode opens the **existing DK Kinehall Player** in another window. The Library Home stays available while playback continues. The hosted web edition opens the same player in another browser window.
 - **Same appearance:** Library Home loads the exact same `docs/player.css` and `docs/images/soviet-poster.png` backdrop, fonts, colors, and approved icons. No substitute image or replacement video player.
 - **Local persistent database:** IndexedDB retains chosen folders, categorized filenames and file information, watched/resume positions, and cached poster images. Movie/video bytes are **not** cached or duplicated.

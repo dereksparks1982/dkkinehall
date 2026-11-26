@@ -122,8 +122,9 @@ function findLocalArtworkFolder(folder,relative){
       for(const name of [
         stem+".jpg",stem+".png",stem+".webp",
         stem+"-poster.jpg",stem+"-poster.png",
-        "poster.jpg","poster.png","folder.jpg","folder.png",
-        "cover.jpg","cover.png"
+        "poster.jpg","poster.png","poster.webp",
+        "folder.jpg","folder.png","folder.webp",
+        "cover.jpg","cover.png","cover.webp"
       ]){
         try{
           const file=await(await dir.getFileHandle(name,{create:false})).getFile();
@@ -255,7 +256,8 @@ async function render(){
   if(tv&&selectedSeries){
     const rows=active.filter(row=>row.series===selectedSeries);
     const seasons=[...new Set(rows.map(x=>x.season))].sort((a,b)=>a-b);
-    if(!seasons.includes(selectedSeason))selectedSeason=seasons[0]||null;
+    if(!seasons.includes(selectedSeason))
+      selectedSeason=seasons.length?seasons[0]:null;
     const selected=$("seasonSelect");
     selected.replaceChildren(...seasons.map(n=>{
       const opt=create("option",null,

@@ -91,7 +91,7 @@ async function putBatch(table,rows){
   });
 }
 function classify(name){
-  if(!/\.(mp4|m4v|mov|mkv|avi|webm|ogg|ogv|ts|mts|m2ts|mpeg|mpg|m2v|mxf|vob|wmv|asf|flv|f4v|3gp|3g2|dv|divx|rm|rmvb|mpv|nut)$/i.test(name))return null;
+  if(!/\.(mp4|m4v|mov|mkv|avi|webm|ogv|ts|mts|m2ts|mpeg|mpg|m2v|mxf|vob|wmv|asf|flv|f4v|3gp|3g2|dv|divx|rm|rmvb|mpv|nut)$/i.test(name))return null;
   const parsed=typeof window!=="undefined"?window.DKMediaMetadata?.parseFilename?.(name):null;
   if(parsed?.type==="episode")return {
     kind:"tv",title:parsed.series,series:parsed.series,season:parsed.season,

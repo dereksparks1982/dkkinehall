@@ -7,6 +7,159 @@ const fs=require("node:fs");
 const {fileURLToPath,pathToFileURL}=require("node:url");
 const {randomBytes}=require("node:crypto");
 const VERSION="0.9.3";
+
+/* Explicit, bounded IPv4 LAN discovery and read-only network playback.
+ * No background discovery, UPnP port mapping, redirects, DNS resolution,
+ * credentials, filesystem writes or externally reachable HTTP listener. */
+const netHTTP=require("node:http"),netHTTPS=require("node:https"),netUDP=require("node:dgram");
+const networkServers=new Map(),networkGrants=new Map(),networkClients=new Set();
+let networkScan=null,networkProxy=null,networkProxyOpening=null,networkBrowseBusy=0;
+function privateIPv4(host){
+  const parts=String(host).split(".");
+  if(parts.length!==4||parts.some(p=>!/^(0|[1-9]\d{0,2})$/.test(p)||Number(p)>255))return false;
+  const [a,b]=parts.map(Number);
+  return a===10||a===192&&b===168||a===172&&b>=16&&b<=31||a===169&&b===254;
+}
+function networkURL(value,host=null){
+  if(typeof value!=="string"||value.length>4096)throw Error("Invalid network URL");
+  const url=new URL(value);
+  if(!["http:","https:"].includes(url.protocol)||url.username||url.password||url.hash||
+    !privateIPv4(url.hostname)||(host&&url.hostname!==host))throw Error("Only private IPv4 media addresses are supported");
+  return url;
+}
+function networkRequest(url,options={},body=null,limit=2*1024*1024){
+  return new Promise((resolve,reject)=>{
+    const lib=url.protocol==="https:"?netHTTPS:netHTTP;
+    const req=lib.request(url,{...options,agent:false},res=>{
+      if(res.statusCode!==200){res.destroy();req.destroy();reject(Error("Network server returned an error"));return;}
+      const chunks=[];let bytes=0;
+      res.on("data",chunk=>{
+        bytes+=chunk.length;
+        if(bytes>limit){res.destroy();req.destroy();reject(Error("Network response too large"));}
+        else chunks.push(chunk);
+      });
+      res.on("end",()=>resolve(Buffer.concat(chunks).toString("utf8")));
+      res.on("error",reject);
+      res.on("aborted",()=>reject(Error("Network response interrupted")));
+    });
+    const timer=setTimeout(()=>req.destroy(Error("Network request timed out")),8000);
+    req.on("close",()=>clearTimeout(timer));req.on("error",reject);
+    req.end(body||undefined);
+  });
+}
+function discoverNetwork(){
+  if(networkScan)return networkScan;
+  networkScan=new Promise(resolve=>{
+    const socket=netUDP.createSocket("udp4"),seen=new Map();let done=false;
+    const finish=()=>{
+      if(done)return;done=true;clearTimeout(timer);
+      try{socket.close();}catch(_){}
+      resolve([...seen.values()]);
+    };
+    const timer=setTimeout(finish,3200);
+    socket.on("error",finish);
+    socket.on("message",(data,remote)=>{
+      if(data.length>16384||seen.size>=32||!privateIPv4(remote.address))return;
+      const lines=data.toString("utf8").split(/\r?\n/);
+      if(!/^HTTP\/1\.[01] 200\b/i.test(lines.shift()||""))return;
+      const headers=Object.create(null);
+      for(const line of lines){
+        const split=line.indexOf(":");if(split>0)headers[line.slice(0,split).trim().toLowerCase()]=line.slice(split+1).trim();
+      }
+      if(!/^urn:schemas-upnp-org:device:MediaServer:\d+$/i.test(headers.st||""))return;
+      try{
+        const location=networkURL(headers.location,remote.address).href;
+        if(seen.has(location))return;
+        const id=randomBytes(18).toString("hex");
+        seen.set(location,{id,location});
+        networkServers.set(id,{location,host:remote.address});
+        if(networkServers.size>128)networkServers.delete(networkServers.keys().next().value);
+      }catch(_){}
+    });
+    socket.bind(0,()=>{
+      if(done)return;
+      const msg=Buffer.from("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 2\r\nST: urn:schemas-upnp-org:device:MediaServer:1\r\n\r\n");
+      socket.send(msg,1900,"239.255.255.250",error=>{if(error)finish();});
+    });
+  }).finally(()=>{networkScan=null;});
+  return networkScan;
+}
+async function networkDescription(id){
+  const server=networkServers.get(id);if(!server)throw Error("Network server selection expired");
+  if(networkBrowseBusy>=4)throw Error("Network requests busy");
+  networkBrowseBusy++;
+  try{return {location:server.location,xml:await networkRequest(networkURL(server.location,server.host))};}
+  finally{networkBrowseBusy--;}
+}
+function escapeNetworkXML(value){return value.replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&apos;"}[c]));}
+async function browseNetwork(id,control,type,objectId,start){
+  const server=networkServers.get(id);
+  if(!server||typeof type!=="string"||!/^urn:schemas-upnp-org:service:ContentDirectory:[1-4]$/.test(type)||
+    typeof objectId!=="string"||objectId.length>1024||!Number.isInteger(start)||start<0||start>100000)
+    throw Error("Invalid media browse request");
+  const target=networkURL(control,server.host);
+  if(networkBrowseBusy>=4)throw Error("Network requests busy");
+  const body='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:Browse xmlns:u="'+type+'"><ObjectID>'+escapeNetworkXML(objectId)+'</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter><StartingIndex>'+start+'</StartingIndex><RequestedCount>100</RequestedCount><SortCriteria></SortCriteria></u:Browse></s:Body></s:Envelope>';
+  networkBrowseBusy++;
+  try{return await networkRequest(target,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPACTION":'"'+type+'#Browse"',"Content-Length":Buffer.byteLength(body)}},body);}
+  finally{networkBrowseBusy--;}
+}
+function serveNetwork(req,res){
+  const match=/^\/media\/([a-f0-9]{48})$/.exec(req.url||"");
+  const entry=match&&networkGrants.get(match[1]);
+  const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
+  if(!entry||!["GET","HEAD"].includes(req.method)||networkClients.size>=8)return fail();
+  const range=req.headers.range;
+  if(range&&!/^bytes=(?:\d{1,16}-\d{0,16}|-\d{1,16})$/.test(range))return fail(416);
+  const url=entry.url,lib=url.protocol==="https:"?netHTTPS:netHTTP;
+  const upstream=lib.request(url,{method:req.method,agent:false,headers:range?{Range:range}:{}},reply=>{
+    if(![200,206,416].includes(reply.statusCode)){reply.destroy();return fail(502);}
+    const mime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
+    if(reply.statusCode!==416&&!/^(video\/|audio\/|application\/octet-stream$)/.test(mime)){
+      reply.destroy();return fail(415);
+    }
+    const headers={"Content-Type":mime||"application/octet-stream","Access-Control-Allow-Origin":"null",
+      "Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
+    for(const key of ["content-length","content-range","accept-ranges"]){
+      const value=reply.headers[key];if(typeof value==="string")headers[key]=value;
+    }
+    res.writeHead(reply.statusCode,headers);
+    reply.on("error",()=>res.destroy());reply.on("aborted",()=>res.destroy());
+    if(req.method==="HEAD"){reply.resume();res.end();}else reply.pipe(res);
+  });
+  networkClients.add(upstream);
+  upstream.setTimeout(20000,()=>upstream.destroy(Error("Network media timed out")));
+  upstream.on("close",()=>networkClients.delete(upstream));
+  upstream.on("error",()=>{if(res.headersSent)res.destroy();else fail(502);});
+  res.on("close",()=>upstream.destroy());
+  upstream.end();
+}
+async function startNetworkProxy(){
+  if(networkProxy?.listening)return networkProxy.address().port;
+  if(networkProxyOpening)return networkProxyOpening;
+  networkProxyOpening=new Promise((resolve,reject)=>{
+    const server=netHTTP.createServer(serveNetwork);
+    networkProxy=server;
+    server.once("error",error=>{networkProxy=null;reject(error);});
+    server.listen(0,"127.0.0.1",()=>resolve(server.address().port));
+  }).finally(()=>{networkProxyOpening=null;});
+  return networkProxyOpening;
+}
+async function grantNetwork(id,value){
+  const server=id===null?null:networkServers.get(id);
+  if(id!==null&&!server)throw Error("Network server selection expired");
+  const url=networkURL(value,server?.host);
+  if(networkGrants.size>=256)throw Error("Network media queue is full");
+  const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
+  networkGrants.set(token,{url});
+  return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
+}
+function closeNetwork(){
+  for(const req of networkClients)req.destroy();
+  networkClients.clear();networkGrants.clear();networkServers.clear();
+  networkProxy?.close();networkProxy=null;
+}
+
 // Local-only CTranslate2/SentencePiece worker. No model fetcher, shell or
 // caller-controlled executable/path. Only a trusted separately provisioned
 // runtime and direct bilingual models in the application's data directory.
@@ -363,6 +516,21 @@ function install(originalWindow,originalPlayer){
   });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
+  ipcMain.handle("dk-network:discover",event=>{
+    if(!onlyPlayer(event))throw Error("Network request rejected");return discoverNetwork();
+  });
+  ipcMain.handle("dk-network:description",(event,id)=>{
+    if(!onlyPlayer(event))throw Error("Network request rejected");return networkDescription(id);
+  });
+  ipcMain.handle("dk-network:browse",(event,id,control,type,objectId,start)=>{
+    if(!onlyPlayer(event))throw Error("Network request rejected");return browseNetwork(id,control,type,objectId,start);
+  });
+  ipcMain.handle("dk-network:grant",(event,id,url)=>{
+    if(!onlyPlayer(event))throw Error("Network request rejected");return grantNetwork(id,url);
+  });
+  ipcMain.handle("dk-network:release",(event,token)=>{
+    if(!onlyPlayer(event))return false;return networkGrants.delete(token);
+  });
   ipcMain.handle("dk-library:open-acp",async event=>{
     if(!allowed(event)&&!onlyPlayer(event))throw Error("External link rejected");
     await shell.openExternal("https://acp.us/");
@@ -514,7 +682,7 @@ function install(originalWindow,originalPlayer){
     return showPage("library");
   });
   home.on("closed",()=>{
-    scanController?.abort();
+    closeNetwork();scanController?.abort();
     if(installedWindow())player.webContents.close();
     player=null;home=null;
   });

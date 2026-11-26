@@ -1379,3 +1379,7 @@ html.dk-standalone[lang="ru"] :is(#scanLibrary,#playerScanLibrary){
 .player-context-menu,.media-info,.playback-settings-panel,.dk-chapter-picker{
   overscroll-behavior-y:contain;
 }
+
+/* Standalone Voiceover cache tools, inside the existing settings category. */
+.dk-voiceover-cache { display:grid; gap:6px; padding-top:8px; border-top:1px solid currentColor; }
+.dk-voiceover-cache output { font-variant-numeric:tabular-nums; }

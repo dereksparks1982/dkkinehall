@@ -91,7 +91,7 @@ async function putBatch(table,rows){
     tx.onabort=()=>reject(tx.error||new Error("Library save failed"));
   });
 }
-function classify(name){
+function classify(name,relative=name){
   if(!/\.(mp4|m4v|mov|mkv|avi|webm|ogv|ts|mts|m2ts|mpeg|mpg|m2v|mxf|vob|wmv|asf|flv|f4v|3gp|3g2|dv|divx|rm|rmvb|mpv|nut)$/i.test(name))return null;
   const parsed=typeof window!=="undefined"?window.DKMediaMetadata?.parseFilename?.(name):null;
   if(parsed?.type==="episode")return {
@@ -99,6 +99,30 @@ function classify(name){
     episode:parsed.episode,episodeTitle:parsed.episodeTitle||"",
     year:parsed.year||null
   };
+  // TV libraries are often stored as Show / Season 1 / 01 - Title.mkv,
+  // without S01E01 in the filename. Use folder context, not the mere fact
+  // that a name starts with a number (which may be a movie).
+  const folders=String(relative).split("/").slice(0,-1);
+  const seasonAt=folders.findIndex(part=>
+    /^(?:season|series|сезон|s)[ ._-]*0*\d{1,2}(?:\b|$)/i.test(part));
+  if(seasonAt>0){
+    const found=/^(?:season|series|сезон|s)[ ._-]*0*(\d{1,2})(?:\b|$)/i
+      .exec(folders[seasonAt]);
+    const indexed=/^(?:episode|ep|e)?[ ._-]*0*(\d{1,3})(?:[ ._-]+|$)/i
+      .exec(String(name).replace(/\.[^.]+$/,""));
+    const season=found?Number(found[1]):NaN;
+    const episode=indexed?Number(indexed[1]):NaN;
+    const series=folders[seasonAt-1].replace(/[._]+/g," ").trim();
+    if(Number.isSafeInteger(season)&&season<=99&&
+       Number.isSafeInteger(episode)&&episode>=1&&episode<=999&&
+       series.length>=2){
+      const episodeTitle=String(name).replace(/\.[^.]+$/,"")
+        .slice(indexed[0].length).replace(/^[ ._-]+/,"")
+        .replace(/[._]+/g," ").trim().slice(0,140);
+      return {kind:"tv",title:series,series,season,episode,
+        episodeTitle,year:null};
+    }
+  }
   const fallback=String(name).replace(/\.[^.]+$/,"").replace(/[._]+/g," ").trim();
   return {kind:"movie",title:parsed?.title||fallback,
     year:parsed?.year||null,series:null,season:null,episode:null,episodeTitle:""};
@@ -190,7 +214,7 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
           continue;
         }
         if(handle.kind!=="file")continue;
-        const info=classify(name);
+        const info=classify(name,next.path+name);
         if(!info||(folder.category!=="both"&&folder.category!==info.kind))continue;
         if(seen.size>=maxFiles){complete=false;continue;}
         const relative=next.path+name,id=stableId(folder.id,relative);

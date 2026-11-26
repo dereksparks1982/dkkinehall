@@ -86,6 +86,18 @@ async function run(){
   assert.equal(store.classify("Music.mp3"),null);
   assert.equal(store.classify("Album.ogg"),null);
   assert.equal(store.classify("Film.mp4").kind,"movie");
+  const nested=store.classify("01 - Cartman Gets An Anal Probe.mkv",
+    "South Park/Season 1/01 - Cartman Gets An Anal Probe.mkv");
+  assert.equal(nested.kind,"tv");
+  assert.equal(nested.series,"South Park");
+  assert.equal(nested.season,1);
+  assert.equal(nested.episode,1);
+  assert.match(nested.episodeTitle,/Cartman Gets/);
+  assert.equal(store.classify("01 - Film.mkv","Movies/01 - Film.mkv").kind,"movie");
+  const russianSeason=store.classify("02 - Проверка.mkv",
+    "Сериал/Сезон 02/02 - Проверка.mkv");
+  assert.equal(russianSeason.kind,"tv");
+  assert.equal(russianSeason.season,2);
   assert.deepEqual(
     Object.fromEntries(Object.entries(store.classify("South.Park.S00E01.Special.mkv"))
       .filter(([key])=>["kind","season","episode"].includes(key))),

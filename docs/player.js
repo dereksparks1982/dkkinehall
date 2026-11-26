@@ -762,7 +762,7 @@
       li.dataset.queueKind = item.kind;
       li.dataset.queueAudio = item.audio ? "1" : "0";
       // The original filename remains attached for artwork and playback.
-      const parsed = window.DKMediaMetadata?.parseFilename(item.name);
+      const parsed = window.DKMediaMetadata?.parseFilename(item.metadataFilename||item.name);
       const isEpisode = parsed?.type === "episode";
       if (isEpisode) li.dataset.queueEpisode = "1";
       const episodeCode = isEpisode ? "S" + String(parsed.season).padStart(2,"0") +
@@ -1004,7 +1004,7 @@
     applySubtitlePreference();
     screen.classList.remove("ui-hidden", "cursor-hidden");
     chapterPicker.hidden = true;
-    const titleInfo = window.DKMediaMetadata?.parseFilename(item.name);
+    const titleInfo = window.DKMediaMetadata?.parseFilename(item.metadataFilename||item.name);
     const episode = titleInfo?.type === "episode";
     const displayName = episode ? titleInfo.series :
       titleInfo?.type === "movie" ? titleInfo.title +
@@ -1238,6 +1238,9 @@
       const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:[],
         libraryId:artData?.libraryId||null,
         episodeTitle:artData?.episodeTitle||"",
+        // Metadata-only name for Show/Season 1/01 - Title layouts.
+        // The actual media file, handle, MIME and decoder path are unchanged.
+        metadataFilename:artData?.metadataFilename||file.name,
         file, src: URL.createObjectURL(file), handle,
         path, folderArtwork: posterMap.get(path) || null,
         size: file.size, mime: file.type || "",
@@ -2627,9 +2630,15 @@
       const selected=await window.DKLibraryStore.openFile(row,{
         requestPermission:true
       });
+      const metadataFilename=row.kind==="tv"&&
+        window.DKMediaMetadata?.parseFilename(row.filename)?.type!=="episode"?
+        row.series+".S"+String(row.season).padStart(2,"0")+
+          "E"+String(row.episode).padStart(2,"0")+
+          row.filename.slice(row.filename.lastIndexOf(".")):
+        row.filename;
       addFiles([selected.file],[selected.handle],"open",{
         libraryId:id,libraryPosition:row.position||0,
-        episodeTitle:row.episodeTitle||""
+        episodeTitle:row.episodeTitle||"",metadataFilename
       });
       return true;
     }catch(error){

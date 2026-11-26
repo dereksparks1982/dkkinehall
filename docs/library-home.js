@@ -42,6 +42,12 @@ const nameSort=(a,b)=>String(a).localeCompare(String(b),undefined,{
 });
 const formatCode=row=>"S"+String(row.season).padStart(2,"0")+
   "E"+String(row.episode).padStart(2,"0");
+const metadataFilename=row=>row.kind==="tv"&&
+  window.DKMediaMetadata?.parseFilename?.(row.filename)?.type!=="episode"?
+  row.series+".S"+String(row.season).padStart(2,"0")+
+    "E"+String(row.episode).padStart(2,"0")+
+    row.filename.slice(row.filename.lastIndexOf(".")):
+  row.filename;
 const mediaName=row=>row.kind==="tv"?
   row.series+" · "+formatCode(row)+
   (row.episodeTitle?" · "+row.episodeTitle:""):
@@ -175,7 +181,7 @@ async function findArtwork(row,id,series=false){
      networkTitleCount<TITLE_LOOKUP_LIMIT){
     networkTitleCount++;
     try{
-      const verified=await artworkFinder.episodeTitle(row.filename);
+      const verified=await artworkFinder.episodeTitle(metadataFilename(row));
       if(verified)await store.updateMetadata(row.id,{episodeTitle:verified});
     }catch(_){}
   }
@@ -195,7 +201,7 @@ async function findArtwork(row,id,series=false){
     return null;
   networkArtworkCount++;
   try{
-    const result=await artworkFinder.find(row.filename);
+    const result=await artworkFinder.find(metadataFilename(row));
     // Episode cards use episode stills; the series grid uses series art.
     const url=row.kind==="tv"&&series?
       (result?.fallbackUrl||result?.url):result?.url;

@@ -18,8 +18,10 @@ const finder=window.DKMediaMetadata.create({
   enabled:()=>enabled,token:()=>token,selectImage:choose
 });
 const locale=(en,ru)=>document.documentElement.lang==="ru"?ru:en;
-// Full, original filenames remain the keys for artwork and episode metadata.
-const originalFilename=li=>li?.dkQueueItem?.name ||
+// The real file name and path never change. For files named "01 - Episode"
+ // a synthetic show/SxxExx title is used ONLY for online metadata lookup.
+const originalFilename=li=>li?.dkQueueItem?.metadataFilename||
+  li?.dkQueueItem?.name ||
   li?.querySelector(".item-title")?.textContent?.trim() || "";
 const EPISODE_STORE="dk-kinehall.episode-titles.v1";
 const episodeNames=(()=>{

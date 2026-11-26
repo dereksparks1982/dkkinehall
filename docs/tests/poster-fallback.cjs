@@ -50,6 +50,7 @@ class El{
 }
 const li=new El();
 li.name="The.Matrix.1999.1080p.mkv";
+li.dkQueueItem={name:li.name};
 li.dataset={queueKind:"file",queueAudio:"0"};
 li.box=new El("queue-artwork");li.box.parent=li;
 const queue=new El("queue");queue.children=[li];
@@ -100,6 +101,7 @@ const flush=async()=>{for(let i=0;i<40;i++)await Promise.resolve();};
 
   const replacement=new El();
   replacement.name=li.name;
+  replacement.dkQueueItem={name:li.name};
   replacement.dataset={queueKind:"file",queueAudio:"0"};
   replacement.box=new El("queue-artwork");replacement.box.parent=replacement;
   queue.children=[replacement];

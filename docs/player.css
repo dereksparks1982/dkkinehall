@@ -82,7 +82,7 @@ button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:no
 html { background:#110407; }
 body {
   background:linear-gradient(180deg,rgba(16,3,6,.34),rgba(15,3,5,.7)),
-    url("./images/soviet-poster.png") center center / cover fixed no-repeat #1b0508;
+    url("./images/soviet-poster.png") center center / contain fixed no-repeat #1b0508;
 }
 .topbar {
   background:rgba(22,5,9,.82);

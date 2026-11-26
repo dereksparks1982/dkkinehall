@@ -26,6 +26,7 @@ The two editions are separate. The Web App remains available regardless of chang
 - **Playback resume:** Return to where you stopped in a movie when the edition can restore access to that file.
 - **Artwork:** Display movie posters, episode stills, and local cover images when available, with automatic recovery when an online artwork source fails.
 - **Languages:** English and Russian interface options.
+- **Background artwork:** The complete Soviet-themed picture is fitted to the window without cutting off its edges.
 
 ## Getting started
 

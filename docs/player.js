@@ -2099,6 +2099,7 @@
     const old = state.queue.splice(state.current + 1);
     old.forEach(item => {
       releaseArtwork(item);
+      releaseNetwork(item);
       releaseCompatible(item);
       if (item.kind === "file") URL.revokeObjectURL(item.src);
     });
@@ -2408,9 +2409,10 @@
     const results=document.createElement("div");results.className="dk-network-results";
     const url=document.createElement("input");url.type="url";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
     const queueLabel=document.createElement("label"),queueOnly=document.createElement("input");
-    queueOnly.type="checkbox";queueLabel.append(queueOnly,document.createTextNode(" Add to queue only"));
+    const queueText=document.createElement("span");queueText.textContent="Add to queue only";
+    queueOnly.type="checkbox";queueLabel.append(queueOnly,queueText);
     let generation=0,opening=false;
-    const say=value=>{message.textContent=translate(value);};
+    const say=value=>{message.textContent=value;window.DKLocale?.apply();};
     const parse=value=>{
       if(typeof value!=="string"||/<!DOCTYPE|<!ENTITY/i.test(value))throw Error("Invalid XML");
       const doc=new DOMParser().parseFromString(value,"application/xml");
@@ -2826,6 +2828,7 @@
     if (!current() || !media.error || state.stopped) return;
     const code = media.error.code;
     const item=current();
+    if(item.kind==="network"){status("Network stream unavailable or unsupported.");updateButtons();return;}
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;
     if(codecPlayback?.isActive(item)){
       if(item.activeSmoothing&&item.smoothingMode!=="off"){

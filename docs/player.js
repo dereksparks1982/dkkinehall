@@ -4496,7 +4496,7 @@
     if(!bridge?.internalPages||!bridge.generateVoiceover)return;
     const group=document.createElement("div");
     group.className="player-settings-section dk-voiceover";group.id="voiceoverSettings";
-    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option></select><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
+    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option><option value="auto">Detect English or Russian automatically</option></select><span class="helper" id="dkVoiceDetected" role="status" aria-live="polite"></span><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
     byId("playerSettingsPanel").append(group);
     // Cache management remains usable even without installed speech models.
     const cacheControls=document.createElement("div");
@@ -4538,6 +4538,7 @@
     const label=byId("dkVoiceStatus"),progress=byId("dkVoiceProgress"),percent=byId("dkVoicePercent");
     let ready=false,busy=false,ticket=0,checkTicket=0,result=null,exporting=false;
     let speechReady=false,generated=null,recognizing=false,jobAudio=null;
+    let availablePairs=new Set();
     let voiceGain=null,voicePlaying=false,videoWaiting=false,voiceEpoch=0,playPending=false;
     const voice=new Audio();voice.crossOrigin="anonymous";voice.preload="metadata";
     const enabled=byId("dkVoiceEnabled"),original=byId("dkVoiceOriginal"),level=byId("dkVoiceLevel");
@@ -4545,7 +4546,8 @@
     const percentValue=(value,fallback)=>Number.isFinite(Number(value))&&value!=null?Math.max(0,Math.min(100,Number(value))):fallback;
     original.value=String(percentValue(mix.original,35));level.value=String(percentValue(mix.level,100));
     const key="dk-kinehall.voiceover-direction.v1";
-    direction.value=read(key,"en-ru")==="ru-en"?"ru-en":"en-ru";
+    const savedDirection=read(key,"en-ru");
+    direction.value=["en-ru","ru-en","auto"].includes(savedDirection)?savedDirection:"en-ru";
     const setStatus=value=>{label.textContent=window.DKLocale?.t(value)||value;};
     const setProgress=value=>{progress.value=value;percent.textContent=Math.floor(value)+"%";};
     const track=()=>subtitleTracks().find(t=>t.mode==="showing");
@@ -4639,8 +4641,18 @@
       return Math.max(0,index);
     };
     const sourceLang=()=>direction.value.split("-")[0];
-    const validGenerated=()=>generated&&generated.item===current()&&generated.language===sourceLang()&&generated.audio===audioOrdinal();
+    const validGenerated=()=>generated&&generated.item===current()&&generated.requested===sourceLang()&&generated.audio===audioOrdinal();
+    const detectedLabel=byId("dkVoiceDetected");
+    const refreshDetected=()=>{
+      detectedLabel.textContent=sourceLang()==="auto"&&validGenerated()?
+        (generated.language==="en"?"Detected spoken language: English":"Detected spoken language: Russian"):"";
+      window.DKLocale?.apply();
+    };
+    const resolvedPair=()=>sourceLang()==="auto"?
+      (validGenerated()?(generated.language==="en"?"en-ru":"ru-en"):null):direction.value;
     const compatibleTrack=()=>{
+      // Auto means inspect the selected audio, not trust subtitle metadata.
+      if(sourceLang()==="auto")return null;
       const source=track();
       if(!source?.cues?.length||state.activePgsTrack||translationOriginals||translationBusy||
          (codecPlayback?.isActive(current())&&codecPlayback.offset(current())>0))return null;
@@ -4661,7 +4673,8 @@
       const currentAudio=audioOrdinal();
       if(jobAudio!==null&&jobAudio!==currentAudio&&(busy||result||generated)){resetVoiceover();return;}
       const candidate=localMovie(),speech=!!(speechReady&&localCodecBridge?.recognizeSpeech);
-      generate.disabled=!ready||busy||exporting||!candidate||(!speech&&!validGenerated()&&!compatibleTrack());
+      const pair=resolvedPair(),pairReady=pair?availablePairs.has(pair):ready;
+      generate.disabled=!pairReady||busy||exporting||!candidate||(!speech&&!validGenerated()&&!compatibleTrack());
       speechButton.disabled=!speech||busy||exporting||!candidate;
       speechExport.disabled=!validGenerated()||busy||exporting;
       cancel.disabled=!busy;
@@ -4672,7 +4685,7 @@
       enabled.disabled=!result||busy||exporting||result.item!==current()||!bridge.voiceoverSource;
     };
     resetVoiceover=()=>{
-      stopVoice(true);videoWaiting=false;generated=null;jobAudio=null;
+      stopVoice(true);videoWaiting=false;generated=null;jobAudio=null;refreshDetected();
       if(busy||result){ticket++;result=null;void bridge.cancelSpeech?.().catch(()=>{});void bridge.discardVoiceover().catch(()=>{});}
       setProgress(0);setStatus(ready?"Choose original subtitles or generate them from audio.":"Offline voiceover runtime or voice model not installed.");
       refreshVoiceover();
@@ -4680,8 +4693,11 @@
     const check=async()=>{
       const id=++checkTicket;ready=false;refreshVoiceover();
       setStatus("Checking offline voiceover runtime…");
-      const [available,asr]=await Promise.all([bridge.voiceoverStatus(direction.value).catch(()=>false),bridge.speechStatus?.().catch(()=>false)]);
-      if(id!==checkTicket)return;ready=available;speechReady=!!asr;
+      const [en,ru,asr]=await Promise.all([bridge.voiceoverStatus("en-ru").catch(()=>false),bridge.voiceoverStatus("ru-en").catch(()=>false),bridge.speechStatus?.().catch(()=>false)]);
+      if(id!==checkTicket)return;
+      availablePairs=new Set([...(en?["en-ru"]:[]),...(ru?["ru-en"]:[])]);
+      ready=direction.value==="auto"?availablePairs.size>0:availablePairs.has(direction.value);
+      speechReady=!!asr;
       setStatus(ready?"Choose original subtitles or generate them from audio.":speechReady?"Speech recognition ready; voice models not installed.":"Offline voiceover runtime or voice model not installed.");
       refreshVoiceover();
     };
@@ -4690,7 +4706,7 @@
     bridge.onSpeechProgress?.(data=>{
       if(!busy||!recognizing||data.ticket!==ticket)return;
       setProgress(data.percent);
-      setStatus(data.stage==="extract"?"Extracting movie audio…":data.stage==="cached"?"Using saved subtitles.":"Recognizing dialogue locally…");
+      setStatus(data.stage==="extract"?"Extracting movie audio…":data.stage==="cached"?"Using saved subtitles.":data.stage==="detect"?"Detecting spoken language locally…":"Recognizing dialogue locally…");
     });
     bridge.onVoiceoverProgress?.(data=>{
       if(!busy||recognizing||data.ticket!==ticket||!data.total)return;
@@ -4705,7 +4721,9 @@
         const data=await localCodecBridge.recognizeSpeech(item.file,sourceLang(),audio,job);
         if(job!==ticket||current()!==item||audioOrdinal()!==audio)throw Error("Speech request expired");
         if(!Array.isArray(data?.rows)||!data.rows.length||typeof data.srt!=="string")throw Error("No speech recognized");
-        generated={item,language:sourceLang(),audio,rows:data.rows,srt:data.srt};
+        const requested=sourceLang(),language=data.language||(requested==="auto"?null:requested);
+        if(!["en","ru"].includes(language)||(requested!=="auto"&&language!==requested))throw Error("Unsupported speech language");
+        generated={item,requested,language,audio,rows:data.rows,srt:data.srt};refreshDetected();
         return data.rows;
       }finally{recognizing=false;}
     };
@@ -4727,7 +4745,7 @@
         await obtainSpeech(item,job,audio);
         if(job!==ticket||current()!==item)return;
         showGenerated();setProgress(100);setStatus("Generated subtitles ready.");
-      }catch(_){if(job===ticket){setProgress(0);setStatus("Could not generate subtitles from audio.");}}
+      }catch(_){if(job===ticket){setProgress(0);setStatus(sourceLang()==="auto"?"Automatic detection or transcription failed; select the original language manually.":"Could not generate subtitles from audio.");}}
       finally{busy=false;refreshVoiceover();}
     });
     speechExport.addEventListener("click",async()=>{
@@ -4745,8 +4763,10 @@
       try{
         if(!rows.length)rows=await obtainSpeech(item,job,audio);
         if(job!==ticket||current()!==item||audioOrdinal()!==audio)return;
+        const pair=resolvedPair();
+        if(!pair||!availablePairs.has(pair)){setStatus("The detected translation direction is not installed.");setProgress(0);return;}
         setProgress(0);setStatus("Translating dialogue…");
-        const info=await bridge.generateVoiceover(direction.value,rows,job);
+        const info=await bridge.generateVoiceover(pair,rows,job);
         if(job!==ticket||current()!==item){await bridge.discardVoiceover();return;}
         result={item,ticket:job};setProgress(100);
         setStatus(info.cached?(info.skipped?"Cached voiceover ready; some lines could not fit their timing.":"Cached voiceover audio ready."):(info.skipped?"Voiceover ready; some lines could not fit their timing.":"Voiceover audio ready."));
@@ -4760,7 +4780,7 @@
       catch(_){setStatus("Could not save voiceover. Choose a new file name.");}
       finally{exporting=false;refreshVoiceover();}
     });
-    const localize=()=>{direction.options[0].textContent=window.DKLocale?.t("English → Russian")||"English → Russian";direction.options[1].textContent=window.DKLocale?.t("Russian → English")||"Russian → English";};
+    const localize=()=>{direction.options[0].textContent=window.DKLocale?.t("English → Russian")||"English → Russian";direction.options[1].textContent=window.DKLocale?.t("Russian → English")||"Russian → English";direction.options[2].textContent=window.DKLocale?.t("Detect English or Russian automatically")||"Detect English or Russian automatically";refreshDetected();};
     byId("languageSelect")?.addEventListener("change",()=>{localize();void refreshCache();});localize();
     media.addEventListener("timeupdate",refreshVoiceover);
     media.addEventListener("loadeddata",refreshVoiceover);

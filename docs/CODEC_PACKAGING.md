@@ -67,3 +67,7 @@ The decoder bridge source now includes user selection of an FFprobe-discovered a
 7. Only after such a package is built and playback-verified should the README say that broad native codec coverage is **included**. Until then, document the limitation accurately and never claim that a successful subtitle lookup proves that video will play.
 
 No compilation or playback validation was performed while writing this plan.
+
+## Audio and automatic output recovery
+
+The native probe distinguishes real video streams from attached album-cover images. Audio-only files can use AAC in fragmented MP4 or Opus in WebM without a video encoder. Native output explicitly maps the selected real video and audio streams, and WebM video is converted to 8-bit 4:2:0 for compatibility. Automatic playback can retry the other available native output once after a decoder output error; explicit format selection is unchanged. These changes do not publish the required bundled codec release asset.

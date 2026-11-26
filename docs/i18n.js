@@ -256,6 +256,8 @@
     "Empty Trash":"Очистить корзину",
     "Connect to media server":"Подключиться к медиасерверу",
     "Network decoder unavailable.":"Сетевой декодер недоступен.",
+    "Reconnecting to network media…":"Повторное подключение к сетевому источнику…",
+    "Network stream ended unexpectedly.":"Сетевой поток неожиданно завершился.",
     "Search media titles":"Поиск по названиям",
     "Clear search":"Очистить поиск",
     "This server could not search media titles.":"Этот сервер не поддерживает поиск по названиям или не смог его выполнить.",

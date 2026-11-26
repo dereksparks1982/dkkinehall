@@ -6,6 +6,15 @@ OUT="dist"
 ROOT="$OUT/DK Kinehall"
 mkdir -p "$ROOT/bin" "$ROOT/lib" "$ROOT/plugins" "$ROOT/docs/icons"
 install -m 0755 "$BINARY" "$ROOT/bin/DK Kinehall"
+# Ship local native decode/probe tools. Users never install these separately.
+for utility in ffmpeg ffprobe; do
+  executable="$(command -v "$utility" || true)"
+  if [[ -z "$executable" || ! -x "$executable" ]]; then
+    echo "Missing build-time $utility tool; refusing codec-incomplete package" >&2
+    exit 1
+  fi
+  install -m 0755 "$executable" "$ROOT/bin/$utility"
+done
 cp docs/icons/dk-media-player-512.png "$ROOT/docs/icons/dk-media-player-512.png"
 # Ship the existing approved icon and all applicable third-party notices.
 cp LICENSE THIRD_PARTY_NOTICES.md "$ROOT/"
@@ -114,13 +123,24 @@ while IFS= read -r -d '' object; do
 done < <(find "$ROOT/bin" "$ROOT/lib" "$ROOT/plugins" -type f -print0)
 # Refuse any "standalone" archive missing its native decoder libraries.
 bash native/audit-portable.sh "$ROOT"
+# Inventory the actual installed decoder/demux build rather than assuming
+# it supports every historical codec and container.
+env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -hide_banner -decoders   > "$ROOT/CODECS_INCLUDED.txt"
+env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -hide_banner -demuxers   > "$ROOT/CONTAINERS_INCLUDED.txt"
+env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -buildconf   > "$ROOT/FFMPEG_CONFIGURATION.txt" 2>&1
+if [[ ! -s "$ROOT/CODECS_INCLUDED.txt" || ! -s "$ROOT/CONTAINERS_INCLUDED.txt" ]]; then
+  echo "Decoder and container inventories were not generated" >&2
+  exit 1
+fi
 cat > "$ROOT/README.txt" <<'DOC'
 DK Kinehall native Linux x86_64
 Unpack the complete directory before launching.
 Double-click or run the ELF executable named "DK Kinehall".
 Keep bin/, lib/, plugins/ and docs/ alongside it.
-Qt6/libmpv; no browser engine or Electron.
+Qt6/libmpv with bundled FFmpeg/FFprobe and recorded codec inventory.
+No browser engine or Electron in this separate native prototype.
 Requires Linux graphical desktop, OpenGL and audio/graphics drivers.
+See CODECS_INCLUDED.txt, CONTAINERS_INCLUDED.txt and third-party notices.
 DOC
 tar -czf "$OUT/DK-Kinehall-native-linux-x86_64.tar.gz" -C "$OUT" "DK Kinehall"
 du -h "$OUT/DK-Kinehall-native-linux-x86_64.tar.gz"

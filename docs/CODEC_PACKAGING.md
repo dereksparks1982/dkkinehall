@@ -26,6 +26,10 @@ The native Qt/libmpv prototype can probe uncommon explicitly selected formats an
 
 The Qt/libmpv prototype's TVmaze lookup code is a separate, optional metadata path and is not itself a codec, decoder or guarantee of playback. Media bytes stay local. The eventual approved standalone decoder must run inside the existing interface; it cannot be replaced by an alternative player window.
 
+## Actual native bundle inventory
+
+Native packaging source now copies build-provided `ffmpeg` and `ffprobe` executables into the portable bundle, recursively bundles their linked libraries, and records `CODECS_INCLUDED.txt`, `CONTAINERS_INCLUDED.txt` and `FFMPEG_CONFIGURATION.txt`. The user is not asked to install them. The inventory identifies the capabilities of a particular build, but still needs playback verification and integration underneath the approved Chromium-based interface.
+
 ## Required implementation before claiming broad bundled codec coverage
 
 1. Select and embed a complete native decoding back end (FFmpeg/libavcodec or libmpv-backed) **under the existing UI**, retaining the same playlist, controls, fullscreen, artwork, subtitles, icons, and window.

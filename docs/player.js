@@ -560,6 +560,9 @@
   // Real chapter metadata only. Native chapter cues and MKV chapter atoms
   // are combined without assuming timestamps or episode runtimes.
   const chapterPicker = byId("chapterPicker");
+  // Fullscreen and float mode move only #screen; keep the visible chapter
+  // selector inside that surface so it remains accessible in both modes.
+  if (chapterPicker.parentElement !== screen) screen.append(chapterPicker);
   const chapterEntries = byId("chapterEntries");
   const getChapterEntries = () => {
     const item = current();

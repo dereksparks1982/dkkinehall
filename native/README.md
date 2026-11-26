@@ -22,6 +22,10 @@ The libmpv prototype now exposes a visible chapter selector, drag-reorderable qu
 
 The native source now has a bounded, rate-limited TVmaze lookup service. Only the series name, season and episode number are requested over HTTPS, not video file bytes, paths or complete release filenames. Successful matches cache verified episode names in local settings and episode still images in the user's cache. Local folder artwork takes priority; a filename episode title is retained when offline or when TVmaze has no match. No network connection is necessary to play a movie. This source is not yet accepted in place of the Chromium UI.
 
+## Bundled codec inventory
+
+Portable packaging includes local FFmpeg and FFprobe binaries, their shared dependencies and decoder/demuxer configuration inventories. It fails early if essential decoding libraries or tooling are missing. This establishes what was packaged, **not** that every possible media file has been played or that this Qt prototype replaces the approved Chromium-based UI.
+
 ## Embedded MKV subtitle fix
 
 The normal **Subtitles ▾** button opens an in-app menu, never a file picker.

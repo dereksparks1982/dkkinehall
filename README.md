@@ -39,7 +39,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Final acceptance gate
 
-The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). Neither a code commit nor a successful subtitle lookup establishes universal media decoding. The standalone codec/backend integration and package verification remain unfinished. No end-user update instructions should be given until all requested functionality is accepted.
+The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). The native prototype packaging now includes FFmpeg/FFprobe and generates decoder/container inventories, but that native backend is not yet underneath the approved Chromium interface. Neither a code commit nor a successful subtitle lookup establishes universal media decoding. The standalone codec/backend integration and package verification remain unfinished. No end-user update instructions should be given until all requested functionality is accepted.
 
 ## Getting started
 

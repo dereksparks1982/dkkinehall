@@ -102,6 +102,7 @@ function verifiedRecord(record){
   if(!record||typeof record.path!=="string"||record.path.length>4096||
     !path.isAbsolute(record.path)||record.path.includes("\0")||
     !/^restore:[a-f0-9]{64}$/.test(record.id||"")||
+    !Number.isSafeInteger(record.size)||record.size<0||!Number.isFinite(record.modified)||
     typeof record.key!=="string"||record.key.length>8192)
     throw Error("Invalid saved file");
   const stat=fs.statSync(record.path);

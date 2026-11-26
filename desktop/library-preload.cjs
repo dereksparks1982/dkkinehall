@@ -11,6 +11,12 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  networkDiscover:()=>libIpc.invoke("dk-network:discover"),
+  networkDescription:id=>libIpc.invoke("dk-network:description",String(id)),
+  networkBrowse:(id,control,type,objectId,start)=>libIpc.invoke("dk-network:browse",
+    String(id),String(control),String(type),String(objectId),Number(start)),
+  networkGrant:(id,url)=>libIpc.invoke("dk-network:grant",id===null?null:String(id),String(url)),
+  networkRelease:token=>libIpc.invoke("dk-network:release",String(token)),
   openACP:()=>libIpc.invoke("dk-library:open-acp"),
   recordNavigation:value=>libIpc.invoke("dk-library:record-navigation",value),
   navigateHistory:direction=>libIpc.invoke("dk-library:navigate-history",Number(direction)),

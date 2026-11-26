@@ -27,3 +27,8 @@ The Library Home uses origin-local IndexedDB (folders, titles, playback progress
 ## Packaging acceptance
 
 Only the codec and subtitle components actually included in a tested standalone package may be described as **bundled**. Merely pinning upstream sources or parsing metadata is insufficient.
+
+## Offline ASR candidate (not vendored or bundled)
+
+- [Whisper.cpp v1.9.3](https://github.com/ggml-org/whisper.cpp/tree/371b5a7561823ab2bb32142d2751e35e7534727b), commit `371b5a7561823ab2bb32142d2751e35e7534727b`, MIT engine; audit linked code and include applicable notices before redistribution.
+- [Multilingual Whisper base GGML model](https://huggingface.co/ggerganov/whisper.cpp/blob/fb5ed9369c26eaf08392504d8446da431e0fffb9/ggml-base.bin), pinned SHA-256 `60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe`. Verify model license and attribution independently. No model or engine payload included in this source commit.

@@ -1860,6 +1860,42 @@
     button.addEventListener("click",()=>void window.DKLibraryBridge.requestScan().catch(()=>status("Library scan failed.")));
     window.DKLibraryBridge.onScanState(value=>{scanning=Boolean(value);button.setAttribute("aria-pressed",String(scanning));label();});
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(label));
+    const bridge=window.DKLibraryBridge;
+    if(bridge.requestMaintenance){
+      const trash=document.createElement("button"),refresh=document.createElement("button");
+      trash.id="playerEmptyTrash";refresh.id="playerRefreshMetadata";
+      for(const control of [trash,refresh]){control.type="button";control.className="btn";}
+      button.after(trash,refresh);
+      let busy=false,refreshing=false;
+      const tr=value=>window.DKLocale?.t(value)||value;
+      const refreshLabels=()=>{
+        trash.textContent=tr("Empty Trash");
+        refresh.textContent=tr(refreshing?"Stop Refresh":"Refresh Metadata");
+        trash.disabled=busy||scanning;
+        refresh.disabled=scanning||(busy&&!refreshing);
+        refresh.setAttribute("aria-pressed",String(refreshing));
+      };
+      refreshLabels();
+      bridge.onScanState(value=>{scanning=Boolean(value);refreshLabels();});
+      const request=action=>void bridge.requestMaintenance(action,window.DKLocale?.get()||"en")
+        .catch(()=>status("Library maintenance failed."));
+      trash.addEventListener("click",()=>request("trash"));
+      refresh.addEventListener("click",()=>request("refresh"));
+      bridge.onMaintenanceStatus(value=>{
+        busy=Boolean(value.busy);refreshing=busy&&value.action==="refresh";
+        refreshLabels();
+        if(value.failed)status("Library maintenance failed.");
+        else if(refreshing)status(tr("Refreshing metadata: ")+value.done+" / "+value.total,true);
+        else if(!busy&&value.action==="trash")status(tr("Unavailable records removed: ")+value.removed,true);
+        else if(!busy&&value.action==="refresh"&&value.total>0)status(value.cancelled?"Metadata refresh stopped.":"Metadata refresh finished.",true);
+      });
+      byId("languageSelect").addEventListener("change",()=>queueMicrotask(refreshLabels));
+    }
+    document.addEventListener("auxclick",event=>{
+      if(event.button!==3&&event.button!==4)return;
+      event.preventDefault();event.stopPropagation();
+      void bridge.navigateHistory?.(event.button===3?-1:1).catch(()=>{});
+    },true);
   }
   byId("returnToLibrary").addEventListener("click",()=>{
     if(window.DKLibraryBridge?.showLibrary) {

@@ -2160,7 +2160,7 @@
       const value=Array.isArray(source)?source[i]:source?.[spec.id];
       return [spec.id,value!=null&&Number.isFinite(Number(value))?Math.min(spec.max,Math.max(spec.min,Number(value))):spec.neutral];
     }));
-    let defaultValues=validValues(saved),localOverride=false;
+    let defaultValues=validValues(saved),pictureScope="default";
     const mediaProfileKey=scope=>{
       const item=current();if(!item||item.kind!=="file"||item.file?.dvdToken)return null;
       if(scope==="series"){
@@ -2170,7 +2170,9 @@
       return "video:"+(item.libraryId||item.key);
     };
     const persistPicture=()=>{
-      if(!localOverride||sharedSettingsEditing){defaultValues={...values};write(key,defaultValues);localOverride=false;}
+      const id=sharedSettingsEditing||pictureScope==="default"?null:mediaProfileKey(pictureScope);
+      if(id){perMedia[id]={...values};const ids=Object.keys(perMedia);if(ids.length>500)ids.slice(0,ids.length-500).forEach(k=>delete perMedia[k]);write(perMediaKey,perMedia);}
+      else {defaultValues={...values};write(key,defaultValues);}
     };
     for(const spec of specs){
       const n=Number(saved[spec.id]);
@@ -2212,19 +2214,25 @@
     const saveCustom=document.createElement("button");saveCustom.type="button";saveCustom.className="btn small";saveCustom.textContent="Save custom picture preset";
     saveCustom.id="saveCustomPicture";
     const profileActions=document.createElement("div");profileActions.className="dk-picture-profile-actions";profileActions.dataset.mediaOnly="true";
-    const profileButtons=[];
-    for(const [scope,label] of [["video","Remember picture for this video"],["series","Remember picture for this series"]]){
-      const button=document.createElement("button");button.type="button";button.className="btn small";button.textContent=label;
-      button.addEventListener("click",()=>{const id=mediaProfileKey(scope);if(!id)return;perMedia[id]={...values};const ids=Object.keys(perMedia);if(ids.length>500)ids.slice(0,ids.length-500).forEach(k=>delete perMedia[k]);write(perMediaKey,perMedia);localOverride=true;status("Picture preference saved.",true);});
-      profileActions.append(button);profileButtons.push([scope,button]);
+    const scopeLabel=document.createElement("label");scopeLabel.htmlFor="pictureScope";scopeLabel.textContent="Apply picture settings to";
+    const scopeSelect=document.createElement("select");scopeSelect.id="pictureScope";
+    for(const [value,label] of [["default","All videos (default)"],["video","This video only"],["series","This TV series"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=window.DKLocale?.t(label)||label;scopeSelect.append(option);
     }
-    const clearProfile=document.createElement("button");clearProfile.type="button";clearProfile.className="btn small";clearProfile.textContent="Use default picture for this video";
+    scopeSelect.addEventListener("change",()=>{
+      pictureScope=scopeSelect.value;
+      const id=pictureScope==="default"?null:mediaProfileKey(pictureScope);
+      const source=id&&(perMedia[id]||(pictureScope==="video"&&perMedia[mediaProfileKey("series")]));
+      Object.assign(values,source?validValues(source):defaultValues);applyPicture();
+    });
+    profileActions.append(scopeLabel,scopeSelect);
+    const clearProfile=document.createElement("button");clearProfile.type="button";clearProfile.className="btn small";clearProfile.textContent="Remove selected picture override";
     clearProfile.addEventListener("click",()=>{
-      for(const scope of ["video","series"]){const id=mediaProfileKey(scope);if(id)delete perMedia[id];}
-      write(perMediaKey,perMedia);localOverride=false;Object.assign(values,defaultValues);applyPicture();
+      const id=pictureScope==="default"?null:mediaProfileKey(pictureScope);if(!id)return;
+      delete perMedia[id];write(perMediaKey,perMedia);applyMediaProfile();
     });
     profileActions.append(clearProfile);
-    section.append(presetLabel,preset,saveCustom);
+    section.append(profileActions,presetLabel,preset,saveCustom);
     const applyPicture=()=>{
       const filters=[];
       if(values.brightness!==100)filters.push("brightness("+values.brightness+"%)");
@@ -2243,8 +2251,9 @@
       // A neutral picture uses no filter at all. Do not alter overlays,
       // controls or artwork, and do not force CPU copies of each video frame.
       media.style.filter=filters.length?filters.join(" "):"";
-      refreshPreset();for(const [scope,button] of profileButtons)button.disabled=!mediaProfileKey(scope);
-      clearProfile.disabled=!mediaProfileKey("video");
+      refreshPreset();scopeSelect.value=pictureScope;
+      scopeSelect.options[1].disabled=!mediaProfileKey("video");scopeSelect.options[2].disabled=!mediaProfileKey("series");
+      clearProfile.disabled=pictureScope==="default"||!perMedia[mediaProfileKey(pictureScope)];
       for(const spec of specs){
         const entry=controls.get(spec.id);
         if(!entry)continue;
@@ -2262,14 +2271,14 @@
         values[spec.id]=Math.min(spec.max,Math.max(spec.min,Number(input.value)));
         applyPicture();
       });
-      input.addEventListener("change",persistPicture);
+      input.addEventListener("change",()=>{persistPicture();applyPicture();});
       row.append(label,output,input);section.append(row);
     }
     const reset=document.createElement("button");
     reset.type="button";reset.className="btn small dk-picture-reset";reset.textContent="Reset picture";
     reset.addEventListener("click",()=>{
       for(const spec of specs)values[spec.id]=spec.neutral;
-      applyPicture();persistPicture();
+      persistPicture();applyPicture();
     });
     const note=document.createElement("p");note.className="helper";
     note.textContent="Picture adjustments affect playback only, not the original video or exported file.";
@@ -2284,15 +2293,15 @@
       write(presetKey,entry);refreshPreset();preset.value="saved";status("Picture preset saved.",true);
     });
     const applyMediaProfile=()=>{
-      const row=perMedia[mediaProfileKey("video")]||perMedia[mediaProfileKey("series")];
-      localOverride=!!row;Object.assign(values,row?validValues(row):defaultValues);applyPicture();
+      const video=perMedia[mediaProfileKey("video")],series=perMedia[mediaProfileKey("series")];
+      const row=video||series;pictureScope=video?"video":series?"series":"default";Object.assign(values,row?validValues(row):defaultValues);applyPicture();
     };
-    section.append(reset,note,profileActions);
+    section.append(reset,note);
     byId("playerSettingsPanel").append(section);
     refreshPictureProfile=applyMediaProfile;
     beginDefaultPicture=()=>{Object.assign(values,defaultValues);applyPicture();};
     endDefaultPicture=applyMediaProfile;
-    byId("languageSelect").addEventListener("change",()=>{delete preset.dataset.signature;queueMicrotask(refreshPreset);});
+    byId("languageSelect").addEventListener("change",()=>{delete preset.dataset.signature;queueMicrotask(()=>{refreshPreset();["All videos (default)","This video only","This TV series"].forEach((label,i)=>scopeSelect.options[i].textContent=window.DKLocale?.t(label)||label);});});
     applyPicture();
     window.DKLocale?.apply();
   }

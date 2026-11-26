@@ -4,6 +4,12 @@
 
 **DK Kinehall (ДК Кинехолл)** is a free media player from **DK Softworks** for watching movies, television episodes, and listening to music from your own device.
 
+## v0.9.3 development preview (not a release)
+
+For local testing only, `maintenance/preview_existing_linux.sh` creates a temporary copy of the installed original Chromium runtime and stages the current source. It requires existing local FFmpeg and FFprobe, uses an isolated Electron profile, disables native library deletion, preserves the installed icons and does not update the existing installation. It launches Electron directly, so the original executable/file association and dock drop are not validated by this preview. Close both windows to remove its temporary files. Local system codecs are a test convenience only, not the bundled codec release. No release gate is opened. Preview launch and playback must still be tested on the target Linux machine.
+
+**Subtitle translation roadmap:** [Offline English/Russian subtitle translation](docs/SUBTITLE_TRANSLATION_ROADMAP.md), including text tracks, external subtitles, bilingual display, cached translations and export. Engine/model integration is pending; no translation feature is yet shipped.
+
 ## Choose your edition
 
 ### Web App

@@ -310,7 +310,7 @@
     return {config,frames};
   };
   const create=({media,onError=()=>{},isMuted=()=>false,createEffects=null})=>{
-    let epoch=0,ctx=null,gain=null,decoder=null,selection=null,effects=null;
+    let epoch=0,ctx=null,gain=null,input=null,decoder=null,selection=null,effects=null;
     let level=1,scheduled=new Set(),recovering=false,pausedAt=0;
     const selectedNumber=()=>selection?selection.track.number:null;
     const active=()=>Boolean(selection&&decoder);
@@ -326,7 +326,7 @@
       for(const node of scheduled){try{node.stop();}catch(_){}}
       scheduled.clear();
       pausedAt=0;
-      const previous=ctx;ctx=null;gain=null;effects=null;
+      const previous=ctx;ctx=null;gain=null;input=null;effects=null;
       if(previous)void previous.close().catch(()=>{});
       media.muted=Boolean(isMuted());
     };
@@ -354,7 +354,7 @@
         const node=ctx.createBufferSource();
         node.buffer=buffer;
         node.playbackRate.value=media.playbackRate||1;
-        node.connect(gain);
+        node.connect(input||gain);
         scheduled.add(node);
         node.onended=()=>{scheduled.delete(node);node.disconnect();};
         node.start(Math.max(ctx.currentTime+.008,
@@ -413,10 +413,11 @@
       selection={file,track};
       const AudioContext=contextType();
       ctx=new AudioContext();
-      gain=ctx.createGain();gain.gain.value=level;
-      try{effects=createEffects?createEffects(ctx,gain):null;}
-      catch(_){effects=null;gain.disconnect();}
-      if(!effects)gain.connect(ctx.destination);
+      gain=ctx.createGain();gain.gain.value=level;gain.connect(ctx.destination);
+      input=ctx.createGain();
+      try{effects=createEffects?createEffects(ctx,input,gain):null;}
+      catch(_){effects=null;input.disconnect();}
+      if(!effects)input.connect(gain);
       try{
         const info=await discover(file,track.number);
         if(token!==epoch)return false;

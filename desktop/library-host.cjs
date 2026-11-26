@@ -26,10 +26,19 @@ function allowed(event){
 function installedWindow(){
   return player&&!player.isDestroyed();
 }
+function focusWindow(win){
+  if(win.isMinimized())win.restore();
+  win.show();win.focus();
+}
 function openPlayer(id,external=false) {
   if(!home||home.isDestroyed())throw new Error("Library window was closed");
-  if(typeof id!=="string"||id.length<1||id.length>500||id.includes("\0"))
+  const navigationOnly=id===null&&!external;
+  if(!navigationOnly&&(typeof id!=="string"||id.length<1||id.length>500||id.includes("\0")))
     throw new Error("Invalid library selection");
+  // Navigation never reloads the active player or replaces its queue.
+  if(navigationOnly&&installedWindow()){
+    focusWindow(player);return Promise.resolve(true);
+  }
   if(!installedWindow()){
     // Inherit the approved original Electron runtime preferences and preload
     // so DKStandalone and the optional native codec bridge still work.
@@ -73,8 +82,8 @@ function openPlayer(id,external=false) {
     player.setTitle("DK Kinehall v"+VERSION);
     player.on("closed",()=>{player=null;externalSelections=[];});
   }
-  player.show();
-  player.focus();
+  focusWindow(player);
+  if(navigationOnly)return player.loadFile(playerFile).then(()=>true);
   // Each library selection replaces playback in this SAME second window;
   // the library window remains open and independent.
   return player.loadFile(playerFile,{query:external?{externalItem:id}:{libraryItem:id}}).then(()=>true);
@@ -124,6 +133,10 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);
   });
+  ipcMain.handle("dk-library:show-player",event=>{
+    if(!allowed(event))throw new Error("Library navigation rejected");
+    return openPlayer(null);
+  });
   // The native app discovers the local filesystem directly. The renderer
   // receives small metadata records, never video bytes or root access.
   ipcMain.handle("dk-library:discover",async(event,manual=false)=>{
@@ -165,9 +178,8 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:show-home",event=>{
     if(!home||home.isDestroyed())return false;
     // A request from the video player may focus the existing library.
-    if(event.sender!==player?.webContents &&
-       event.sender!==home.webContents)return false;
-    home.show();home.focus();return true;
+    if(!onlyPlayer(event)&&!allowed(event))return false;
+    focusWindow(home);return true;
   });
   home.on("closed",()=>{
     scanController?.abort();

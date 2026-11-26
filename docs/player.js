@@ -83,7 +83,7 @@
     const button=document.createElement("button");
     button.type="button";button.className="btn ghost";button.id="nativeExportVideo";
     const language=()=>byId("languageSelect").value==="ru"?"ru":"en";
-    const refresh=()=>{button.textContent=language()==="ru"?"Конвертировать видео…":"Convert video…";};
+    const refresh=()=>{button.textContent=window.DKLocale?.pair("Convert video…","Конвертировать видео…")||"Convert video…";};
     button.addEventListener("click",()=>{void window.DKCodecBridge.exportVideo(language()).catch(()=>{});});
     byId("playbackFormatNote").after(button);
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(refresh));refresh();
@@ -2168,7 +2168,7 @@
     const close=document.createElement("button");
     close.type="button";close.id="closePlayerSettings";close.className="dk-settings-close";
     close.textContent="×";
-    const label=()=>{const text=document.documentElement.lang==="ru"?"Закрыть настройки":"Close settings";close.title=text;close.setAttribute("aria-label",text);};
+    const label=()=>{const text=window.DKLocale?.pair("Close settings","Закрыть настройки")||"Close settings";close.title=text;close.setAttribute("aria-label",text);};
     label();
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(label));
     byId("playerSettingsPanel").prepend(close);
@@ -4664,13 +4664,10 @@
       controlMap.set(node.dataset.sharedSetting,node);return node.dataset.sharedSetting;
     };
     const available=node=>!exclude.has(node.id)&&!node.closest("[data-media-only]")&&!(node.id==="picture-geometry-x"||node.id==="picture-geometry-y");
-    const snapshot=language=>{
-      if(language==="en"||language==="ru"){
-        if(window.DKLocale?.get()!==language){window.DKLocale?.set(language);byId("languageSelect")?.dispatchEvent(new Event("change",{bubbles:true}));}
-      }
+    const snapshot=()=>{
       syncSubtitleDefault();controlMap.clear();beginDefaultPicture?.();
       try{return allowedSections().map(section=>{
-        const clone=section.cloneNode(true);clone.hidden=false;clone.dataset.settingsCategory=categoryFor(section);
+        const clone=section.cloneNode(true);window.DKLocale?.restoreClone(section,clone);clone.hidden=false;clone.dataset.settingsCategory=categoryFor(section);
         const live=Array.from(section.querySelectorAll("input,select,button"));
         const copies=Array.from(clone.querySelectorAll("input,select,button"));
         live.forEach((node,i)=>{
@@ -4684,7 +4681,6 @@
           if(node.tagName==="SELECT"){
             Array.from(copy.options).forEach((option,j)=>{
               option.toggleAttribute("selected",node.options[j].selected);
-              if(window.DKLocale?.get()==="ru")option.textContent=window.DKLocale.t(option.textContent);
             });
           }else if(node.tagName==="INPUT"){
             if(node.type==="checkbox")copy.toggleAttribute("checked",node.checked);

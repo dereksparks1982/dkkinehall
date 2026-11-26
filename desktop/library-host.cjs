@@ -182,9 +182,9 @@ for start in range(0,len(lines),32):
     if any(len(row)>512 for row in tokens):
         raise ValueError("Subtitle line exceeds model input limit")
     results=engine.translate_batch(tokens,beam_size=2,max_input_length=512,max_decoding_length=512)
-    output.extend(target.decode(row.hypotheses[0]) for row in results)
-    print(json.dumps({"done":len(output)},ensure_ascii=False),flush=True)
-print(json.dumps({"lines":output},ensure_ascii=False),flush=True)
+    translated=[target.decode(row.hypotheses[0]) for row in results]
+    output.extend(translated)
+    print(json.dumps({"start":start,"batch":translated},ensure_ascii=False),flush=True)
 `;
 function translationPaths(pair){
   if(!["en-ru","ru-en"].includes(pair))throw Error("Unsupported translation direction");
@@ -197,7 +197,8 @@ function translationPaths(pair){
 function cancelTranslation(){
   if(translationJob){translationJob.child.kill("SIGKILL");}
 }
-function translateLocal(event,pair,lines){
+function translateLocal(event,pair,lines,ticket){
+  if(!Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid translation job");
   const runtime=translationPaths(pair);
   if(!runtime.ready)throw Error("Offline translation runtime or language model is missing");
   if(translationJob)throw Error("Translation already running");
@@ -210,7 +211,7 @@ function translateLocal(event,pair,lines){
       shell:false,stdio:["pipe","pipe","pipe"],env:{...process.env,LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1",OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}
     });
     const job={child};translationJob=job;
-    let pending="",result=null,failed=false;
+    let pending="",result=[],failed=false,totalBytes=0;
     const timer=setTimeout(()=>child.kill("SIGKILL"),30*60*1000);
     child.stdout.setEncoding("utf8");
     child.stdout.on("data",chunk=>{
@@ -221,9 +222,15 @@ function translateLocal(event,pair,lines){
         const line=pending.slice(0,end);pending=pending.slice(end+1);
         try{
           const value=JSON.parse(line);
-          if(Number.isInteger(value.done)&&!event.sender.isDestroyed())
-            event.sender.send("dk-library:translation-progress",{done:value.done,total:lines.length});
-          if(Array.isArray(value.lines))result=value.lines;
+          const batch=value.batch;
+          if(value.start!==result.length||!Array.isArray(batch)||batch.length<1||batch.length>32||
+            result.length+batch.length>lines.length||batch.some(line=>typeof line!=="string"||!line.trim()||line.length>4000))
+            throw Error("Invalid translation batch");
+          totalBytes+=Buffer.byteLength(JSON.stringify(batch),"utf8");
+          if(totalBytes>8*1024*1024)throw Error("Translation output too large");
+          result.push(...batch);
+          if(!event.sender.isDestroyed())
+            event.sender.send("dk-library:translation-progress",{ticket,start:value.start,batch,done:result.length,total:lines.length});
         }catch(_){failed=true;child.kill("SIGKILL");}
       }
     });
@@ -594,9 +601,25 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Translation command rejected");
     return translationPaths(pair).ready;
   });
-  ipcMain.handle("dk-library:translate",(event,pair,lines)=>{
+  ipcMain.handle("dk-library:translate",(event,pair,lines,ticket)=>{
     if(!onlyPlayer(event))throw Error("Translation command rejected");
-    return translateLocal(event,pair,lines);
+    return translateLocal(event,pair,lines,ticket);
+  });
+  let exportingSubtitles=false;
+  ipcMain.handle("dk-library:export-translated-srt",async(event,content,language)=>{
+    if(!onlyPlayer(event)||exportingSubtitles||typeof content!=="string"||!content.trim()||
+       Buffer.byteLength(content,"utf8")>8*1024*1024)throw Error("Subtitle export rejected");
+    exportingSubtitles=true;
+    try{
+      const ru=language==="ru";
+      const chosen=await dialog.showSaveDialog(home,{title:ru?"Сохранить переведённые субтитры":"Save translated subtitles",
+        defaultPath:"translated-subtitles.srt",filters:[{name:ru?"Субтитры СРТ":"SRT subtitles",extensions:["srt"]}]});
+      if(chosen.canceled||!chosen.filePath)return false;
+      if(!/\.srt$/i.test(chosen.filePath))throw Error("SRT extension required");
+      // Never overwrite an existing original subtitle, even after dialog confirmation.
+      await fs.promises.writeFile(chosen.filePath,content,{encoding:"utf8",flag:"wx",mode:0o600});
+      return true;
+    }finally{exportingSubtitles=false;}
   });
   ipcMain.handle("dk-library:cancel-translation",event=>{
     if(!onlyPlayer(event))throw Error("Translation command rejected");

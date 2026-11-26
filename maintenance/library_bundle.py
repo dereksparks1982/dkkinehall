@@ -1,7 +1,7 @@
 """Integrate the local Library Home with the existing Electron runtime.
 
 Never replace the approved player, its video element, native launcher or icons.
-The only new window is a second BrowserWindow loading the EXISTING index.html.
+The original BrowserWindow hosts a persistent internal Player view.
 """
 from pathlib import Path
 import io
@@ -66,7 +66,7 @@ class LibraryBundle:
 
     def assert_ready(self):
         if self.main_count!=1 or self.preload_count!=1:
-            raise RuntimeError("Library Home/player two-window wiring is incomplete")
+            raise RuntimeError("Library Home/player wiring is incomplete")
 
     def add_host(self,archive,existing):
         for name,source in ((HOST,self.host),(INDEXER,self.indexer)):

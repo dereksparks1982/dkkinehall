@@ -248,7 +248,9 @@
       if(!li.isConnected)return;
       const box=li.querySelector('.queue-artwork');
       if(!box || usable(box) || busy.has(li) || li.dataset.queueAudio==='1')return;
-      const name=li.querySelector('.item-title')?.textContent?.trim();
+      // The visible label is shortened; resolver still needs full filename.
+      const name=li.dkQueueItem?.name ||
+        li.querySelector('.item-title')?.textContent?.trim();
       if(!name || !parseFilename(name) || name.length>230)return;
       busy.add(li);
       const key=keyFor(name),cached=cache.get(key);

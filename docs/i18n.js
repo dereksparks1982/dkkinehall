@@ -292,6 +292,7 @@
     "Float player":"Отделить окно", "Drag to move":"Перетащите для перемещения",
     "Drag floating player to move it":"Перетащите плавающее окно",
     "Drag to resize player":"Перетащите для изменения размера",
+    "Reset player size (Escape)":"Сбросить размер плеера (клавиша выхода)",
     "Float or dock the video":"Отделить или закрепить видео",
     "Move player into floating mode":"Отделить окно проигрывателя",
     "Dock player back into page":"Вернуть проигрыватель на страницу",

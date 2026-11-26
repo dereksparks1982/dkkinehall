@@ -201,7 +201,7 @@ async function repairGoldenGun(){
       request.onsuccess=()=>{
         const cursor=request.result;if(!cursor)return;
         const row=cursor.value;
-        if(goldenGunIdentity(row)&&(row.title!=="The Man with the Golden Gun"||Number(row.year)!==1974)){
+        if(!row.userHidden&&goldenGunIdentity(row)&&(row.title!=="The Man with the Golden Gun"||Number(row.year)!==1974)){
           cursor.update({...row,title:"The Man with the Golden Gun",year:1974,
             movieMetadataVerified:false,movieDetails:null,movieProvider:null});
           // Only invalidate this row's old provider artwork. Local covers
@@ -478,7 +478,7 @@ async function reconcileNative(){
       const a=entries.get(old.id),b=entries.get(target.id);
       let count=0;
       const combine=()=>{
-        if(++count!==2||!a.result||!b.result||b.result.missing)return;
+        if(++count!==2||!a.result||!b.result||b.result.missing||a.result.userHidden||b.result.userHidden)return;
         const from=a.result,to=b.result;
         let recent=(from.lastPlayed||0)>(to.lastPlayed||0)?from:to;
         // A newly created zero-progress row is not evidence of completion.
@@ -683,7 +683,15 @@ async function removeArtwork(id){await erase("art",id);}
 async function saveArtwork(id,blob,credit=""){
   if(!(blob instanceof Blob)||blob.size<=0||blob.size>MAX_IMAGE_BYTES||
      !/^image\/(jpeg|png|webp)$/i.test(blob.type))return false;
-  await put("art",{id,blob,credit,updatedAt:Date.now()});
+  if(/^native:[a-f0-9]{64}$/.test(id)){
+    const db=await open();let saved=false;
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(["entries","art"],"readwrite"),request=tx.objectStore("entries").get(id);
+      request.onsuccess=()=>{if(request.result&&!request.result.userHidden){tx.objectStore("art").put({id,blob,credit,updatedAt:Date.now()});saved=true;}};
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Artwork save failed"));
+    });
+    if(!saved)return false;
+  }else await put("art",{id,blob,credit,updatedAt:Date.now()});
   changed({artwork:true,id});
   return true;
 }

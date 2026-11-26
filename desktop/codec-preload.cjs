@@ -22,5 +22,10 @@ contextBridge.exposeInMainWorld("DKCodecBridge",{
     return ipcRenderer.invoke("dk-codec:start",name,Number(offset)||0,
       format==="webm"?"webm":"mp4",Number.isInteger(audioIndex)?audioIndex:0);
   },
+  subtitleVtt:(file,index)=>{
+    const name=localPath(file);
+    if(!name)return Promise.reject(new Error("A local file must be selected"));
+    return ipcRenderer.invoke("dk-codec:subtitle-vtt",name,Number(index));
+  },
   stop:()=>ipcRenderer.invoke("dk-codec:stop")
 });

@@ -6,7 +6,8 @@
 (function(root){
 "use strict";
 function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
-                 onChaptersChanged=()=>{}}) {
+                 onChaptersChanged=()=>{},onOffsetChanged=()=>{},
+                 onTracksChanged=()=>{}}) {
   if(!bridge||typeof bridge.start!=="function"||!media)return null;
   let generation=0,active=null,chain=Promise.resolve();
   // Only the browser's real playing event proves the native output is
@@ -21,6 +22,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
     return task;
   };
   const isActive=item=>!!active&&active.item===item;
+  const offset=item=>isActive(item)?active.offset:0;
   const position=item=>isActive(item)?
     Math.max(0,active.offset+(Number(media.currentTime)||0)):
     Number(media.currentTime)||0;
@@ -55,6 +57,9 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         item.playbackMethod="Bundled native decoder";
         item.nativeAudioTracks=Array.isArray(result.audioTracks)?
           result.audioTracks:[];
+        item.nativeSubtitleTracks=Array.isArray(result.subtitleTracks)?
+          result.subtitleTracks:[];
+        onTracksChanged();
         const nativeChapters=Array.isArray(result.chapters)?result.chapters:[];
         if(nativeChapters.length){
           // FFprobe reads real source chapters, including MP4/MOV, AVI and
@@ -67,6 +72,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
           onChaptersChanged();
         }
         item.codecActive=true;
+        onOffsetChanged(item,active.offset);
         media.pause();
         media.src=result.url;
         media.load();
@@ -106,7 +112,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
     return start(item,position,playing,item.requestedFormat==="webm"?"webm":"mp4",
       item.codecAudioIndex||0);
   };
-  return {start,seek,stop,isActive,position,duration};
+  return {start,seek,stop,isActive,position,duration,offset};
 }
 root.DKCodecPlayback={attach};
 })(typeof window!=="undefined"?window:globalThis);

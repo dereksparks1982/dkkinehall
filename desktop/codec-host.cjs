@@ -32,11 +32,12 @@ function executable(file) {
   try {fs.accessSync(file,fs.constants.X_OK);return true;}
   catch(_){return false;}
 }
-function processOutput(command,args,timeout=15000) {
+function processOutput(command,args,timeout=15000,maxOutput=MAX_PROBE_OUTPUT) {
   return new Promise((resolve,reject)=>{
     const child=spawn(command,args,{stdio:["ignore","pipe","pipe"],windowsHide:true,
       env:codecEnvironment()});
-    let stdout="",stderr="",settled=false;
+    const stdoutChunks=[];
+    let stdoutBytes=0,stderr="",settled=false;
     const settle=(err,result)=>{
       if(settled)return;
       settled=true;clearTimeout(timer);
@@ -47,17 +48,28 @@ function processOutput(command,args,timeout=15000) {
     },timeout);
     child.on("error",error=>settle(error));
     child.stdout.on("data",buffer=>{
-      stdout+=buffer.toString("utf8");
-      if(stdout.length>MAX_PROBE_OUTPUT) {
-        child.kill("SIGKILL");settle(new Error("Codec probe output too large"));
-      }
+      stdoutBytes+=buffer.length;
+      if(stdoutBytes>maxOutput) {
+        child.kill("SIGKILL");settle(new Error("Codec output exceeds safety limit"));
+      }else stdoutChunks.push(buffer);
     });
     child.stderr.on("data",buffer=>{
       if(stderr.length<4096)stderr+=buffer.toString("utf8").slice(0,4096);
     });
     child.on("close",code=>{
-      if(code===0)settle(null,stdout);
-      else settle(new Error((stderr.trim()||"FFmpeg exited with an error").slice(0,500)));
+      if(code===0) {
+        // Decode Unicode once, after receiving complete bytes. Splitting a
+        // multibyte subtitle character over chunks must not corrupt text.
+        settle(null,Buffer.concat(stdoutChunks,stdoutBytes).toString("utf8"));
+      } else {
+        let reason=(stderr.trim()||"Native codec process exited with an error")
+          .slice(-500);
+        for(const arg of args) {
+          if(typeof arg==="string" && path.isAbsolute(arg))
+            reason=reason.split(arg).join("selected media");
+        }
+        settle(new Error(reason));
+      }
     });
   });
 }
@@ -114,6 +126,12 @@ async function probe(localPath) {
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
     })),
+    subtitleTracks:streams.filter(s=>s.codec_type==="subtitle")
+      .map((s,index)=>({
+        index,codec:String(s.codec_name||"").slice(0,60),
+        language:String(s.tags?.language||"").slice(0,20),
+        title:String(s.tags?.title||"").slice(0,100)
+      })),
     chapters:(Array.isArray(json.chapters)?json.chapters:[]).slice(0,500)
       .map((chapter,index)=>({
         startTime:Number(chapter.start_time),
@@ -121,6 +139,26 @@ async function probe(localPath) {
       }))
       .filter(chapter=>Number.isFinite(chapter.startTime)&&chapter.startTime>=0)
       .sort((a,b)=>a.startTime-b.startTime)};
+}
+async function subtitleVtt(localPath,index) {
+  const info=await probe(localPath);
+  const ordinal=Number(index);
+  if(!Number.isInteger(ordinal)||ordinal<0 ||
+     ordinal>=info.subtitleTracks.length)
+    throw new Error("Subtitle track is not available");
+  const codec=info.subtitleTracks[ordinal].codec.toLowerCase();
+  // FFmpeg's WebVTT encoder converts text captions. Bitmap subtitles such
+  // as PGS or DVD VobSub require the separate graphics path.
+  if(!/^(subrip|ass|ssa|webvtt|mov_text|text|ttml|microdvd|sami|realtext)$/.test(codec))
+    throw new Error("This subtitle track is graphical or unsupported");
+  const data=await processOutput(binary("ffmpeg"),[
+    "-hide_banner","-v","error","-nostdin",
+    "-i",selectedFile(localPath),"-map","0:s:"+ordinal,
+    "-c:s","webvtt","-f","webvtt","pipe:1"
+  ],90000,4*1024*1024);
+  if(!/^WEBVTT\s/m.test(data)||data.length>4*1024*1024)
+    throw new Error("This subtitle track cannot be converted to text captions");
+  return data;
 }
 function cancelStream() {
   if(!session)return;
@@ -217,6 +255,10 @@ function install(win) {
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return probe(localPath);
+  });
+  ipcMain.handle("dk-codec:subtitle-vtt",async(event,localPath,index)=>{
+    if(!onlyWindow(event))throw new Error("Rejected subtitle request");
+    return subtitleVtt(localPath,index);
   });
   ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");

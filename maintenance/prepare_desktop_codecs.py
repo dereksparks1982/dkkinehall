@@ -16,7 +16,7 @@ REQUIRED_DECODERS=(
     "h264","hevc","vp9","av1","mpeg2video","mpeg4",
     "aac","ac3","eac3","dca","flac","mp3","opus","vorbis",
 )
-REQUIRED_ENCODERS=("libx264","aac","libvpx-vp9","libopus")
+REQUIRED_ENCODERS=("libx264","aac","libvpx-vp9","libopus","webvtt")
 REQUIRED_DEMUXERS=("matroska","mov","avi","mpegts","asf","flv")
 
 def codec_lines(text,video_audio=True):

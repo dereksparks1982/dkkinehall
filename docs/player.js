@@ -34,7 +34,8 @@
   const state = {
     queue: [], current: -1,
     resume: resumeData && typeof resumeData === "object" && !Array.isArray(resumeData) ? resumeData : {},
-    subtitleObject: null, subtitleNode: null, lastResumeSave: 0,
+    subtitleObject: null, subtitleNode: null, nativeSubtitle: null,
+    lastResumeSave: 0,
     subtitleEpoch: 0, mkvSubtitleAbort: null, mkvSubtitlePending: false,
     activeEmbeddedTrack: null,
     activePgsTrack: null, pgsEvents: null, pgsLastFrame: null, subtitleRenderer: null,
@@ -236,7 +237,13 @@
     media,bridge:window.DKCodecBridge,current,
     onStatus:(message,good)=>status(message,good),
     onClockChanged:()=>updateTime(),
-    onChaptersChanged:()=>updateChapterButton()
+    onChaptersChanged:()=>updateChapterButton(),
+    onTracksChanged:()=>updateSubtitleStatus(),
+    onOffsetChanged:(item,at)=>{
+      const native=state.nativeSubtitle;
+      if(native?.item===item)installSubtitleVTT(
+        shiftedWebVtt(native.vtt,at),native.label,native.language,null,true);
+    }
   }) || null;
   const playbackSeconds = () => codecPlayback ?
     codecPlayback.position(current()) : media.currentTime;
@@ -301,12 +308,17 @@
     (window.DKMkvSubtitles && window.DKMkvSubtitles.canExtract(track.codec)) ||
     (window.DKPGS && window.DKPGS.canRender(track.codec)) ||
     (window.DKVobSub && window.DKVobSub.canRender(track.codec)));
+  const isTextNativeSubtitle = track =>
+    /^(subrip|ass|ssa|webvtt|mov_text|text|ttml|microdvd|sami|realtext)$/i
+      .test(String(track?.codec||""));
   const updateSubtitleToggle = () => {
     const button = byId("subtitleToggle");
     const item = current();
     const on = subtitleIsOn();
     button.disabled = !item || (!on && !usableEmbeddedSubtitles(item).length &&
-      !subtitleTracks().length);
+      !subtitleTracks().length &&
+      !(codecPlayback?.isActive(item) &&
+        (item.nativeSubtitleTracks||[]).some(isTextNativeSubtitle)));
     button.textContent = on ? "On" : "Off";
     button.setAttribute("aria-pressed",String(on));
     button.setAttribute("aria-label",on ? "Turn subtitles off" : "Turn subtitles on");
@@ -394,7 +406,8 @@
       status("Couldn't display PGS subtitles.");
     }
   };
-  const clearSubtitles = () => {
+  const clearSubtitles = (keepNative = false) => {
+    if (!keepNative)state.nativeSubtitle=null;
     // Invalidate pending reads when changing video, subtitle choice or closing.
     state.subtitleEpoch++;
     if (state.mkvSubtitleAbort) {
@@ -415,8 +428,47 @@
     if (state.subtitleObject) { URL.revokeObjectURL(state.subtitleObject); state.subtitleObject = null; }
     updateSubtitleStatus();
   };
-  const installSubtitleVTT = (vtt, label, language, embeddedNumber = null) => {
-    clearSubtitles();
+  const shiftedWebVtt = (raw,position) => {
+    // FFmpeg returns captions timed to the original source. A restarted
+    // native stream begins at zero, so subtract its source start offset.
+    const seconds=Math.max(0,Number(position)||0);
+    if(!seconds)return raw;
+    const parse=stamp=>{
+      const fields=stamp.trim().split(":");
+      if(fields.length<2||fields.length>3)return NaN;
+      const last=Number(fields.pop()),middle=Number(fields.pop());
+      const hours=fields.length?Number(fields.pop()):0;
+      return hours*3600+middle*60+last;
+    };
+    const format=value=>{
+      const total=Math.max(0,Math.round(value*1000));
+      const h=Math.floor(total/3600000);
+      const m=Math.floor(total/60000)%60;
+      const sec=Math.floor(total/1000)%60;
+      const ms=total%1000;
+      return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+
+        ":"+String(sec).padStart(2,"0")+"."+String(ms).padStart(3,"0");
+    };
+    const sections=String(raw).replace(/\r\n/g,"\n").split(/\n{2,}/);
+    const output=["WEBVTT",""];
+    for(const part of sections.slice(1)){
+      const lines=part.split("\n");
+      const index=lines.findIndex(line=>line.includes("-->"));
+      if(index<0)continue;
+      const [startRaw,endAndSettings]=lines[index].split("-->");
+      const endMatch=endAndSettings?.trim().match(/^(\S+)(.*)$/);
+      if(!endMatch)continue;
+      const start=parse(startRaw),end=parse(endMatch[1]);
+      if(!Number.isFinite(start)||!Number.isFinite(end)||end<=seconds)continue;
+      lines[index]=format(Math.max(0,start-seconds))+" --> "+
+        format(Math.max(0.01,end-seconds))+endMatch[2];
+      output.push(lines.join("\n"),"");
+    }
+    return output.join("\n");
+  };
+  const installSubtitleVTT = (vtt, label, language,
+                              embeddedNumber = null, keepNative = false) => {
+    clearSubtitles(keepNative);
     state.subtitleObject = URL.createObjectURL(new Blob([vtt], {type: "text/vtt"}));
     const node = document.createElement("track");
     node.kind = "subtitles";
@@ -442,6 +494,25 @@
       keys.slice(0,keys.length-120).forEach(key =>
         delete state.embeddedSubtitlePreferences[key]);
     write(store.embeddedSubtitlePreferences,state.embeddedSubtitlePreferences);
+  };
+  const loadNativeSubtitle = async(item,track,index) => {
+    if(!codecPlayback?.isActive(item) || !isTextNativeSubtitle(track) ||
+       typeof window.DKCodecBridge?.subtitleVtt!=="function")return;
+    const ticket=++state.subtitleEpoch;
+    const label=track.title||track.language||"Subtitle "+(index+1);
+    status("Reading embedded subtitles…");
+    try{
+      const vtt=await window.DKCodecBridge.subtitleVtt(item.file,index);
+      if(current()!==item||ticket!==state.subtitleEpoch||state.stopped)return;
+      const saved={item,vtt,label,language:track.language||"und",index};
+      state.nativeSubtitle=saved;
+      installSubtitleVTT(shiftedWebVtt(vtt,codecPlayback.offset(item)),
+        label,saved.language,null,true);
+      status("Embedded subtitles loaded.",true);
+    }catch(error){
+      if(current()===item&&ticket===state.subtitleEpoch)
+        status("Cannot read this subtitle track: "+String(error?.message||error));
+    }
   };
   const loadEmbeddedTrack = async track => {
     const item = current();
@@ -2128,6 +2199,23 @@
       track.label || track.language || "Subtitle track " + (index + 1),
       () => switchSubtitles(index), {checked: track.mode === "showing"}));
     const item = current();
+    if(codecPlayback?.isActive(item)) {
+      const nativeTracks=item.nativeSubtitleTracks||[];
+      if(nativeTracks.length) {
+        addMenuSubheading("Included subtitle tracks");
+        nativeTracks.forEach((track,index)=>{
+          const supported=isTextNativeSubtitle(track) &&
+            typeof window.DKCodecBridge?.subtitleVtt==="function";
+          addMenuItem((track.title||track.language||"Subtitle "+(index+1))+
+            (track.codec?" · "+track.codec:""),
+            ()=>{if(supported)void loadNativeSubtitle(item,track,index);},
+            {checked:supported?state.nativeSubtitle?.item===item &&
+              state.nativeSubtitle.index===index:undefined,
+              disabled:!supported,
+              reason:"This graphical subtitle track needs a separate decoder."});
+        });
+      }
+    }
     if (item && item.mkvInspection && item.mkvInspection !== "not-mkv") {
       const embedded = item.embeddedSubtitles || [];
       if (embedded.length) {
@@ -2415,9 +2503,15 @@
       else if (window.DKVobSub?.canRender(selected.codec)) void loadVobSubTrack(selected);
       else void loadEmbeddedTrack(selected);
     } else {
-      const native = subtitleTracks()[0];
-      if (native) chooseSubtitleTrack(native);
-      else status("No supported embedded subtitles were detected.");
+      const nativeTrack=codecPlayback?.isActive(item)?
+        (item.nativeSubtitleTracks||[]).findIndex(isTextNativeSubtitle):-1;
+      if(nativeTrack>=0) {
+        void loadNativeSubtitle(item,item.nativeSubtitleTracks[nativeTrack],nativeTrack);
+      }else {
+        const native=subtitleTracks()[0];
+        if(native)chooseSubtitleTrack(native);
+        else status("No supported embedded subtitles were detected.");
+      }
     }
   });
   byId("subtitlePicker").addEventListener("change", async event => {

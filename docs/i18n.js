@@ -26,6 +26,10 @@
     "Supported MKV files can be remuxed without re-encoding. Full transcoding and GPU switching are not installed.":"Совместимые файлы МКВ можно перепаковать без перекодирования. Полное перекодирование и переключение видеоускорения не установлены.",
     "This video format is not supported by the current playback engine.":"Текущий проигрыватель не поддерживает этот формат видео.",
     "Included audio tracks":"Встроенные звуковые дорожки",
+    "Included subtitle tracks":"Встроенные дорожки субтитров",
+    "Reading embedded subtitles…":"Чтение встроенных субтитров…",
+    "Embedded subtitles loaded.":"Встроенные субтитры загружены.",
+    "This graphical subtitle track needs a separate decoder.":"Для этой графической дорожки субтитров нужен отдельный декодер.",
     "Preparing video with included codecs…":"Подготовка видео встроенными кодеками…",
     "Playing with included codecs.":"Воспроизведение со встроенными кодеками.",
     "Decoding with included codecs…":"Декодирование встроенными кодеками…",
@@ -350,6 +354,8 @@
       translated = "Не удалось использовать контейнер МП4 для Эйч.264/ААС: " + m[1];
     if (translated === null && (m = /^MKV container fallback failed: (.+)$/.exec(plain)))
       translated = "Не удалось применить совместимый контейнер МКВ: " + m[1];
+    if (translated === null && (m = /^Cannot read this subtitle track: (.+)$/.exec(plain)))
+      translated = "Не удалось прочитать дорожку субтитров: " + m[1];
     if (translated === null && (m = /^Included codec playback failed: (.+)$/.exec(plain)))
       translated = "Не удалось воспроизвести встроенным декодером: " + m[1];
     if (translated === null && (m = /^This MKV video codec is not supported: (.+)\.$/.exec(plain)))

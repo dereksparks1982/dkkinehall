@@ -40,6 +40,8 @@ The decoder bridge source now includes user selection of an FFprobe-discovered a
 
 **Release asset delivery:** The release-only downloader `maintenance/fetch_release_codecs.py` accepts only a complete, SHA-256-pinned asset from this repository's GitHub Releases after all release-gate checks pass. It safely extracts and verifies bundled FFmpeg executables, required decoder libraries, decoder/encoder inventories and demuxers *before* the updater backs up or modifies the installed application. This avoids committing huge compiled libraries to the source branch. The source-only `maintenance/build_codec_release_asset.py` produces the exact tarball and digest required by the gate without activating it or publishing anything. No asset is published and the release gate remains closed.
 
+**Text subtitle source support:** FFprobe exposes embedded subtitle stream descriptors, and the desktop decoder can extract supported text subtitles into WebVTT only when a user selects a track. A source-timeline adjustment rebuilds the WebVTT cues after native seeks. The bundle inventory requires FFmpeg's WebVTT encoder. Image-based PGS/VobSub subtitles still need separate real-playback verification and are not falsely presented as WebVTT text.
+
 **Unverified release blockers:** preloaded Electron bridge detection, selected-file path handling, seek/resume correctness, runtime performance, all supported decoder/encoder combinations, alternate audio and subtitle handling, legal redistribution and an end-to-end Linux package/playback check. This source is not an installed universal decoder, and must not be described or distributed as finished.
 
 ## Required implementation before claiming broad bundled codec coverage

@@ -1293,3 +1293,16 @@ html.dk-standalone .dk-network-dialog input[type="url"]{width:100%;min-width:0;p
 html.dk-standalone .dk-network-dialog label{display:flex;align-items:center;gap:8px}
 html.dk-standalone .dk-network-results{display:grid;gap:5px;max-height:38vh;overflow:auto}
 html.dk-standalone .dk-network-results button{text-align:left;white-space:normal;overflow-wrap:anywhere}
+
+/* Library Home uses the same player settings controls and header geometry. */
+html.dk-standalone .library-tools #librarySettings.btn{box-sizing:border-box;flex:0 0 auto;width:127px;min-width:127px;height:46px;min-height:46px;padding:10px 12px;white-space:nowrap;background:#e2b956;color:#462a25;border-color:#a58039}
+html.dk-standalone[lang="ru"] .library-tools #librarySettings.btn{width:180px;min-width:180px}
+html.dk-standalone .library-tools #librarySettings.btn:is(:hover,:active,:focus-visible){background:#e2b956;color:#462a25;border-color:#a58039}
+html.dk-standalone .library-tools #librarySettings.btn:focus-visible{outline:2px solid currentColor;outline-offset:-4px}
+html.dk-standalone .dk-library-settings-dialog{width:min(420px,calc(100vw - 24px));max-height:calc(100vh - 24px);overflow:hidden;padding:15px;background:var(--panel);color:var(--text);border:1px solid var(--dk-antique,#a58039);border-radius:12px;box-sizing:border-box}
+html.dk-standalone .dk-library-settings-dialog[open]{display:flex;flex-direction:column;gap:9px}
+html.dk-standalone .dk-library-settings-dialog::backdrop{background:#0009}
+html.dk-standalone .dk-library-settings-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--dk-gold)}
+html.dk-standalone .dk-library-settings-dialog>.helper{margin:0;font-size:.8rem;color:var(--muted)}
+html.dk-standalone .dk-library-settings-dialog>.helper:empty{display:none}
+html.dk-standalone .dk-library-settings-dialog .dk-library-settings-content{position:static;inset:auto;width:100%;min-height:0;max-height:calc(100vh - 115px);overflow:auto;box-sizing:border-box;box-shadow:none;border:0;padding:0 4px 0 0;background:transparent}

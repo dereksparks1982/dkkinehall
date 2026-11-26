@@ -323,6 +323,7 @@
     const item=current();
     if (!item) return;
     const value=Math.max(0,Number(seconds)||0);
+    item.historyResumeTarget=0;
     if (codecPlayback?.isActive(item))void codecPlayback.seek(item,value);
     else media.currentTime=value;
   };
@@ -331,8 +332,18 @@
     const item = current();
     const duration=playbackDuration(),position=playbackSeconds();
     if (!item || !Number.isFinite(duration) || duration <= 0) return;
-    if (position >= duration - 4) delete state.resume[item.key];
-    else if (position > 2) state.resume[item.key] = position;
+    if(window.DKLibraryBridge?.internalPages){
+      // Never overwrite saved progress with an initializing decoder clock.
+      if(!item.historyReady||media.readyState<2||media.seeking||
+         !Number.isFinite(position)||position<=2||item.deinterlacePending)return;
+      if(item.historyResumeTarget>2&&position+1<item.historyResumeTarget)return;
+      item.historyResumeTarget=0;
+      if(media.ended)return;
+      state.resume[item.key]=position;
+    }else{
+      if (position >= duration - 4) delete state.resume[item.key];
+      else if (position > 2) state.resume[item.key] = position;
+    }
     if(item.libraryId&&window.DKLibraryStore)
       void window.DKLibraryStore.updateProgress(
         item.libraryId,position,duration,false).catch(()=>{});
@@ -1098,6 +1109,7 @@
     if (!current()) { status("Open a video or music file first."); return; }
     if (state.stopped) {
       state.stopped = false;
+      current().historyResumeTarget=0;
       screen.classList.remove("empty", "stopped");
       updateChapterMarkers();
       syncPgsOverlay();
@@ -1141,6 +1153,8 @@
     updateSubtitleDelayControls();
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
+    item.historyReady=false;
+    item.historyResumeTarget=Number(state.resume[item.key])||0;
     // Reset stale conversion attempts when revisiting a file or selecting a
     // different format. An old asynchronous remux may not replace a new load.
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
@@ -2348,6 +2362,7 @@
   document.addEventListener("fullscreenchange", showCursor);
   controls.addEventListener("focusin", keepControlsVisible);
   controls.addEventListener("focusout", revealControls);
+  media.addEventListener("pause",()=>{if(window.DKLibraryBridge?.internalPages)rememberPosition();});
   for (const eventName of ["play", "pause", "ended", "emptied"]) {
     media.addEventListener(eventName, () => {
       if (media.paused || media.ended || !current()) keepControlsVisible();
@@ -2454,6 +2469,7 @@
     applySubtitlePreference();
     restoreAudioPreference();
     if (state.stopped) { updateTime(); return; }
+    item.historyReady=true;
     if(codecPlayback?.isActive(item)) {
       // The stream has already been started at the original source time.
       updateTime();updateChapterMarkers();return;

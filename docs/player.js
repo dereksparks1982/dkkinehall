@@ -439,12 +439,18 @@
   };
   // PGS graphics occupy the actual picture rectangle, not the black bars.
   // Keep the image aligned on resize/fullscreen and when picture-fit changes.
+  let pictureGeometry=null, setPictureFit=null;
   const positionPgsOverlay = () => {
     if (!pgsCanvas || !media.videoWidth || !media.videoHeight) return;
     const box = media.getBoundingClientRect();
     const outer = screen.getBoundingClientRect();
     const ratio = media.videoWidth / media.videoHeight;
     if (!box.width || !box.height || !ratio) return;
+    if(pictureGeometry){
+      const {left,top,width,height,clip}=pictureGeometry;
+      Object.assign(pgsCanvas.style,{left:left+"px",top:top+"px",width:width+"px",height:height+"px",clipPath:clip});
+      return;
+    }
     const cover = screen.classList.contains("fit-cover");
     const scale = cover ?
       Math.max(box.width / media.videoWidth,box.height / media.videoHeight) :
@@ -2066,6 +2072,86 @@
     applyPicture();
     window.DKLocale?.apply();
   }
+  // Standalone geometry controls act on the existing picture, not its
+  // container. Controls and seek previews retain their original geometry.
+  if(window.DKLibraryBridge?.internalPages&&settingsDetails){
+    const key="dk-kinehall.picture-geometry.v1";
+    const saved=read(key,{})||{};
+    const ratios={source:0,"4:3":4/3,"16:9":16/9,"1:1":1,"21:9":21/9,"2.35:1":2.35};
+    const bound=(value,min,max,fallback)=>Number.isFinite(Number(value))&&value!=null?Math.max(min,Math.min(max,Number(value))):fallback;
+    const prefs={fit:saved.fit==="fill"?"fill":"fit",
+      aspect:Object.hasOwn(ratios,saved.aspect)?saved.aspect:"source",
+      zoom:bound(saved.zoom,50,300,100),x:bound(saved.x,-100,100,0),y:bound(saved.y,-100,100,0)};
+    const section=document.createElement("section");
+    section.className="player-settings-section dk-picture-settings";
+    const title=document.createElement("strong");title.textContent="Zoom and cropping";section.append(title);
+    const select=(id,labelText,options)=>{
+      const label=document.createElement("label");label.htmlFor=id;label.textContent=labelText;
+      const node=document.createElement("select");node.id=id;
+      for(const [value,name] of options){const option=document.createElement("option");option.value=value;option.textContent=name;node.append(option);}
+      section.append(label,node);return node;
+    };
+    const fit=select("picture-fit","Picture fit",[["fit","Fit full picture"],["fill","Fill frame (crop edges)"]]);
+    const aspect=select("picture-aspect","Aspect ratio",[["source","Original aspect ratio"],...Object.keys(ratios).filter(x=>x!=="source").map(x=>[x,x])]);
+    const preset=select("picture-zoom-preset","Zoom preset",[["50","50%"],["100","100%"],["150","150%"],["200","200%"],["custom","Custom zoom"]]);
+    const ranges={};
+    for(const [id,labelText,min,max] of [["zoom","Custom zoom",50,300],["x","Horizontal pan",-100,100],["y","Vertical pan",-100,100]]){
+      const row=document.createElement("div");row.className="dk-picture-adjustment";
+      const label=document.createElement("label"),input=document.createElement("input"),output=document.createElement("output");
+      input.id="picture-geometry-"+id;input.type="range";input.min=min;input.max=max;input.step=1;
+      label.htmlFor=input.id;label.textContent=labelText;output.htmlFor=input.id;
+      ranges[id]={input,output};row.append(label,output,input);section.append(row);
+      input.addEventListener("input",()=>{prefs[id]=Number(input.value);applyGeometry();});
+      input.addEventListener("change",()=>write(key,prefs));
+    }
+    const applyGeometry=()=>{
+      fit.value=prefs.fit;aspect.value=prefs.aspect;
+      preset.value=[50,100,150,200].includes(prefs.zoom)?String(prefs.zoom):"custom";
+      for(const [id,entry] of Object.entries(ranges)){
+        entry.input.value=String(prefs[id]);entry.output.textContent=prefs[id]+"%";
+      }
+      screen.classList.toggle("fit-cover",prefs.fit==="fill");
+      const active=Boolean(media.videoWidth&&media.videoHeight&&current()&&!current().audio&&!state.stopped);
+      const custom=prefs.aspect!=="source"||prefs.zoom!==100||prefs.x!==0||prefs.y!==0;
+      if(!active||!custom||screen.clientWidth<=0||screen.clientHeight<=0){
+        pictureGeometry=null;screen.classList.remove("dk-custom-picture");
+        for(const prop of ["--dk-picture-left","--dk-picture-top","--dk-picture-width","--dk-picture-height","--dk-picture-clip"])media.style.removeProperty(prop);
+        ranges.x.input.disabled=ranges.y.input.disabled=true;
+        syncPgsOverlay();return;
+      }
+      const W=screen.clientWidth,H=screen.clientHeight,ratio=ratios[prefs.aspect]||media.videoWidth/media.videoHeight;
+      const fitWidth=prefs.fit==="fill"?Math.max(W,H*ratio):Math.min(W,H*ratio);
+      const width=fitWidth*prefs.zoom/100,height=width/ratio;
+      const xOverflow=Math.max(0,width-W)/2,yOverflow=Math.max(0,height-H)/2;
+      const left=(W-width)/2+prefs.x*xOverflow/100,top=(H-height)/2+prefs.y*yOverflow/100;
+      const clip="inset("+Math.max(0,-top)+"px "+Math.max(0,left+width-W)+"px "+Math.max(0,top+height-H)+"px "+Math.max(0,-left)+"px)";
+      pictureGeometry={left,top,width,height,clip};
+      for(const [prop,value] of Object.entries({left:left+"px",top:top+"px",width:width+"px",height:height+"px",clip}))
+        media.style.setProperty("--dk-picture-"+prop,value);
+      screen.classList.add("dk-custom-picture");
+      ranges.x.input.disabled=xOverflow<=0;ranges.y.input.disabled=yOverflow<=0;
+      syncPgsOverlay();
+    };
+    setPictureFit=value=>{prefs.fit=value==="fill"?"fill":"fit";applyGeometry();write(key,prefs);};
+    fit.addEventListener("change",()=>setPictureFit(fit.value));
+    aspect.addEventListener("change",()=>{prefs.aspect=aspect.value;applyGeometry();write(key,prefs);});
+    preset.addEventListener("change",()=>{
+      if(preset.value==="custom"){ranges.zoom.input.focus();return;}
+      prefs.zoom=Number(preset.value);applyGeometry();write(key,prefs);
+    });
+    const reset=document.createElement("button");reset.type="button";reset.className="btn small dk-picture-reset";reset.textContent="Reset zoom and cropping";
+    reset.addEventListener("click",()=>{Object.assign(prefs,{fit:"fit",aspect:"source",zoom:100,x:0,y:0});applyGeometry();write(key,prefs);});
+    const note=document.createElement("p");note.className="helper";note.textContent="Zoom and pan affect the picture only. Aspect ratio overrides may stretch the image.";
+    section.append(reset,note);
+    byId("pictureEnhancements")?.after(section);
+    if(!section.isConnected)byId("playerSettingsPanel").append(section);
+    for(const event of ["loadedmetadata","loadeddata","emptied","resize"])media.addEventListener(event,applyGeometry);
+    byId("stop").addEventListener("click",()=>queueMicrotask(applyGeometry));
+    window.addEventListener("resize",applyGeometry);
+    document.addEventListener("fullscreenchange",()=>requestAnimationFrame(applyGeometry));
+    if(typeof ResizeObserver==="function")new ResizeObserver(applyGeometry).observe(screen);
+    applyGeometry();window.DKLocale?.apply();
+  }
   // Frame stepping uses actual source presentation timestamps. Pause before
   // seeking; do not substitute guessed 24/30-fps offsets when unavailable.
   let stepFrame=null;
@@ -3041,12 +3127,10 @@
 
     addMenuHeading("Picture");
     addMenuItem("Fit full picture", () => {
-      screen.classList.remove("fit-cover");
-      syncPgsOverlay();
+      if(setPictureFit)setPictureFit("fit");else{screen.classList.remove("fit-cover");syncPgsOverlay();}
     }, {checked: !screen.classList.contains("fit-cover")});
     addMenuItem("Fill frame (crop edges)", () => {
-      screen.classList.add("fit-cover");
-      syncPgsOverlay();
+      if(setPictureFit)setPictureFit("fill");else{screen.classList.add("fit-cover");syncPgsOverlay();}
     }, {checked: screen.classList.contains("fit-cover")});
     addMenuItem(document.fullscreenElement ? "Exit fullscreen" : "Fullscreen",
       () => { void toggleFullscreen(); });

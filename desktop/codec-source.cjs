@@ -4,7 +4,7 @@
  * auto-discovered items carry an ID checked again in Electron main.
  */
 const path=require("node:path");
-const nativeId=/^native:[a-f0-9]{64}$/;
+const nativeId=/^(?:native|restore):[a-f0-9]{64}$/;
 function validPath(value){
   return typeof value==="string"&&value.length>0&&value.length<=4096&&
     !value.includes("\0")&&path.isAbsolute(value);

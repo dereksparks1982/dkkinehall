@@ -110,3 +110,10 @@ html.dk-standalone .library-continue .library-poster img{object-fit:contain}
 html.dk-standalone .library-continue .library-card-title{font-size:.87rem}
 html.dk-standalone .library-continue .library-poster-placeholder{font-size:1.8rem}
 html.dk-standalone .library-progress{z-index:1}
+
+/* Native scan failures are expanded only when requested. */
+.library-scan-issues{margin:0 0 16px;color:var(--muted);font-size:.84rem;overflow-wrap:anywhere}
+.library-scan-issues[hidden]{display:none}
+.library-scan-issues summary{cursor:pointer;color:var(--dk-gold,#e2b956)}
+.library-scan-issues ul{max-height:16rem;overflow:auto;padding-inline-start:24px;margin:8px 0}
+.library-scan-issues li{margin-bottom:6px}

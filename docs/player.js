@@ -1852,6 +1852,18 @@
   }
   if(window.DKLibraryBridge?.internalPages){
     document.documentElement.classList.add("dk-standalone");
+    const footer=document.querySelector(".footer");
+    if(footer&&window.DKLibraryBridge.openACP){
+      footer.classList.add("dk-branded-footer");
+      const brand=document.createElement("span"),link=document.createElement("a");
+      brand.textContent="DK Kinehall ☭ DK Softworks";
+      link.href="https://acp.us/";link.textContent="ACP";
+      link.addEventListener("click",event=>{
+        event.preventDefault();
+        void window.DKLibraryBridge.openACP().catch(()=>status("Could not open external website."));
+      });
+      footer.replaceChildren(brand,link);
+    }
     const button=document.createElement("button");
     button.id="playerScanLibrary";button.type="button";button.className="btn dk-scan";
     let scanning=false;

@@ -14,6 +14,7 @@ const localPath=file=>{
 };
 contextBridge.exposeInMainWorld("DKCodecBridge",{
   status:()=>ipcRenderer.invoke("dk-codec:status"),
+  exportVideo:language=>ipcRenderer.invoke("dk-codec:export",language==="ru"?"ru":"en"),
   probe:file=>{
     const name=localPath(file);
     if(!name)return Promise.reject(new Error("A local file must be selected"));

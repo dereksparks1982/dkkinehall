@@ -46,6 +46,9 @@
         summary.focus();
       }
     });
+    // Category switches can change panel height while it is already open.
+    panel.addEventListener("dk-settings-layout",()=>requestAnimationFrame(reposition));
+    document.addEventListener("fullscreenchange",()=>requestAnimationFrame(reposition));
     window.addEventListener("resize", reposition);
     window.addEventListener("scroll", reposition, {passive:true});
     panel.addEventListener("toggle", () => {

@@ -274,6 +274,8 @@ All existing solid red interface accents use the shared Russian red token `#D52B
 
 Picture-in-Picture uses solid Russian red with the original white glyph and gold border in idle, hover, pressed, focused and active states. Existing dimensions and behavior remain unchanged.
 
+Closed captions use solid gold with the original brown CC glyph and brown On/Off text in both subtitle states. The speaker/mute button uses solid Russian red with its original white speaker and mute glyphs. Both retain gold borders and their colours during hover, press and focus; existing disabled semantics, dimensions, volume slider and playback behavior are unchanged. Standalone appearance remains unverified on the installed runtime.
+
 Fullscreen/Exit fullscreen is also solid gold with a dark symbol and gold border, matching Stop. Existing fullscreen behavior, symbols, dimensions and spacing remain unchanged.
 
 ### Compact standalone player footer

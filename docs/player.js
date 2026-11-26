@@ -2633,9 +2633,10 @@
         }
         // Publish only after every grant succeeded; partial failures or
         // navigation cancel the entire batch and release staged grants.
+        const firstIndex=state.queue.length;
         state.queue.push(...staged);
         staged.length=0;
-        renderQueue();updateButtons();
+        if(state.current<0)load(firstIndex,false);else{renderQueue();updateButtons();}
         settingsDetails.open=false;dlg.close();
       }catch(_){if(valid())say("Cannot add this page to the queue.");}
       finally{
@@ -2650,7 +2651,10 @@
         const grant=await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
         const item=makeNetworkItem(grant,name,audio);
-        if(queueOnly.checked&&state.queue.length){state.queue.push(item);renderQueue();}
+        if(queueOnly.checked){
+          state.queue.push(item);
+          if(state.current<0)load(state.queue.length-1,false);else{renderQueue();updateButtons();}
+        }
         else{
           const index=state.current<0?state.queue.length:state.current+1;
           state.queue.splice(index,0,item);load(index,true);
@@ -2700,7 +2704,7 @@
         await browse(ctx,[{id:"0",name:ctx.name}],0);
       }catch(_){if(dlg.open&&epoch===generation){say("Cannot read this media server.");results.append(makeButton("Back to servers",()=>void showServers()));}}
     };
-    const browse=async(ctx,trail,start,query=null)=>{
+    const browse=async(ctx,trail,start,query=null,previousOffsets=[])=>{
       const epoch=++generation;results.replaceChildren();say("Loading media folder…");
       const folder=trail[trail.length-1];
       try{
@@ -2745,8 +2749,8 @@
         }
         if(page.length)results.prepend(makeButton("Add this page to queue",()=>void queuePage(ctx.id,page)));
         const count=Number(first(soap,"NumberReturned")),total=Number(first(soap,"TotalMatches"));
-        if(start>0)results.append(makeButton("Previous page",()=>void browse(ctx,trail,Math.max(0,start-100),query)));
-        if(count>0&&Number.isFinite(total)&&start+count<total)results.append(makeButton("Next page",()=>void browse(ctx,trail,start+count,query)));
+        if(start>0)results.append(makeButton("Previous page",()=>void browse(ctx,trail,previousOffsets.at(-1)??0,query,previousOffsets.slice(0,-1))));
+        if(Number.isInteger(count)&&count>0&&count<=100&&Number.isFinite(total)&&start+count<total)results.append(makeButton("Next page",()=>void browse(ctx,trail,start+count,query,[...previousOffsets,start])));
       }catch(_){if(dlg.open&&epoch===generation){say(query===null?"Cannot read this media folder.":"This server could not search media titles.");if(query!==null)results.append(makeButton("Clear search",()=>void browse(ctx,trail,0)));results.append(makeButton("Back to servers",()=>void showServers()));}}
     };
     const direct=makeButton("Open network URL",()=>{

@@ -491,7 +491,7 @@
   };
   // PGS graphics occupy the actual picture rectangle, not the black bars.
   // Keep the image aligned on resize/fullscreen and when picture-fit changes.
-  let pictureGeometry=null, setPictureFit=null, refreshPictureProfile=null;
+  let pictureGeometry=null, setPictureFit=null, refreshPictureProfile=null, beginDefaultPicture=null, endDefaultPicture=null;
   const positionPgsOverlay = () => {
     if (!pgsCanvas || !media.videoWidth || !media.videoHeight) return;
     const box = media.getBoundingClientRect();
@@ -2290,6 +2290,8 @@
     section.append(reset,note,profileActions);
     byId("playerSettingsPanel").append(section);
     refreshPictureProfile=applyMediaProfile;
+    beginDefaultPicture=()=>{Object.assign(values,defaultValues);applyPicture();};
+    endDefaultPicture=applyMediaProfile;
     byId("languageSelect").addEventListener("change",()=>{delete preset.dataset.signature;queueMicrotask(refreshPreset);});
     applyPicture();
     window.DKLocale?.apply();
@@ -2413,7 +2415,7 @@
     byId("playerSettingsPanel").append(section);window.DKLocale?.apply();
   }
   if(window.DKLibraryBridge?.internalPages&&window.DKCodecBridge?.selectDVD&&settingsDetails){
-    const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
+    const section=document.createElement("section");section.id="dvdSettings";section.className="player-settings-section dk-picture-settings";
     const title=document.createElement("strong");title.textContent="DVD playback";
     const numberField=(id,text,max)=>{
       const label=document.createElement("label");label.htmlFor=id;label.textContent=text;
@@ -2465,11 +2467,11 @@
     byId("openEmpty").after(openDVD);
     openDVD.addEventListener("click",()=>{
       if(dvdDialog.open)return;
-      dvdDialog.prepend(section);dvdDialog.showModal();
+      section.hidden=false;dvdDialog.prepend(section);dvdDialog.showModal();
     });
     closeDVD.addEventListener("click",()=>{if(!choosing)dvdDialog.close();});
     dvdDialog.addEventListener("cancel",event=>{if(choosing)event.preventDefault();});
-    dvdDialog.addEventListener("close",()=>byId("playerSettingsPanel").append(section));
+    dvdDialog.addEventListener("close",()=>{section.hidden=true;byId("playerSettingsPanel").append(section);});
     window.DKLocale?.apply();
   }
   if(window.DKLibraryBridge?.internalPages&&window.DKLibraryBridge?.networkDiscover&&settingsDetails){
@@ -2586,7 +2588,9 @@
     dlg.addEventListener("close",()=>{generation++;results.replaceChildren();});
     byId("openEmpty").after(makeButton("Network media…",open));
     const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
+    section.id="networkSettings";
     section.append(makeButton("Network media…",open));byId("playerSettingsPanel").append(section);
+    window.DKLibraryBridge.onOpenNetwork?.(()=>{settingsDetails.open=false;open();});
     window.DKLocale?.apply();
   }
   // Frame stepping uses actual source presentation timestamps. Pause before
@@ -4298,6 +4302,23 @@
       byId("smoothingMode")?.closest(".player-settings-section"),
       byId("audioEnhancementsEnabled")?.closest(".player-settings-section")
     ].filter(Boolean);
+    const categoryFor=section=>section.id==="networkSettings"?"network":section.id==="dvdSettings"?"disc":section===globalSubtitles||section.classList.contains("dk-translation")||section.contains(byId("subtitleTrackSelect"))?"subtitles":section.classList.contains("dk-audio-settings")?"audio":section.contains(byId("playbackFormat"))?"playback":section.classList.contains("dk-picture-settings")?"picture":"general";
+    const categories=[["playback","Playback"],["picture","Picture"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["general","General"]];
+    const nav=document.createElement("div");nav.className="dk-settings-category-nav";
+    const heading=document.createElement("strong");heading.textContent="Settings";nav.append(heading);
+    const sections=Array.from(panel.querySelectorAll(":scope > .player-settings-section"));
+    let selectedCategory=null;
+    const chooseCategory=category=>{
+      selectedCategory=category;
+      for(const section of sections)section.hidden=categoryFor(section)!==category;
+      for(const button of nav.querySelectorAll("button[data-category]"))button.hidden=!!category;
+      back.hidden=!category;heading.textContent=categories.find(([id])=>id===category)?.[1]||"Settings";
+      panel.scrollTop=0;window.DKLocale?.apply();
+    };
+    const back=document.createElement("button");back.type="button";back.className="btn small";back.textContent="Back to settings";back.addEventListener("click",()=>chooseCategory(null));nav.append(back);
+    for(const [id,label] of categories){if(!sections.some(section=>categoryFor(section)===id))continue;const button=document.createElement("button");button.type="button";button.className="btn";button.dataset.category=id;button.textContent=label;button.addEventListener("click",()=>chooseCategory(id));nav.append(button);}
+    byId("closePlayerSettings")?.after(nav);chooseCategory(null);
+    settingsDetails.addEventListener("toggle",()=>{if(!settingsDetails.open)chooseCategory(null);});
     const controlMap=new Map();
     const exclude=new Set(["rate","nativeExportVideo"]);
     let sequence=0;
@@ -4310,9 +4331,9 @@
       if(language==="en"||language==="ru"){
         if(window.DKLocale?.get()!==language){window.DKLocale?.set(language);byId("languageSelect")?.dispatchEvent(new Event("change",{bubbles:true}));}
       }
-      syncSubtitleDefault();controlMap.clear();
-      return allowedSections().map(section=>{
-        const clone=section.cloneNode(true);
+      syncSubtitleDefault();controlMap.clear();beginDefaultPicture?.();
+      try{return allowedSections().map(section=>{
+        const clone=section.cloneNode(true);clone.hidden=false;clone.dataset.settingsCategory=categoryFor(section);
         const live=Array.from(section.querySelectorAll("input,select,button"));
         const copies=Array.from(clone.querySelectorAll("input,select,button"));
         live.forEach((node,i)=>{
@@ -4336,12 +4357,13 @@
         });
         clone.querySelectorAll(".dk-picture-profile-actions").forEach(node=>node.remove());
         return clone.outerHTML;
-      });
+      });}finally{endDefaultPicture?.();}
     };
     window.DKSharedSettings=Object.freeze({snapshot,change:(id,action,value)=>{
       const node=controlMap.get(id);
       if(!node||node.disabled||!node.isConnected||!available(node))throw Error("Shared setting unavailable");
       sharedSettingsEditing=true;
+      const pictureChange=byId("pictureEnhancements")?.contains(node);if(pictureChange)beginDefaultPicture?.();
       try{
         if(action==="click"&&node.tagName==="BUTTON"){node.click();}
         else if(action==="change"&&(node.tagName==="SELECT"||node.tagName==="INPUT")){
@@ -4355,7 +4377,7 @@
           }else throw Error("Unsupported setting");
           node.dispatchEvent(new Event("change",{bubbles:true}));
         }else throw Error("Unsupported setting action");
-      }finally{sharedSettingsEditing=false;}
+      }finally{sharedSettingsEditing=false;if(pictureChange)endDefaultPicture?.();}
       return snapshot();
     }});
   }

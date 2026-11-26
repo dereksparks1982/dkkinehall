@@ -776,7 +776,35 @@ function connect(){
     const feedback=create("p","helper");feedback.setAttribute("role","status");
     const body=create("div","playback-settings-panel dk-library-settings-content");
     header.append(title,close);dlg.append(header,feedback,body);document.body.append(dlg);
-    let epoch=0,busy=false;
+    let epoch=0,busy=false,selectedCategory=null;
+    const categories=[["playback","Playback"],["picture","Picture"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["general","General"]];
+    const nav=create("div","dk-settings-category-nav");dlg.insertBefore(nav,body);
+    const back=create("button","btn small","Back to settings");back.type="button";nav.append(back);
+    const categoryButtons=new Map();
+    const extra=create("div","dk-settings-extra");body.after(extra);
+    const chooseCategory=id=>{
+      selectedCategory=id;
+      title.textContent=categories.find(([key])=>key===id)?.[1]||"Settings";
+      back.hidden=!id;for(const [key,btn] of categoryButtons)btn.hidden=!!id;
+      body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
+      extra.replaceChildren();extra.hidden=true;
+      const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
+      if(id==="network"||id==="disc"){
+        if(nativeBridge.openMediaTool)toolButton(id==="network"?"Network media…":"Open DVD…",async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool(id);dlg.close();}catch(_){setFeedback("Could not open media tool.");}finally{busy=false;}});
+        extra.append(create("p","helper",id==="network"?"Discover DLNA servers and open compatible local network streams.":"Open DVD drives, ISO images and DVD folders with a compatible decoder."));
+      }
+      if(id==="library"){
+        toolButton("Scan Library",()=>{dlg.close();void scan(true);});
+        toolButton("Refresh Metadata",()=>{dlg.close();void libraryMaintenance("refresh");});
+        toolButton("Empty Trash",()=>{dlg.close();void libraryMaintenance("trash");});
+      }
+      if(id==="general")extra.append(create("p","helper","Use the header language selector to change the interface language."));
+      if(id==="general")extra.hidden=false;
+      body.scrollTop=0;window.DKLocale?.apply();
+    };
+    back.addEventListener("click",()=>chooseCategory(null));
+    for(const [key,label] of categories){const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",()=>chooseCategory(key));nav.append(btn);categoryButtons.set(key,btn);}
+    chooseCategory(null);
     const setFeedback=message=>{feedback.textContent=message;window.DKLocale?.apply();};
     // Only copy the static settings markup owned by the local Player.
     // Allowlist element/attribute names; no executable markup or URLs.
@@ -784,7 +812,7 @@ function connect(){
       if(!Array.isArray(sections)||sections.length>12)throw Error("Invalid settings response");
       const fragment=document.createDocumentFragment();
       const allowedTags=new Set(["SECTION","DIV","STRONG","LABEL","SELECT","OPTION","INPUT","OUTPUT","BUTTON","P","SPAN"]);
-      const allowedAttrs=new Set(["class","id","for","type","value","min","max","step","checked","selected","disabled","role","aria-label","aria-live","data-shared-setting"]);
+      const allowedAttrs=new Set(["class","id","for","type","value","min","max","step","checked","selected","disabled","role","aria-label","aria-live","data-shared-setting","data-settings-category"]);
       function clean(source){
         if(source.nodeType===3)return document.createTextNode(source.nodeValue);
         if(source.nodeType!==1||!allowedTags.has(source.tagName))return null;
@@ -802,7 +830,7 @@ function connect(){
       }
       const top=body.scrollTop;
       const focusId=body.contains(document.activeElement)?document.activeElement.dataset.sharedSetting:null;
-      body.replaceChildren(fragment);body.scrollTop=top;
+      body.replaceChildren(fragment);chooseCategory(selectedCategory);body.scrollTop=top;
       if(focusId)Array.from(body.querySelectorAll("[data-shared-setting]")).find(n=>n.dataset.sharedSetting===focusId)?.focus({preventScroll:true});
       window.DKLocale?.apply();
     }
@@ -832,7 +860,7 @@ function connect(){
     dlg.addEventListener("close",()=>{epoch++;body.replaceChildren();button.focus();});
     button.addEventListener("click",async()=>{
       if(dlg.open)return;const ticket=++epoch;
-      dlg.showModal();setFeedback("Loading settings…");body.inert=true;busy=true;
+      chooseCategory(null);dlg.showModal();setFeedback("Loading settings…");body.inert=true;busy=true;
       try{const sections=await nativeBridge.openSharedSettings(lang());if(ticket===epoch&&dlg.open){renderShared(sections);setFeedback("");}}
       catch(_){if(ticket===epoch&&dlg.open)setFeedback("Could not open settings.");}
       finally{busy=false;body.inert=false;}

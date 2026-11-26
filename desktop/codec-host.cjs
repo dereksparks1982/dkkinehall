@@ -103,6 +103,26 @@ async function selectDVD(win,kind,title,chapter,angle,language){
     return {id,name:kind==="folder"?path.basename(path.dirname(target)):path.basename(target),title,chapter,angle};
   }finally{dvdPicking=false;}
 }
+// Change titles on the already-authorized disc without a second file picker.
+async function changeDVD(win,id,title,chapter,angle){
+  if(dvdPicking)throw Error("DVD selection already open");
+  if(!Number.isInteger(title)||title<1||title>99||!Number.isInteger(chapter)||chapter<1||chapter>999||
+     !Number.isInteger(angle)||angle<1||angle>9)throw Error("Invalid DVD title selection");
+  const previous=await resolvePlaybackSource({kind:"dvd",id});
+  if(dvdPicking)throw Error("DVD selection already open");
+  dvdPicking=true;
+  try{
+    const source={...previous,id:"dvd:"+crypto.randomBytes(24).toString("hex"),title,chapter,angle};
+    verifyDVD(source);
+    const info=await probe(source);
+    if(!info.hasVideo)throw Error("DVD title has no video");
+    verifyDVD(source);
+    if(!win||win.isDestroyed())return null;
+    dvdGrants.set(source.id,source);
+    if(dvdGrants.size>64)dvdGrants.delete(dvdGrants.keys().next().value);
+    return {id:source.id,name:source.folder?path.basename(path.dirname(source.path)):path.basename(source.path),title,chapter,angle};
+  }finally{dvdPicking=false;}
+}
 function frameRate(value){
   const [n,d=1]=String(value||"").split("/").map(Number);
   const fps=n/d;return Number.isFinite(fps)&&fps>0?fps:null;
@@ -592,6 +612,10 @@ function install(win,contents=win?.webContents) {
   ipcMain.handle("dk-codec:dvd-select",async(event,kind,title,chapter,angle,language)=>{
     if(!onlyWindow(event))throw Error("Rejected DVD request");
     return selectDVD(windowRef,kind,title,chapter,angle,language);
+  });
+  ipcMain.handle("dk-codec:dvd-change",async(event,id,title,chapter,angle)=>{
+    if(!onlyWindow(event))throw Error("Rejected DVD request");
+    return changeDVD(windowRef,id,title,chapter,angle);
   });
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");

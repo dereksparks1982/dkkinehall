@@ -10,12 +10,12 @@
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
 <link rel="stylesheet" href="./player.css?v=20261126-global-language1">
-<link rel="stylesheet" href="./library-home.css?v=20261126-native-scan-zoom1">
+<link rel="stylesheet" href="./library-home.css?v=20261126-trash-info1">
 <script defer src="./jellyfin-artwork.js?v=20261116-1"></script>
 <script defer src="./episode-metadata.js?v=20261126-golden-gun2"></script>
-<script defer src="./library-store.js?v=20261126-native-scan-zoom1"></script>
-<script defer src="./library-home.js?v=20261126-native-scan-zoom1"></script>
-<script defer src="./i18n.js?v=20261126-picture-menu1"></script>
+<script defer src="./library-store.js?v=20261126-trash-info1"></script>
+<script defer src="./library-home.js?v=20261126-trash-info1"></script>
+<script defer src="./i18n.js?v=20261126-trash-info1"></script>
 </head>
 <body>
 <div class="shell library-shell">
@@ -27,6 +27,7 @@
     <div class="header-tools library-tools">
       <button type="button" class="btn ghost" id="addLibraryFolder">Add Folder</button>
       <button type="button" class="btn primary" id="scanLibrary">Scan Library</button>
+      <button type="button" class="btn primary" id="libraryEmptyTrash" hidden>Empty Trash</button>
       <label for="languageSelect" class="visually-hidden">Interface language</label>
       <select id="languageSelect" class="language-select" aria-label="Interface language"><option value="en">English</option><option value="ru">Русский</option></select>
     </div>
@@ -65,11 +66,12 @@
     <button type="button" role="menuitem" id="movieDetailsAction" hidden>Movie Details</button>
     <button type="button" role="menuitem" id="refreshMovieMetadata" hidden>Refresh Metadata</button>
     <button type="button" role="menuitem" id="removeContinueWatching" hidden>Remove from Continue Watching</button>
+    <button type="button" role="menuitem" id="removeFromLibrary" hidden>Remove from Library</button>
     <button type="button" role="menuitem" id="showInFolder" hidden>Show in folder</button>
     <button type="button" role="menuitem" id="deleteFromDisk">Delete from Disk…</button>
   </div>
 </div>
-<dialog id="movieDetailsDialog" class="dk-movie-details"><button type="button" class="dk-movie-details-close" id="movieDetailsClose" aria-label="Close">×</button><h2 id="movieDetailsTitle"></h2><p id="movieDetailsDescription"></p><dl id="movieDetailsFields"></dl></dialog>
+<dialog id="movieDetailsDialog" class="dk-movie-details"><button type="button" class="dk-movie-details-close" id="movieDetailsClose" aria-label="Close">×</button><h2 id="movieDetailsTitle"></h2><p id="movieDetailsDescription"></p><dl id="movieDetailsFields"></dl><section id="movieFileSection" hidden><h3 id="movieFileHeading">File Information</h3><dl id="movieFileFields"></dl><p id="movieFileStatus" class="helper" role="status"></p></section></dialog>
 <input type="file" id="libraryFolderFallback" webkitdirectory multiple hidden aria-label="Select a media folder">
 </body>
 </html>

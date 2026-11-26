@@ -51,11 +51,13 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),
           format,audioIndex);
         if(token!==generation||current()!==item||!result?.url)return false;
-        active={item,offset:Number(result.position)||0,
+        active={item,url:result.url,offset:Number(result.position)||0,
           duration:result.duration===null||result.duration===undefined?
             null:(Number.isFinite(Number(result.duration))?Number(result.duration):null)};
         item.playbackMethod="Bundled native decoder";
         item.nativeOutputFormat=result.format||format;
+        item.nativeMediaInfo={hasVideo:result.hasVideo,hasAudio:result.hasAudio,videoCodec:result.videoCodec,audioCodec:result.audioCodec,format:result.format};
+        if(result.hasVideo===false&&result.hasAudio){item.audio=true;media.closest(".screen")?.classList.add("audio");}
         item.nativeAudioTracks=Array.isArray(result.audioTracks)?
           result.audioTracks:[];
         item.nativeSubtitleTracks=Array.isArray(result.subtitleTracks)?
@@ -115,7 +117,19 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         item.requestedFormat:"auto",
       item.codecAudioIndex||0);
   };
-  return {start,seek,stop,isActive,position,duration,offset};
+  async function retryAlternate(item){
+    if(!isActive(item)||item.requestedFormat!=="auto"||item.nativeAlternateAttempted)return false;
+    item.nativeAlternateAttempted=true;
+    const at=position(item);
+    const old=active;
+    const caps=await bridge.status().catch(()=>null);
+    if(active!==old||current()!==item)return false;
+    const alternate=item.nativeOutputFormat==="mp4"?"webm":"mp4";
+    const audioOnly=item.nativeMediaInfo?.hasVideo===false;
+    if(!(audioOnly?(alternate==="webm"?caps?.audioWebm:caps?.audioMp4):caps?.[alternate]))return false;
+    return start(item,at,Boolean(item.autoplayRequested),alternate,item.codecAudioIndex||0);
+  }
+  return {start,seek,stop,isActive,position,duration,offset,retryAlternate};
 }
 root.DKCodecPlayback={attach};
 })(typeof window!=="undefined"?window:globalThis);

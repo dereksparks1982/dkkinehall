@@ -1157,7 +1157,10 @@
     updateButtons();
     updateChapterMarkers();
   };
+  let networkRetryTimer=null;
+  const cancelNetworkRetry=()=>{if(networkRetryTimer!==null){clearTimeout(networkRetryTimer);networkRetryTimer=null;}};
   const idle = () => {
+    cancelNetworkRetry();
     cancelNextCountdown();resetVoiceover();
     if (seekPreview) seekPreview.reset();
     state.current = -1;
@@ -1187,6 +1190,7 @@
   const playCurrent = () => {
     cancelNextCountdown();
     if (!current()) { status("Open a video or music file first."); return; }
+    if(current().kind==="network"&&current().networkStarting){current().autoplayRequested=true;return;}
     if (state.stopped) {
       state.stopped = false;
       current().historyResumeTarget=0;
@@ -1219,7 +1223,7 @@
   };
   const load = (index, autoplay = true) => {
     if (index < 0 || index >= state.queue.length) return;
-    cancelNextCountdown();resetVoiceover();
+    cancelNextCountdown();resetVoiceover();cancelNetworkRetry();
     const previous=current();
     if(previous?.remuxAbort){
       previous.remuxAbort.abort();
@@ -1228,7 +1232,8 @@
     if (seekPreview) seekPreview.reset();
     if (!state.stopped) rememberPosition();
     if(previous)previous.historyReady=false;
-    if(codecPlayback?.isActive(previous))void codecPlayback.stop();
+    if(codecPlayback?.isActive(previous)||previous?.networkStarting)void codecPlayback?.stop();
+    if(previous)previous.networkStarting=false;
     state.stopped = false;
     clearSubtitles();
     if (mkvAudio) mkvAudio.stop();
@@ -1250,6 +1255,7 @@
     item.codecAttempted = false;
     item.dvdSubtitleIndex=-1;
     item.sourceVideoExpected=false;
+    item.networkStarting=false;item.networkRetries=0;item.networkResume=0;item.networkLastPosition=0;item.networkKnownDuration=0;
     item.nativeAlternateAttempted = false;
     item.codecActive = false;
     item.codecRestart = false;
@@ -1273,7 +1279,7 @@
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     media.removeAttribute("crossorigin");
     if(item.kind==="network")media.crossOrigin="anonymous";
-    if (item.file?.dvdToken || needsRemux || cannotConvert) {
+    if (item.file?.dvdToken || item.kind==="network"&&forcingContainer || needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");
     } else {
@@ -1317,7 +1323,7 @@
       return;
     }
     if(item.kind==="network"){
-      if(forcingContainer){void tryNativeCodec(item,0).then(ok=>{if(!ok&&current()===item)status("Network decoder unavailable.");});}
+      if(forcingContainer){void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&!state.stopped)status("Network decoder unavailable.");});}
       else if(autoplay)playCurrent();
       return;
     }
@@ -1563,6 +1569,37 @@
     return codecPlayback.start(item,at,Boolean(item.autoplayRequested),
       ["mp4","webm"].includes(item.requestedFormat)?
           item.requestedFormat:"auto");
+  };
+  const startNetworkDecoder=async(item,at)=>{
+    if(item.networkStarting||current()!==item||state.stopped)return false;
+    const epoch=item.playbackEpoch;
+    item.networkStarting=true;
+    try{return await tryNativeCodec(item,at);}
+    finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
+  };
+  const recoverNetwork=(item,forceNative=false)=>{
+    if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||item.networkRetries>=2||networkRetryTimer!==null)return false;
+    const epoch=item.playbackEpoch,at=Math.max(0,Number(item.networkLastPosition)||0);
+    const native=forceNative||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
+    item.networkRetries++;
+    status("Reconnecting to network media…");
+    networkRetryTimer=setTimeout(async()=>{
+      networkRetryTimer=null;
+      if(current()!==item||item.playbackEpoch!==epoch||state.stopped)return;
+      if(native&&item.requestedFormat!=="original"&&codecPlayback){
+        item.codecAttempted=false;
+        const ok=await startNetworkDecoder(item,at);
+        if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){
+          if(!recoverNetwork(item,true))status("Network stream unavailable or unsupported.");
+        }
+      }else{
+        item.networkResume=at;
+        media.pause();media.crossOrigin="anonymous";media.src=item.src;media.load();
+        const play=media.play();
+        if(play?.catch)play.catch(()=>{if(current()===item&&item.playbackEpoch===epoch&&!state.stopped&&!media.error)status("Network stream unavailable or unsupported.");});
+      }
+    },item.networkRetries*1000);
+    return true;
   };
   const releaseCompatible = item => {
     if(item?.remuxAbort){
@@ -2990,7 +3027,7 @@
     }, 330);
   });
   const stopCurrent = () => {
-    cancelNextCountdown();resetVoiceover();
+    cancelNextCountdown();resetVoiceover();cancelNetworkRetry();
     if (seekPreview) seekPreview.reset();
     const item = current();
     if (!item) return;
@@ -3000,7 +3037,8 @@
     state.stopped = true;
     resetTranslation();
     media.pause();
-    if(codecPlayback?.isActive(item)) {
+    if(codecPlayback?.isActive(item)||item.networkStarting) {
+      item.networkStarting=false;
       item.codecRestart=true;
       void codecPlayback.stop();
     }
@@ -3071,6 +3109,10 @@
     restoreAudioPreference();
     if (state.stopped) { updateTime(); return; }
     item.historyReady=true;
+    if(item.kind==="network"&&item.networkResume>0&&!codecPlayback?.isActive(item)){
+      const at=item.networkResume;item.networkResume=0;
+      if(Number.isFinite(media.duration)&&at<media.duration){try{media.currentTime=at;}catch(_){}}
+    }
     if(codecPlayback?.isActive(item)) {
       // The stream has already been started at the original source time.
       updateTime();updateChapterMarkers();return;
@@ -3084,6 +3126,11 @@
   });
   media.addEventListener("timeupdate", () => {
     const item=current();
+    if(item?.kind==="network"&&!state.stopped&&!media.seeking&&media.readyState>=2){
+      const at=playbackSeconds(),duration=playbackDuration();
+      if(Number.isFinite(at))item.networkLastPosition=at;
+      if(Number.isFinite(duration)&&duration>0)item.networkKnownDuration=duration;
+    }
     if(item?.sourceVideoExpected&&item.file&&item.requestedFormat==="auto"&&
        !state.stopped&&!media.paused&&!media.seeking&&!item.codecAttempted&&
        !item.deinterlacePending&&!codecPlayback?.isActive(item)&&
@@ -3133,6 +3180,10 @@
   media.addEventListener("ended", () => {
     const completed = current();
     if (!completed) return;
+    if(completed.kind==="network"&&completed.networkKnownDuration>0&&playbackSeconds()+5<completed.networkKnownDuration){
+      if(!recoverNetwork(completed))status("Network stream ended unexpectedly.");
+      return;
+    }
     rememberPosition();
     // A completed movie has no unfinished position to resume.
     saveLibraryProgress(completed,playbackDuration(),playbackDuration(),true);
@@ -3182,13 +3233,16 @@
     if (!current() || !media.error || state.stopped) return;
     const code = media.error.code;
     const item=current();
-    if(item.kind==="network"&&!codecPlayback?.isActive(item)){
-      if(!item.codecAttempted&&item.requestedFormat!=="original"&&codecPlayback){
+    if(item.kind==="network"){
+      if(item.networkStarting||networkRetryTimer!==null)return;
+      if(!codecPlayback?.isActive(item)&&!item.codecAttempted&&item.requestedFormat!=="original"&&codecPlayback&&[3,4].includes(code)){
         const epoch=item.playbackEpoch;
-        void tryNativeCodec(item,Math.max(0,Number(media.currentTime)||0)).then(ok=>{
-          if(!ok&&current()===item&&item.playbackEpoch===epoch)status("Network stream unavailable or unsupported.");
+        void startNetworkDecoder(item,Math.max(0,Number(item.networkLastPosition)||0)).then(ok=>{
+          if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){
+            if(!recoverNetwork(item,true))status("Network stream unavailable or unsupported.");
+          }
         });
-      }else status("Network stream unavailable or unsupported.");
+      }else if(!recoverNetwork(item))status("Network stream unavailable or unsupported.");
       updateButtons();return;
     }
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;

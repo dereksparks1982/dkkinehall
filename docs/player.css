@@ -1306,3 +1306,15 @@ html.dk-standalone .dk-library-settings-heading{display:flex;align-items:center;
 html.dk-standalone .dk-library-settings-dialog>.helper{margin:0;font-size:.8rem;color:var(--muted)}
 html.dk-standalone .dk-library-settings-dialog>.helper:empty{display:none}
 html.dk-standalone .dk-library-settings-dialog .dk-library-settings-content{position:static;inset:auto;width:100%;min-height:0;max-height:calc(100vh - 115px);overflow:auto;box-sizing:border-box;box-shadow:none;border:0;padding:0 4px 0 0;background:transparent}
+
+/* Settings categories are scoped to the existing settings panels. Library cards and player transport are unchanged. */
+html.dk-standalone .dk-settings-category-nav{display:grid;gap:7px}
+html.dk-standalone .dk-settings-category-nav>strong{color:var(--dk-gold);font-size:1.02rem}
+html.dk-standalone .dk-settings-category-nav>.btn,html.dk-standalone .dk-settings-extra>.btn{width:100%;min-height:40px;text-align:left;justify-content:flex-start}
+html.dk-standalone .dk-settings-category-nav>.btn:nth-of-type(4n+2){background:#d52b1e;color:#fff;border-color:#d52b1e}
+html.dk-standalone .dk-settings-category-nav>.btn:nth-of-type(4n+3){background:#e2b956;color:#462a25;border-color:#a58039}
+html.dk-standalone .dk-settings-category-nav>.btn:nth-of-type(4n+4){background:#fff;color:#23171a;border-color:#e7e2e2}
+html.dk-standalone .dk-settings-category-nav>.btn:nth-of-type(4n+1){background:#462a25;color:#e2b956;border-color:#a58039}
+html.dk-standalone .dk-settings-category-nav>.btn:is(:hover,:focus-visible){outline:2px solid currentColor;outline-offset:-4px}
+html.dk-standalone .dk-settings-extra,html.dk-standalone .dk-picture-profile-actions{display:grid;gap:8px}
+html.dk-standalone .dk-settings-extra>.helper{margin:0;font-size:.8rem;color:var(--muted)}

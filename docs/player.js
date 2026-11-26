@@ -564,9 +564,8 @@
         const episodeName = document.createElement("span");
         episodeName.className = "item-episode-name";
         const knownTitle = item.episodeTitle || parsed.episodeTitle || "";
-        if (knownTitle) episodeName.textContent = " · " + knownTitle;
-        source.append(episodeName);
-        labels.append(source);
+        episodeName.textContent = knownTitle || "Finding episode title…";
+        labels.append(source, episodeName);
       }
       play.append(artworkBox, labels);
       play.addEventListener("click", () => load(index));

@@ -33,6 +33,7 @@ class CodecBundle:
             self.sources/"codec-host.cjs",
             self.sources/"codec-preload.cjs",
             self.sources/"codec-policy.cjs",
+            self.sources/"codec-source.cjs",
             self.bundle/"bin/ffmpeg",
             self.bundle/"bin/ffprobe",
             self.bundle/"CODECS_INCLUDED.txt",
@@ -55,6 +56,8 @@ class CodecBundle:
             PRELOAD:self.sources/"codec-preload.cjs",
             "resources/app/desktop/codec-policy.cjs":
                 self.sources/"codec-policy.cjs",
+            "resources/app/desktop/codec-source.cjs":
+                self.sources/"codec-source.cjs",
         }
         for p in sorted(self.bundle.rglob("*")):
             if not p.is_file() or p.is_symlink():continue
@@ -88,8 +91,12 @@ class CodecBundle:
                 # scope to avoid collisions with its original declarations.
                 payload=self.sources.joinpath("codec-preload.cjs").read_bytes()
                 marker=b"/* DK Kinehall bundled decoder bridge */"
-                if marker not in data:
-                    data+=b"\n;"+marker+b"\n(function(){\n"+payload+b"\n})();\n"
+                if marker in data:
+                    start=data.index(marker)
+                    end=data.find(b"\n})();",start)
+                    if end<0:raise RuntimeError("Incomplete previous codec preload")
+                    data=data[:start]+data[end+len(b"\n})();"):]
+                data+=b"\n;"+marker+b"\n(function(){\n"+payload+b"\n})();\n"
                 self.preload_done=True
         return data
 

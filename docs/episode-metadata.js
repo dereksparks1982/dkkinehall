@@ -63,7 +63,14 @@
    let title=leading?leading[2]:trailing?trailing[1]:canonical;
    title=title.replace(/^[\s:–—-]+|[\s:–—-]+$/g,"").trim();
    if(title.length<2)return null;
-   return {type:"movie",title:title.slice(0,120),year:leading?Number(leading[1]):trailing?Number(trailing[2]):null};
+   const year=leading?Number(leading[1]):trailing?Number(trailing[2]):null;
+   // Exact known title; repair the legacy missing-word alias only for 1974.
+   // Never remove individual words from a movie title as release tags.
+   const normalized=normalize(title);
+   if((!year||year===1974)&&normalized==="the man with the golden gun"||
+      year===1974&&normalized==="the with the golden gun")
+     return {type:"movie",title:"The Man with the Golden Gun",year:1974};
+   return {type:"movie",title:title.slice(0,120),year};
  }
  function findExact(query,values,getName){
    const norm=normalize(query);
@@ -339,6 +346,11 @@
        // Verified exact identity for the reported ambiguous Bond remake.
        if(key==="casino royale:2006"){
          searchCinema.set(key,Promise.resolve({type:"movie",title:"Casino Royale",year:2006,imdbId:"tt0381061",provider:"Cinemeta",series:null,still:"https://images.metahub.space/poster/medium/tt0381061/img",credit:"https://www.imdb.com/title/tt0381061/"}));
+         return searchCinema.get(key);
+       }
+       // Verified IMDb identity prevents a failed fuzzy title search for this film.
+       if(key==="the man with the golden gun:1974"){
+         searchCinema.set(key,Promise.resolve({type:"movie",title:"The Man with the Golden Gun",year:1974,imdbId:"tt0071807",provider:"Cinemeta",series:null,still:"https://images.metahub.space/poster/medium/tt0071807/img",credit:"https://www.imdb.com/title/tt0071807/"}));
          return searchCinema.get(key);
        }
        const url=CINEMETA+"/catalog/movie/top/search="+

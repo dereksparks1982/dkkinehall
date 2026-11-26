@@ -14,11 +14,11 @@ import tempfile
 
 REQUIRED_DECODERS=(
     "h264","hevc","vp9","av1","mpeg2video","mpeg4",
-    "aac","ac3","eac3","dca","flac","mp3","opus","vorbis",
+    "aac","ac3","eac3","dca","truehd","mlp","flac","mp3","opus","vorbis",
 )
 # VP9/Opus is the license-compatible baseline; MP4/H.264 is optional.
 # libx264 must never be required by an LGPL-oriented build.
-REQUIRED_ENCODERS=("libvpx-vp9","libopus","webvtt")
+REQUIRED_ENCODERS=("libvpx-vp9","libopus","aac","webvtt")
 REQUIRED_DEMUXERS=("matroska","mov","avi","mpegts","asf","flv")
 
 def codec_lines(text,video_audio=True):

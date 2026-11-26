@@ -369,7 +369,16 @@ async function metadataRequest(raw,kind){
   if(metadataBusy>=4)return {ok:false,status:429};
   metadataBusy++;
   try{
-    const response=await fetch(url,{redirect:"error",credentials:"omit",signal:AbortSignal.timeout(15000)});
+    let target=url,response;
+    for(let hop=0;hop<4;hop++){
+      response=await fetch(target,{redirect:"manual",credentials:"omit",signal:AbortSignal.timeout(15000)});
+      if(![301,302,303,307,308].includes(response.status))break;
+      const next=new URL(response.headers.get("location")||"",target);
+      await response.body?.cancel();
+      const permitted=kind==="image"&&(["images.metahub.space","static.tvmaze.com","images.tvmaze.com","image.tmdb.org"].includes(next.hostname)||/^(?:is\d+-ssl|a\d+|is\d+)\.mzstatic\.com$/.test(next.hostname));
+      if(!permitted||next.protocol!=="https:"||next.username||next.password||next.port)return {ok:false,status:502};
+      target=next;
+    }
     if(!response.ok)return {ok:false,status:response.status};
     const limit=3*1024*1024;
     const mime=(response.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();

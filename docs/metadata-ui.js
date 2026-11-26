@@ -35,8 +35,17 @@ function updateEpisodeName(li,name,rawTitle){
   if(!label||typeof rawTitle!=="string")return;
   const title=rawTitle.trim().slice(0,200);
   if(!title)return;
-  label.textContent=title;
+  label.textContent=" · "+title;
   if(li.dkQueueItem)li.dkQueueItem.episodeTitle=title;
+  if(li.classList.contains("current")){
+    const info=window.DKMediaMetadata.parseFilename(name);
+    const nowSource=document.getElementById("nowSource");
+    if(nowSource&&info?.type==="episode"){
+      nowSource.textContent="S"+String(info.season).padStart(2,"0")+
+        "E"+String(info.episode).padStart(2,"0")+" · "+title;
+      nowSource.hidden=false;
+    }
+  }
   episodeNames.set(name,title);
   while(episodeNames.size>160)episodeNames.delete(episodeNames.keys().next().value);
   try{localStorage.setItem(EPISODE_STORE,JSON.stringify([...episodeNames]));}
@@ -51,15 +60,8 @@ function requestEpisodeName(li,name){
   void finder.episodeTitle(name).then(title=>{
     if(!li.isConnected||originalFilename(li)!==name)return;
     if(title)updateEpisodeName(li,name,title);
-    else{
-      const label=li.querySelector(".item-episode-name");
-      if(label)label.textContent="Episode title unavailable";
-    }
-  }).catch(()=>{
-    if(!li.isConnected||originalFilename(li)!==name)return;
-    const label=li.querySelector(".item-episode-name");
-    if(label)label.textContent="Episode title unavailable";
-  });
+    // Keep the filename title fallback (or just SxxExx) if lookup fails.
+  }).catch(()=>{});
 }
 const stored=(()=>{
   try{

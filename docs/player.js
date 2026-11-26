@@ -531,6 +531,10 @@
       if (isEpisode) li.dataset.queueEpisode = "1";
       const episodeCode = isEpisode ? "S" + String(parsed.season).padStart(2,"0") +
         "E" + String(parsed.episode).padStart(2,"0") : "";
+      const displayName = isEpisode ? parsed.series :
+        parsed?.type === "movie" ? parsed.title +
+          (parsed.year ? " (" + parsed.year + ")" : "") :
+        item.name.replace(/\.[a-z0-9]{2,5}$/i,"").replace(/[._]+/g," ").trim();
       if (index === state.current) {
         li.classList.add("current");
         li.setAttribute("aria-current", "true");
@@ -538,8 +542,7 @@
       const play = document.createElement("button");
       play.type = "button";
       play.className = "item-play";
-      play.title = isEpisode ? "Play " + parsed.series + " " + episodeCode :
-        "Play " + item.name;
+      play.title = "Play " + displayName + (isEpisode ? " " + episodeCode : "");
       const artworkBox = document.createElement("span");
       artworkBox.className = "queue-artwork";
       artworkBox.setAttribute("aria-hidden", "true");
@@ -552,16 +555,18 @@
       labels.className = "queue-item-labels";
       const title = document.createElement("span");
       title.className = "item-title";
-      title.textContent = isEpisode ? parsed.series : item.name;
-      const source = document.createElement("span");
-      source.className = "item-meta";
-      source.textContent = isEpisode ? episodeCode : "Local file";
-      labels.append(title, source);
+      title.textContent = displayName;
+      labels.append(title);
       if (isEpisode) {
+        const source = document.createElement("span");
+        source.className = "item-meta";
+        source.textContent = episodeCode;
         const episodeName = document.createElement("span");
         episodeName.className = "item-episode-name";
-        episodeName.textContent = item.episodeTitle || "Finding episode title…";
-        labels.append(episodeName);
+        const knownTitle = item.episodeTitle || parsed.episodeTitle || "";
+        if (knownTitle) episodeName.textContent = " · " + knownTitle;
+        source.append(episodeName);
+        labels.append(source);
       }
       play.append(artworkBox, labels);
       play.addEventListener("click", () => load(index));
@@ -592,7 +597,9 @@
     byId("emptyDescription").textContent = "Choose a video or music file from this device.";
     byId("nowTitle").textContent = "Nothing playing";
     byId("nowSource").textContent = "Select media to get started";
+    byId("nowSource").hidden = false;
     byId("kindBadge").textContent = "Ready";
+    byId("kindBadge").hidden = false;
     renderQueue();
     updateTime();
   };
@@ -665,9 +672,21 @@
     screen.classList.toggle("audio", item.audio);
     applySubtitlePreference();
     screen.classList.remove("ui-hidden", "cursor-hidden");
-    byId("nowTitle").textContent = item.name;
-    byId("nowSource").textContent = "Local device";
-    byId("kindBadge").textContent = "LOCAL";
+    const titleInfo = window.DKMediaMetadata?.parseFilename(item.name);
+    const episode = titleInfo?.type === "episode";
+    const displayName = episode ? titleInfo.series :
+      titleInfo?.type === "movie" ? titleInfo.title +
+        (titleInfo.year ? " (" + titleInfo.year + ")" : "") :
+      item.name.replace(/\.[a-z0-9]{2,5}$/i,"").replace(/[._]+/g," ").trim();
+    const episodeCode = episode ? "S" + String(titleInfo.season).padStart(2,"0") +
+      "E" + String(titleInfo.episode).padStart(2,"0") : "";
+    const episodeTitle = episode ? (item.episodeTitle || titleInfo.episodeTitle || "") : "";
+    byId("nowTitle").textContent = displayName;
+    byId("nowSource").textContent = episodeCode +
+      (episodeTitle ? " · " + episodeTitle : "");
+    byId("nowSource").hidden = !episode;
+    // No redundant LOCAL badge or local-device label for selected files.
+    byId("kindBadge").hidden = true;
     renderQueue();
     updateTime();
     status("");
@@ -1125,7 +1144,7 @@
         const file = await handle.getFile();
         if (state.queue.length) return;
         addFiles([file], [handle], "restore");
-        status("Last local file restored. Press Play to resume.", true);
+        status("Last file restored. Press Play to resume.", true);
       } else {
         showRestoreChoice(saved, "Allow access or select the same file again to resume.");
       }
@@ -1894,7 +1913,7 @@
       info.append(key, data);
     };
     addDetail("Title", item.name);
-    addDetail("Source", item.kind === "file" ? "Local file" : "Direct stream URL");
+    if (item.kind !== "file") addDetail("Source", "Direct stream URL");
     addDetail("Requested playback format",item.requestedFormat || "auto");
     addDetail("Actual playback method",item.playbackMethod || "Original source");
     addDetail("Hardware acceleration preference",playbackSettings.hardware

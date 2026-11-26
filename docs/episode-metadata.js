@@ -35,8 +35,15 @@
      const year=yearMatch?Number(yearMatch[1]):null;
      series=series.replace(/\s+(?:19|20)\d{2}$/,"").trim();
      const season=Number(tv[1]||tv[3]),episode=Number(tv[2]||tv[4]);
+     // A release filename may already provide the episode name. Use it only
+     // as a display fallback, never as a substitute for verified metadata.
+     const episodeTitle=text.slice(tv.index+tv[0].length)
+       .replace(/^[\s:–—-]+/,"")
+       .replace(/(?:^|\s)(?:2160p|1080p|720p|480p|4k|uhd|hdr10?|bluray|blu ray|brrip|dvdrip|web[\s-]?rip|web[\s-]?dl|h26[45]|x26[45]|hevc|av1|aac|ac3|ddp|dts|remux|repack|proper)(?:\b.*)?$/i,"")
+       .replace(/[\s:–—-]+$/,"").trim();
      if(series.length>=2&&season<=99&&episode>=1&&episode<=999)
-       return {type:"episode",series,season,episode,year};
+       return {type:"episode",series,season,episode,year,
+         episodeTitle:episodeTitle?episodeTitle.slice(0,140):null};
      return null;
    }
    const withoutTags=text.replace(/\s+(?:2160p|1080p|720p|480p|4k|uhd|hdr10?|dv|bluray|blu ray|brrip|bdrip|dvdrip|webrip|web dl|web rip|h26[45]|x26[45]|hevc|av1|ddp|dts|aac|ac3)(?:\b.*)?$/i,"").trim();

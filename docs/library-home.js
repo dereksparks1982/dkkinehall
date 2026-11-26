@@ -27,7 +27,7 @@ const MAX_LOOKUPS=2,ARTWORK_LIMIT=1200;
 let networkArtworkCount=0;
 let networkTitleCount=0;
 const TITLE_LOOKUP_LIMIT=400;
-let legacyResume={};
+let legacyResume={},legacyProgressById=new Map();
 try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
 catch(_){legacyResume={};}
 const nativeJSON=nativeBridge?.metadataRequest?async(url,opts)=>{
@@ -77,8 +77,32 @@ function create(tag,cls,text){
   if(text!==undefined)el.textContent=text;
   return el;
 }
+// File API timestamps may be rounded while native scans retain fractions.
+ // Recover a saved resume position only for an unambiguous catalog match.
+function recoverLegacyProgress(rows){
+  const byFingerprint=new Map(),result=new Map();
+  for(const row of rows){
+    if(!Number.isFinite(row.size)||!Number.isFinite(row.modified))continue;
+    const key="file:"+row.filename+":"+row.size;
+    if(!byFingerprint.has(key))byFingerprint.set(key,[]);
+    byFingerprint.get(key).push(row);
+  }
+  for(const [key,raw] of Object.entries(legacyResume)){
+    const split=key.lastIndexOf(":");
+    if(split<0||!key.startsWith("file:"))continue;
+    const modified=Number(key.slice(split+1)),position=Number(raw);
+    if(!Number.isFinite(modified)||!Number.isFinite(position)||position<=2)continue;
+    const matches=(byFingerprint.get(key.slice(0,split))||[])
+      .filter(row=>Math.abs(row.modified-modified)<=1);
+    const live=matches.filter(row=>row.source==="native"&&!row.missing);
+    const row=live.length===1?live[0]:matches.length===1?matches[0]:null;
+    if(row)result.set(row.id,Math.max(result.get(row.id)||0,position));
+  }
+  return result;
+}
 function currentProgress(row){
   if(Number(row.position)>2)return Number(row.position);
+  if(nativeBridge)return legacyProgressById.get(row.id)||0;
   const key="file:"+row.filename+":"+row.size+":"+row.modified;
   const value=Number(legacyResume[key]);
   return Number.isFinite(value)?value:0;
@@ -444,6 +468,7 @@ async function render(){
   if(epoch!==renderEpoch)return;
   try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
   catch(_){legacyResume={};}
+  if(nativeBridge)legacyProgressById=recoverLegacyProgress(all);
   const tv=mode==="tv";
   $("tabMovies").setAttribute("aria-selected",String(!tv));
   $("tabTV").setAttribute("aria-selected",String(tv));
@@ -779,8 +804,21 @@ function connect(){
       void render();
     }
   };
-  window.addEventListener("focus",refreshOnReturn);
+  window.addEventListener("focus",()=>{
+    if(nativeBridge){
+      deferredProgress=false;
+      void render();
+    }else refreshOnReturn();
+  });
   document.addEventListener("visibilitychange",refreshOnReturn);
+  if(nativeBridge)window.addEventListener("storage",event=>{
+    if(event.key!=="dkmedia.web.resume.v1")return;
+    if(document.hidden||!document.hasFocus()||scanning||maintaining){
+      deferredProgress=true;return;
+    }
+    clearTimeout(repaintTimer);
+    repaintTimer=setTimeout(()=>void render(),260);
+  });
   void render().then(()=>{
     recordNavigation();
     // Render saved posters immediately. A bounded, one-shot rescan is

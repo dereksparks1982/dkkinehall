@@ -1690,6 +1690,16 @@
   const contextMenu = byId("playerContextMenu");
   const infoPanel = byId("mediaInfo");
   const settingsDetails = document.querySelector(".player-bar-settings");
+  if(window.DKLibraryBridge?.internalPages && settingsDetails){
+    const close=document.createElement("button");
+    close.type="button";close.id="closePlayerSettings";close.className="dk-settings-close";
+    close.textContent="×";
+    const label=()=>{const text=document.documentElement.lang==="ru"?"Закрыть настройки":"Close settings";close.title=text;close.setAttribute("aria-label",text);};
+    label();
+    byId("languageSelect").addEventListener("change",()=>queueMicrotask(label));
+    byId("playerSettingsPanel").prepend(close);
+    close.addEventListener("click",()=>{settingsDetails.open=false;settingsDetails.querySelector("summary")?.focus();});
+  }
   let hideControlsTimer = null;
   let menuOpen = false;
   const revealControls = () => {

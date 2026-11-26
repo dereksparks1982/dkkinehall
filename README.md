@@ -2,6 +2,8 @@
 
 ![DK Kinehall standalone media player screenshot](assets/images/Screenshot%20From%202026-11-26%2005-06-07.png)
 
+![DK Kinehall standalone media library screenshot](assets/images/Screenshot%20From%202026-11-26%2007-16-40.png)
+
 **Your movies. Your music. Your player.**
 
 DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softworks**. Watch movies and TV shows or listen to music saved on your own device.

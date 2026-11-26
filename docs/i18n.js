@@ -613,12 +613,14 @@
   for(const [en,ru] of Object.entries(translations)){
     if(typeof ru==="string"&&!reverse.has(ru))reverse.set(ru,en);
   }
-  const dynamicReverse=new Map();
+  const dynamicReverse=new Map(),dynamicForward=new Map();
   function rememberPair(en,ru){
     en=String(en);ru=String(ru);
     if(en!==ru&&/[A-Za-z]/.test(en)&&ru.length<=2000){
       if(dynamicReverse.size>=4096)dynamicReverse.delete(dynamicReverse.keys().next().value);
       dynamicReverse.set(ru,en);
+      if(dynamicForward.size>=4096)dynamicForward.delete(dynamicForward.keys().next().value);
+      dynamicForward.set(en,ru);
     }
     return language==="ru"?ru:en;
   }
@@ -629,7 +631,7 @@
   }
   function localized(value){
     const original=sourceText(value);
-    return rememberPair(original,translate(original));
+    return rememberPair(original,dynamicForward.get(original)||translate(original));
   }
   // Shared settings copies must carry the source strings, not a snapshot
   // of the other view's translated text.
@@ -655,7 +657,7 @@
     const before = node.nodeValue;
     const previous = texts.get(node);
     const original = previous && previous.rendered === before ? previous.original : sourceText(before);
-    const after = language === "ru" ? rememberPair(original,translate(original)) : original;
+    const after = language === "ru" ? rememberPair(original,dynamicForward.get(original)||translate(original)) : original;
     texts.set(node, {original, rendered: after});
     if (before !== after) node.nodeValue = after;
   }
@@ -668,7 +670,7 @@
       if (before === null) continue;
       const previous = saved[attr];
       const original = previous && previous.rendered === before ? previous.original : sourceText(before);
-      const after = language === "ru" ? rememberPair(original,translate(original)) : original;
+      const after = language === "ru" ? rememberPair(original,dynamicForward.get(original)||translate(original)) : original;
       saved[attr] = {original, rendered:after};
       if (before !== after) element.setAttribute(attr, after);
     }

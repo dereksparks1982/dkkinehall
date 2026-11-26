@@ -1285,3 +1285,11 @@ html.dk-standalone .dk-dvd-dialog{width:min(360px,calc(100vw - 32px));max-height
 html.dk-standalone .dk-dvd-dialog::backdrop{background:#0008}
 html.dk-standalone .dk-dvd-dialog .player-settings-section{display:grid;gap:8px;margin-bottom:12px}
 html.dk-standalone .dk-dvd-dialog select{background:var(--dk-button-bg);color:#fff;border:1px solid var(--dk-antique);border-radius:8px;padding:8px}
+
+/* Network browser: standalone only; no changes to approved player controls. */
+html.dk-standalone .dk-network-dialog{width:min(520px,calc(100vw - 32px));display:none}
+html.dk-standalone .dk-network-dialog[open]{display:grid;gap:10px}
+html.dk-standalone .dk-network-dialog input[type="url"]{width:100%;min-width:0;padding:9px;border:1px solid var(--dk-antique,#a58039);border-radius:8px;background:#381820;color:#fff}
+html.dk-standalone .dk-network-dialog label{display:flex;align-items:center;gap:8px}
+html.dk-standalone .dk-network-results{display:grid;gap:5px;max-height:38vh;overflow:auto}
+html.dk-standalone .dk-network-results button{text-align:left;white-space:normal;overflow-wrap:anywhere}

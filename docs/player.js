@@ -1365,8 +1365,11 @@
   const folderLimit = window.DKFolderAccess.MAX_FILES;
   const mediaKeyFor = file => "file:" + file.name + ":" + file.size + ":" + file.lastModified;
   const updateFolderUI = (message = null) => {
-    folderReconnectButton.hidden = !state.folderName;
-    folderForgetButton.hidden = !state.folderName;
+    const standaloneFolders=Boolean(window.DKLibraryBridge?.internalPages);
+    folderReconnectButton.hidden = !standaloneFolders && !state.folderName;
+    folderForgetButton.hidden = !standaloneFolders && !state.folderName;
+    folderReconnectButton.disabled = standaloneFolders && !state.folderName;
+    folderForgetButton.disabled = standaloneFolders && !state.folderName;
     folderLabel.textContent = message ||
       (state.folderName ? "Saved folder: " + state.folderName : "No folder selected");
   };
@@ -1631,7 +1634,7 @@
     let scanning=false;
     const label=()=>{button.textContent=window.DKLocale?.t(scanning?"Stop Scan":"Scan Library")||(scanning?"Stop Scan":"Scan Library");};
     label();
-    byId("returnToLibrary").after(button);
+    byId("forgetFolder").after(button);
     button.addEventListener("click",()=>void window.DKLibraryBridge.requestScan().catch(()=>status("Library scan failed.")));
     window.DKLibraryBridge.onScanState(value=>{scanning=Boolean(value);button.setAttribute("aria-pressed",String(scanning));label();});
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(label));

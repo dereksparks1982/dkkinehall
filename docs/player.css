@@ -740,3 +740,8 @@ html.dk-desktop-fullscreen body {
    width:20px;height:20px;
  }
 }
+
+/* Standalone header navigation: existing red primary style, original Library width. */
+.dk-window-nav{white-space:nowrap}
+.dk-window-nav svg{flex:none}
+#returnToLibrary.dk-window-nav{min-width:127px}

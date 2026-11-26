@@ -11,6 +11,13 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  recordNavigation:value=>libIpc.invoke("dk-library:record-navigation",value),
+  navigateHistory:direction=>libIpc.invoke("dk-library:navigate-history",Number(direction)),
+  onRestoreNavigation:callback=>subscribe("dk-library:restore-navigation",callback),
+  requestMaintenance:(action,language)=>libIpc.invoke("dk-library:maintenance-request",String(action),String(language)),
+  setMaintenanceStatus:value=>libIpc.invoke("dk-library:maintenance-status",value),
+  onMaintenanceRequest:callback=>subscribe("dk-library:maintenance-request",callback),
+  onMaintenanceStatus:callback=>subscribe("dk-library:maintenance-status",callback),
   rememberMedia:(file,key)=>{
     if(!file)return Promise.resolve(false);
     let source;

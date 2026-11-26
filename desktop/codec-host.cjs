@@ -22,6 +22,7 @@ const MAX_PROBE_OUTPUT=512*1024;
 let installed=false,windowRef=null,playerContents=null,server=null,session=null,availability=null;
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
+let frameCache=null,frameProbeBusy=false;
 
 function binary(name) {
   const base=app.getAppPath();
@@ -110,7 +111,7 @@ async function probe(localPath) {
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
@@ -122,6 +123,7 @@ async function probe(localPath) {
   const seconds=Number(json.format?.duration);
   return {ready:true,duration:Number.isFinite(seconds)&&seconds>0?seconds:null,
     hasVideo,hasAudio,format:String(json.format?.format_name||"").slice(0,120),
+    startTime:Number.isFinite(Number(json.format?.start_time))?Number(json.format.start_time):0,
     videoCodec:String(video?.codec_name||""),
     videoPixelFormat:String(video?.pix_fmt||""),
     videoStreamIndex:hasVideo?video.index:null,
@@ -152,6 +154,55 @@ async function probe(localPath) {
     probeCache.delete(probeCache.keys().next().value);
   try{return await work;}
   catch(error){probeCache.delete(key);throw error;}
+}
+// Read presentation timestamps from the selected video stream. Bounded
+// windows and one in-flight probe avoid indexing an entire film in RAM.
+async function adjacentFrame(localPath,position,direction){
+  if(![-1,1].includes(direction)||!Number.isFinite(position)||position<0||position>7*86400)
+    throw Error("Invalid frame step");
+  if(frameProbeBusy)throw Error("Frame lookup is already running");
+  frameProbeBusy=true;
+  try{
+    const file=selectedFile(localPath),info=await probe(file);
+    if(!info.hasVideo)throw Error("No video stream");
+    const stat=fs.statSync(file),key=JSON.stringify([file,stat.size,stat.mtimeMs,info.videoStreamIndex]);
+    const select=times=>{
+      // The current frame is the final timestamp at or before the playhead.
+      // Do not estimate a fixed FPS, including on variable-frame-rate files.
+      const epsilon=0.00025;
+      let index=-1;
+      for(let i=0;i<times.length&&times[i]<=position+epsilon;i++)index=i;
+      if(index<0&&position>0.001)return null;
+      const targetIndex=index+direction;
+      if(targetIndex<0||targetIndex>=times.length)return null;
+      const target=times[targetIndex],next=times[targetIndex+1];
+      return {target,sample:Number.isFinite(next)&&next>target?
+        target+Math.min(0.005,(next-target)/2):target};
+    };
+    if(frameCache?.key===key){
+      const result=select(frameCache.times);
+      if(result)return result;
+    }
+    for(const lookback of [3,15,45]){
+      const begin=Math.max(0,position-lookback),end=position+3;
+      const interval=(begin===0?"":(begin+info.startTime).toFixed(6))+"%"+(end+info.startTime).toFixed(6);
+      const data=await processOutput(binary("ffprobe"),[
+        "-v","error","-select_streams",String(info.videoStreamIndex),
+        "-read_intervals",interval,"-show_frames","-show_entries",
+        "frame=best_effort_timestamp_time","-of","json","-i",file
+      ],18000,1024*1024);
+      const json=JSON.parse(data);
+      const times=[...new Set((Array.isArray(json.frames)?json.frames:[])
+        .map(frame=>Number(frame.best_effort_timestamp_time)-info.startTime)
+        .filter(value=>Number.isFinite(value)&&value>=-0.00025)
+        .map(value=>Math.max(0,value)))].sort((a,b)=>a-b);
+      frameCache={key,times};
+      const result=select(times);
+      if(result)return result;
+      if(begin===0)break;
+    }
+    return null;
+  }finally{frameProbeBusy=false;}
 }
 async function subtitleVtt(localPath,index) {
   const info=await probe(localPath);
@@ -267,7 +318,7 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="auto",audioIndex=0) {
+async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false) {
   const info=await probe(localPath);
   const available=await status();
   const target=selectedFile(localPath);
@@ -276,7 +327,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0) {
     chosen<info.audioTracks.length ? chosen:0;
   const position=Math.max(0,Math.min(
     Number.isFinite(Number(offset))?Number(offset):0,
-    info.duration===null?24*60*60:Math.max(0,info.duration-0.5)));
+    info.duration===null?24*60*60:Math.max(0,info.duration-(frameStep===true?0.001:0.5))));
   const copyVideo=info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
   const port=await loopback();
@@ -426,14 +477,18 @@ function install(win,contents=win?.webContents) {
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return probe(await resolveSource(localPath,checkVideo));
   });
+  ipcMain.handle("dk-codec:adjacent-frame",async(event,localPath,position,direction)=>{
+    if(!onlyWindow(event))throw Error("Rejected frame request");
+    return adjacentFrame(await resolveSource(localPath,checkVideo),position,direction);
+  });
   ipcMain.handle("dk-codec:subtitle-vtt",async(event,localPath,index)=>{
     if(!onlyWindow(event))throw new Error("Rejected subtitle request");
     return subtitleVtt(await resolveSource(localPath,checkVideo),index);
   });
-  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex)=>{
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return start(await resolveSource(localPath,checkVideo),
-      offset,format,audioIndex);
+      offset,format,audioIndex,frameStep===true);
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

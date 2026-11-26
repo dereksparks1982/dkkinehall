@@ -1092,3 +1092,38 @@ html.dk-standalone .dk-eq-band output{
   color:var(--dk-gold);font-size:.68rem;font-variant-numeric:tabular-nums;
   white-space:nowrap;
 }
+
+
+/* Approved standalone right-click palette. Stable section identifiers,
+   not translated captions, determine colour. All states retain geometry. */
+html.dk-standalone .player-context-menu>.context-section-toggle[data-menu-section="Playback"]{
+  --dk-menu-fill:#dc3942;--dk-menu-ink:#fff;--dk-menu-border:#ef6268;
+}
+html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-section="Playback format"],[data-menu-section="Speed"],[data-menu-section="Picture"]){
+  --dk-menu-fill:#e2b956;--dk-menu-ink:#23171a;--dk-menu-border:#f2ce76;
+}
+html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-section="Subtitles"],[data-menu-section="Audio tracks"]),
+html.dk-standalone .player-context-menu>.dk-menu-information{
+  --dk-menu-fill:#fff;--dk-menu-ink:#23171a;--dk-menu-border:#e7e2e2;
+}
+html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information){
+  box-sizing:border-box;width:100%;min-height:42px;
+  border:1px solid var(--dk-menu-border,#a58039);
+  background:var(--dk-menu-fill,#462a25);
+  color:var(--dk-menu-ink,#e2b956);
+  margin:3px 0;padding:10px 11px;
+  border-radius:var(--dk-button-radius);
+  outline:none;box-shadow:none;
+}
+html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information):is(:hover,:active,:focus-visible,[aria-expanded="true"]){
+  background:var(--dk-menu-fill,#462a25);color:var(--dk-menu-ink,#e2b956);
+  border-color:var(--dk-menu-border,#a58039);
+  box-shadow:inset 0 0 0 1px rgba(70,42,37,.4);
+}
+html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information):focus-visible{
+  outline:2px solid currentColor;outline-offset:-4px;
+}
+html.dk-standalone .player-context-menu>.context-section-toggle::after{color:currentColor}
+html.dk-standalone .dk-audio-settings .dk-picture-adjustment input:disabled{
+  opacity:.5;cursor:default;
+}

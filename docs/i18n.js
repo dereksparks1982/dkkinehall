@@ -291,6 +291,7 @@
     "Open DVD…":"Открыть ДВД…",
     "DVD playback":"Воспроизведение ДВД",
     "DVD title":"Раздел ДВД",
+    "Play selected title on current disc":"Воспроизвести выбранный раздел текущего диска",
     "Start chapter":"Начальная глава",
     "DVD angle":"Ракурс ДВД",
     "Open DVD drive…":"Открыть привод ДВД…",

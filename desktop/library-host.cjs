@@ -172,6 +172,13 @@ async function grantNetwork(id,value){
   networkGrants.set(token,{url,clients:new Set()});
   return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
 }
+// Only the native decoder receives a validated, session-scoped loopback URL.
+async function resolveNetworkMedia(token){
+  if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
+  const port=await startNetworkProxy();
+  if(!networkGrants.has(token))throw Error("Network media selection expired");
+  return "http://127.0.0.1:"+port+"/media/"+token;
+}
 function closeNetwork(){
   for(const req of networkClients)req.destroy();
   networkClients.clear();networkGrants.clear();networkServers.clear();
@@ -1751,4 +1758,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource};
+module.exports={install,checkPlayableSource,resolveNetworkMedia};

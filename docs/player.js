@@ -4,7 +4,7 @@
   const media = byId("media");
   let translationRun=0,translationBusy=false,translationReady=false,translationOriginals=null;
   let translationSession=null;
-  let resetVoiceover=()=>{},refreshVoiceover=()=>{};
+  let resetVoiceover=()=>{},refreshVoiceover=()=>{},voiceoverOriginalFactor=()=>1,updateVoiceoverGain=()=>{};
   let nextCountdown=null;
   let deferStartup=Boolean(window.DKLibraryBridge?.internalPages&&new URLSearchParams(location.search).get("settingsOnly")==="1");
   let mkvAudio = null;
@@ -3192,11 +3192,13 @@
     if(!separateAudio&&(volumePercent>100||(audioEffectsActive()&&current()&&!state.stopped))){
       if(!ensureVolumeBoost()&&volumePercent>100)volumePercent=100;
     }
-    media.volume=volumeAudioGraph?1:Math.min(1,volumePercent/100);
-    if(volumeAudioGraph)volumeAudioGraph.gain.gain.value=userMuted||separateAudio?0:volumePercent/100;
+    const originalLevel=volumePercent/100*voiceoverOriginalFactor();
+    media.volume=volumeAudioGraph?1:Math.min(1,originalLevel);
+    if(volumeAudioGraph)volumeAudioGraph.gain.gain.value=userMuted||separateAudio?0:originalLevel;
     media.muted=separateAudio||userMuted;
     resumeBoost();
-    if(mkvAudio)mkvAudio.setVolume(userMuted?0:volumePercent/100);
+    if(mkvAudio)mkvAudio.setVolume(userMuted?0:originalLevel);
+    updateVoiceoverGain();
     volumeSlider.value=String(volumePercent);
     byId("volumeValue").textContent=(userMuted?0:volumePercent)+"%";
     updateButtons();
@@ -4419,23 +4421,107 @@
     void check();
   }
   setupTranslation();
-  // First-stage DK Voiceover produces a separate timed audio file. Live
-  // mixing and speech recognition are deliberately not exposed yet.
+  // Pre-generated timed speech mixed with the original soundtrack. Speech recognition remains pending.
   function setupVoiceover(){
     const bridge=window.DKLibraryBridge;
     if(!bridge?.internalPages||!bridge.generateVoiceover)return;
     const group=document.createElement("div");
     group.className="player-settings-section dk-voiceover";group.id="voiceoverSettings";
-    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from the selected original text subtitles. Export a separate audio file.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option></select><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
+    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles, then listen with the original soundtrack.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option></select><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
     byId("playerSettingsPanel").append(group);
     const direction=byId("dkVoiceDirection"),generate=byId("dkVoiceGenerate"),cancel=byId("dkVoiceCancel"),exportButton=byId("dkVoiceExport");
     const label=byId("dkVoiceStatus"),progress=byId("dkVoiceProgress"),percent=byId("dkVoicePercent");
     let ready=false,busy=false,ticket=0,checkTicket=0,result=null,exporting=false;
+    let voiceGain=null,voicePlaying=false,videoWaiting=false,voiceEpoch=0,playPending=false;
+    const voice=new Audio();voice.crossOrigin="anonymous";voice.preload="metadata";
+    const enabled=byId("dkVoiceEnabled"),original=byId("dkVoiceOriginal"),level=byId("dkVoiceLevel");
+    const mixKey="dk-kinehall.voiceover-mix.v1",mix=read(mixKey,{})||{};
+    const percentValue=(value,fallback)=>Number.isFinite(Number(value))&&value!=null?Math.max(0,Math.min(100,Number(value))):fallback;
+    original.value=String(percentValue(mix.original,35));level.value=String(percentValue(mix.level,100));
     const key="dk-kinehall.voiceover-direction.v1";
     direction.value=read(key,"en-ru")==="ru-en"?"ru-en":"en-ru";
     const setStatus=value=>{label.textContent=window.DKLocale?.t(value)||value;};
     const setProgress=value=>{progress.value=value;percent.textContent=Math.floor(value)+"%";};
     const track=()=>subtitleTracks().find(t=>t.mode==="showing");
+    const mixActive=()=>enabled.checked&&voicePlaying&&result?.item===current()&&!media.paused&&!media.ended&&!state.stopped&&
+      voiceGain&&volumeAudioGraph?.context.state==="running"&&Number(level.value)>0;
+    voiceoverOriginalFactor=()=>mixActive()?Number(original.value)/100:1;
+    updateVoiceoverGain=()=>{
+      if(voiceGain)voiceGain.gain.value=mixActive()&&!userMuted?volumePercent/100*Number(level.value)/100:0;
+    };
+    const updateMix=()=>{
+      byId("dkVoiceOriginalValue").textContent=original.value+"%";
+      byId("dkVoiceLevelValue").textContent=level.value+"%";
+      write(mixKey,{original:Number(original.value),level:Number(level.value)});
+      applyVolume();
+    };
+    const stopVoice=(clear=false)=>{
+      voiceEpoch++;playPending=false;voicePlaying=false;voice.pause();
+      if(clear){enabled.checked=false;voice.removeAttribute("src");voice.load();}
+      applyVolume();
+    };
+    const fallback=()=>{
+      stopVoice(true);setStatus("Voiceover playback failed; original audio restored.");refreshVoiceover();
+    };
+    const syncVoice=(force=false)=>{
+      if(!enabled.checked||!result||result.item!==current()||state.stopped||media.paused||media.ended||media.seeking||videoWaiting){
+        if(voicePlaying||playPending||!voice.paused)stopVoice();
+        return;
+      }
+      const position=Number(playbackSeconds());
+      if(!Number.isFinite(position)||voice.readyState<1)return;
+      if(!Number.isFinite(voice.duration)||position>=voice.duration){
+        if(voicePlaying||playPending||!voice.paused)stopVoice();
+        return;
+      }
+      try{
+        if(force||Math.abs(voice.currentTime-position)>.35)voice.currentTime=Math.max(0,position);
+        voice.playbackRate=media.playbackRate;
+      }catch(_){fallback();return;}
+      if(voice.paused&&!playPending){
+        const epoch=voiceEpoch;playPending=true;
+        voice.play().then(()=>{
+          if(epoch!==voiceEpoch)return;
+          playPending=false;voicePlaying=!voice.paused;applyVolume();
+        }).catch(()=>{if(epoch===voiceEpoch){playPending=false;fallback();}});
+      }
+    };
+    enabled.addEventListener("change",async()=>{
+      if(!enabled.checked){stopVoice(true);return;}
+      if(!result||!bridge.voiceoverSource||!ensureVolumeBoost()){fallback();return;}
+      const selected=result,epoch=++voiceEpoch;
+      try{
+        const context=volumeAudioGraph.context;
+        if(!voiceGain){
+          voiceGain=context.createGain();voiceGain.gain.value=0;
+          const source=context.createMediaElementSource(voice);
+          source.connect(voiceGain);voiceGain.connect(context.destination);
+        }
+        await context.resume();
+        const src=await bridge.voiceoverSource(selected.ticket);
+        if(epoch!==voiceEpoch||result!==selected||!enabled.checked)return;
+        voice.src=src;voice.load();syncVoice(true);
+      }catch(_){if(epoch===voiceEpoch)fallback();}
+    });
+    original.addEventListener("input",updateMix);level.addEventListener("input",updateMix);
+    for(const event of ["pause","seeking","ended","emptied","waiting","stalled"]){
+      media.addEventListener(event,()=>{
+        if(event==="waiting"||event==="stalled"||event==="emptied")videoWaiting=true;
+        if(voicePlaying||playPending||!voice.paused)stopVoice();
+      });
+    }
+    for(const event of ["playing","canplay","seeked","loadeddata"]){
+      media.addEventListener(event,()=>{videoWaiting=false;syncVoice(true);});
+    }
+    media.addEventListener("timeupdate",()=>syncVoice());
+    media.addEventListener("ratechange",()=>syncVoice(true));
+    voice.addEventListener("loadedmetadata",()=>syncVoice(true));
+    voice.addEventListener("playing",()=>{if(enabled.checked&&!media.paused&&!media.seeking&&!videoWaiting){voicePlaying=true;applyVolume();}else voice.pause();});
+    voice.addEventListener("waiting",()=>{voicePlaying=false;applyVolume();});
+    voice.addEventListener("pause",()=>{voicePlaying=false;applyVolume();});
+    voice.addEventListener("ended",()=>{voicePlaying=false;applyVolume();});
+    voice.addEventListener("error",()=>{if(enabled.checked)fallback();});
+    updateMix();
     const usable=()=>{
       const item=current(),source=track();
       return !!(item&&item.kind==="file"&&!item.audio&&!item.file?.dvdToken&&!state.stopped&&source?.cues?.length&&!state.activePgsTrack&&!translationOriginals&&!translationBusy&&!(codecPlayback?.isActive(item)&&codecPlayback.offset(item)>0));
@@ -4444,8 +4530,10 @@
       generate.disabled=!ready||busy||exporting||!usable();cancel.disabled=!busy;
       exportButton.disabled=!result||busy||exporting||result.item!==current();
       direction.disabled=busy||exporting;
+      enabled.disabled=!result||busy||exporting||result.item!==current()||!bridge.voiceoverSource;
     };
     resetVoiceover=()=>{
+      stopVoice(true);videoWaiting=false;
       if(busy||result){ticket++;result=null;void bridge.discardVoiceover().catch(()=>{});}
       setProgress(0);setStatus(ready?"Select original text subtitles to generate voiceover.":"Offline voiceover runtime or voice model not installed.");
       refreshVoiceover();
@@ -4479,6 +4567,7 @@
         return [{start:Math.max(0,cue.startTime),end:cue.endTime,text:plain.trim().replace(/\s+/g," ")}];
       }).filter(r=>r.end>r.start).sort((a,b)=>a.start-b.start);
       if(!rows.length){setStatus("No readable text subtitles");return;}
+      stopVoice(true);
       const job=++ticket;result=null;busy=true;setProgress(0);setStatus("Translating dialogue…");refreshVoiceover();
       try{
         const info=await bridge.generateVoiceover(direction.value,rows,job);

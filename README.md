@@ -15,7 +15,7 @@ DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softwork
 - Make dark movies brighter and adjust the picture and sound.
 - Turn subtitles on or off, or load your own.
 - Watch fullscreen or resize the player to suit you.
-- Use the player in English or Russian.
+- Use the whole app in English or Russian, with one shared language setting.
 
 ## How do I use it?
 

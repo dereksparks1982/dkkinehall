@@ -421,7 +421,7 @@ async function updateProgress(id,position,duration,completed=false){
   });
   if(saved)changed({progress:true,id});
 }
-async function updateMetadata(id,{episodeTitle,movieTitle,movieYear}={}){
+async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails,movieProvider}={}){
   // Only verified metadata (from an actual provider result) is written.
   // Use a read/write transaction so a simultaneous playback-position save
   // cannot be overwritten by an older copy of a catalog record.
@@ -442,8 +442,11 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear}={}){
         if(row.episodeTitle===title&&row.metadataVerified)return;
         s.put({...row,episodeTitle:title,metadataVerified:true});
       }else if(row.kind==="movie"&&film){
-        if(row.title===film&&row.movieMetadataVerified&&(!year||row.year===year))return;
-        s.put({...row,title:film,year:year||row.year,movieMetadataVerified:true});
+        const details=movieDetails&&typeof movieDetails==="object"?movieDetails:row.movieDetails;
+        const provider=typeof movieProvider==="string"?movieProvider:row.movieProvider;
+        if(row.title===film&&row.movieMetadataVerified&&(!year||row.year===year)&&
+           JSON.stringify(row.movieDetails)===JSON.stringify(details)&&row.movieProvider===provider)return;
+        s.put({...row,title:film,year:year||row.year,movieMetadataVerified:true,movieDetails:details,movieProvider:provider});
       }else return;
       changedRow=true;
     };
@@ -454,6 +457,7 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear}={}){
   return changedRow;
 }
 async function artwork(id){return get("art",id);}
+async function removeArtwork(id){await erase("art",id);}
 async function saveArtwork(id,blob,credit=""){
   if(!(blob instanceof Blob)||blob.size<=0||blob.size>MAX_IMAGE_BYTES||
      !/^image\/(jpeg|png|webp)$/i.test(blob.type))return false;
@@ -464,7 +468,7 @@ async function saveArtwork(id,blob,credit=""){
 return Object.freeze({
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,removeEntry,
-  checkReadPermission,openFile,updateProgress,updateMetadata,artwork,saveArtwork,onChange,
+  checkReadPermission,openFile,updateProgress,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

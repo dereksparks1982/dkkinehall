@@ -1383,3 +1383,8 @@ html.dk-standalone[lang="ru"] :is(#scanLibrary,#playerScanLibrary){
 /* Standalone Voiceover cache tools, inside the existing settings category. */
 .dk-voiceover-cache { display:grid; gap:6px; padding-top:8px; border-top:1px solid currentColor; }
 .dk-voiceover-cache output { font-variant-numeric:tabular-nums; }
+
+/* Optional standalone speaker assignment controls. */
+#dkSpeakerSettings[hidden]{display:none}
+#dkSpeakerAssignments{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:5px 8px;align-items:center}
+#dkSpeakerAssignments select{min-width:0;width:100%}

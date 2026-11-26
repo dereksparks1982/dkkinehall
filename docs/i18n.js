@@ -28,6 +28,8 @@
     "Your Entire TV Collection":"Вся коллекция сериалов",
     "Entire Collection":"Вся коллекция",
     "Add Folder":"Добавить папку",
+    "Show in folder":"Показать в папке",
+    "Could not locate this file. Reconnect its drive or scan the library.":"Не удалось найти файл. Подключите накопитель или проверьте медиатеку.",
     "Scan Library":"Проверить медиатеку",
     "Delete from Disk…":"Удалить с диска…",
     "No movies or TV shows discovered yet":"Пока фильмы и сериалы не найдены",

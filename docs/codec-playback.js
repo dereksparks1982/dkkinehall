@@ -38,7 +38,8 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
   };
   async function start(item,offset=0,autoplay=true,format="auto",
                        audioIndex=item?.codecAudioIndex||0,frameStep=false){
-    if(!item?.file||current()!==item)return false;
+    const source=item?.file||item?.networkSource;
+    if(!source||current()!==item)return false;
     const token=++generation;
     return enqueue(async()=>{
       if(token!==generation||current()!==item)return false;
@@ -48,8 +49,8 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
           throw Error(capability?.reason||"Bundled decoder is unavailable");
         if(token!==generation||current()!==item)return false;
         onStatus("Preparing video with included codecs…");
-        const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),
-          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off",item.file.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)?item.dvdSubtitleIndex:-1);
+        const result=await bridge.start(source,Math.max(0,Number(offset)||0),
+          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off",item.file?.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)?item.dvdSubtitleIndex:-1);
         if(token!==generation||current()!==item||!result?.url)return false;
         item.historyReady=false;
         active={item,url:result.url,offset:Number(result.position)||0,

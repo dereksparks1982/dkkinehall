@@ -93,6 +93,7 @@ async function putBatch(table,rows){
       const request=s.get(row.id);
       request.onsuccess=()=>{
         const live=request.result;
+        if(live?.userHidden) return;
         s.put(live?{...row,position:live.position||0,duration:live.duration||0,
           lastPlayed:live.lastPlayed||0,completed:!!live.completed,continueHidden:!!live.continueHidden}:row);
       };
@@ -368,7 +369,7 @@ async function scanAll({manual=false,onProgress=()=>{},signal}={}){
 // Quarantine catalog noise without deleting files, artwork or history.
 function excludedDiscovery(row){
   if(!row)return false;
-  if(row.libraryExcluded)return true;
+  if(row.userHidden||row.libraryExcluded)return true;
   if(row.source!=="native")return false;
   const parts=String(row.nativePath||"").split("/").map(p=>p.toLowerCase());
   return parts.some(p=>["node_modules","__pycache__","cmakefiles","testdata","test-data","fixtures","test-fixtures","desktop-codecs","_internal","vendor","site-packages"].includes(p))||
@@ -395,6 +396,7 @@ async function ingestNative(scan){
     if(!info)continue;
     seen.add(file.id);
     const previous=old.get(file.id);
+    if(previous?.userHidden)continue;
     if(info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
       info={...info,title:"The Man with the Golden Gun",year:1974};
     // A provider label must not preserve an obviously wrong title/year
@@ -406,7 +408,7 @@ async function ingestNative(scan){
     const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
       previous.season===info.season&&previous.episode===info.episode&&
       !staleMovie&&(validMovie||previous.title===info.title)&&(!info.year||Number(previous.year)===Number(info.year));
-    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing&&!previous.libraryExcluded)continue;
+    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing&&!previous.libraryExcluded&&previous.volumeIdentity===(file.volumeIdentity||null))continue;
     changes.push({...previous,...info,
       // A verified metadata provider title survives unchanged film contents.
       episodeTitle:previous?.kind===info.kind&&previous?.metadataVerified?
@@ -418,7 +420,7 @@ async function ingestNative(scan){
       movieProvider:validMovie?previous.movieProvider:null,
       metadataVerified:previous?.kind===info.kind&&Boolean(previous?.metadataVerified),
       id:file.id,source:"native",nativePath:file.nativePath,
-      nativeRoot:file.root,filename:file.filename,relative:file.relative,
+      nativeRoot:file.root,volumeIdentity:file.volumeIdentity||null,filename:file.filename,relative:file.relative,
       size:file.size,modified:file.modified,missing:false,libraryExcluded:false,
       position:previous?.position||0,duration:previous?.duration||0,
       lastPlayed:previous?.lastPlayed||0,completed:previous?.completed||false,
@@ -510,9 +512,10 @@ async function reconcileNative(){
   if(merged)changed({entries:true,native:true});
   return merged;
 }
-async function emptyTrash(){
-  const rows=await entries();
-  const ids=rows.filter(row=>row.missing).map(row=>row.id);
+async function emptyTrash(confirmedIds=[]){
+  // Only positively checked paths may be removed. An unavailable record
+  // on a disconnected disk is not proof of deletion.
+  const ids=[...new Set(confirmedIds)];
   let removed=0;
   for(let start=0;start<ids.length;start+=80){
     const db=await open();
@@ -520,13 +523,32 @@ async function emptyTrash(){
       const tx=db.transaction(["entries","art"],"readwrite"),entries=tx.objectStore("entries"),art=tx.objectStore("art");
       for(const id of ids.slice(start,start+80)){
         const request=entries.get(id);
-        request.onsuccess=()=>{if(request.result?.missing){entries.delete(id);art.delete(id);removed++;}};
+        request.onsuccess=()=>{if(request.result?.source==="native"){entries.delete(id);art.delete(id);removed++;}};
       }
       tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Empty Trash failed"));
     });
   }
   if(removed)changed({entries:true,native:true});
   return removed;
+}
+async function hideEntry(id){
+  const db=await open();let hidden=false;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction(["entries","art"],"readwrite"),entries=tx.objectStore("entries");
+    const request=entries.get(id);
+    request.onsuccess=()=>{
+      const row=request.result;if(!row||row.source!=="native")return;
+      // Retain a path-specific exclusion, not a title-wide ban.
+      entries.put({id:row.id,kind:row.kind,source:row.source,nativePath:row.nativePath,
+        nativeRoot:row.nativeRoot,volumeIdentity:row.volumeIdentity,filename:row.filename,
+        relative:row.relative,size:row.size,modified:row.modified,userHidden:true,
+        position:row.position,duration:row.duration,lastPlayed:row.lastPlayed,
+        completed:row.completed,continueHidden:true});
+      tx.objectStore("art").delete(id);hidden=true;
+    };
+    tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Remove from library failed"));
+  });
+  if(hidden)changed({entries:true,id});return hidden;
 }
 async function removeEntry(id){
   const itemRow=await item(id);
@@ -635,7 +657,7 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails
     const request=s.get(id);
     request.onsuccess=()=>{
       const row=request.result;
-      if(!row)return;
+      if(!row||row.userHidden)return;
       if(row.kind==="tv"&&title){
         if(row.episodeTitle===title&&row.metadataVerified)return;
         s.put({...row,episodeTitle:title,metadataVerified:true});
@@ -667,7 +689,7 @@ async function saveArtwork(id,blob,credit=""){
 }
 return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
-  ingestNative,reconcileNative,emptyTrash,removeEntry,
+  ingestNative,reconcileNative,emptyTrash,removeEntry,hideEntry,
   checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setContinueHidden,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });

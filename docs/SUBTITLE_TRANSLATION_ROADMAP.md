@@ -13,3 +13,5 @@ Remaining roadmap: keep the existing player gear, subtitle toggle, icons and UI.
 - Image subtitles (PGS/VobSub) need separate OCR and are deferred until text translation is reliable.
 - Test English/Russian accuracy, Cyrillic rendering, seeking, long episodes, CPU/RAM on Surface Pro and cancellation. No network calls during translation. No claims of installed support until engine, model and end-to-end verification exist.
 - Do not increment the build version until the accepted installable v0.9.3 release. Translation can be staged as a roadmap item without blocking the existing codec/playback test preview.
+
+Local speech recognition now has source integration for creating original timed subtitles without an SRT. See [Voiceover roadmap](VOICEOVER_ROADMAP.md). Runtime installation and end-to-end verification remain pending.

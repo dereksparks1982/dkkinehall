@@ -23,7 +23,8 @@
     "third_party_integration_licenses_verified": false,
     "external_file_launch_verified": false,
     "silent_audio_fix_verified": false,
-    "dock_drop_verified": false
+    "dock_drop_verified": false,
+    "video_export_verified": false
   },
   "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player.",
   "codec_bundle_asset_url": null,

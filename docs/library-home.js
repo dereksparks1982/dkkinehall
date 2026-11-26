@@ -400,6 +400,7 @@ function showContextMenu(row,x,y,fromContinue=false){
   $("movieDetailsAction").hidden=row.kind!=="movie";
   $("refreshMovieMetadata").hidden=row.kind!=="movie";
   $("removeContinueWatching").hidden=!fromContinue;
+  $("removeFromLibrary").hidden=false;
   $("showInFolder").hidden=!nativeBridge.showInFolder;
   $("showInFolder").disabled=!!row.missing;
   menu.hidden=false;
@@ -429,10 +430,53 @@ function displayMovieDetails(row){
   $("movieDetailsClose").setAttribute("aria-label",say("Close","Закрыть"));
   if(!d.open)d.showModal();
 }
+let fileInfoRevision=0;
+function showFileFields(row,info=null,loading=false){
+  const list=$("movieFileFields"),section=$("movieFileSection");
+  section.hidden=!nativeBridge; if(section.hidden)return;
+  $("movieFileHeading").textContent=say("File Information","Сведения о файле");
+  list.replaceChildren();
+  const add=(label,value)=>{if(value!==null&&value!==undefined&&value!=="")list.append(create("dt",null,label),create("dd",null,String(value)));};
+  const filename=info?.filename||row.filename||"";
+  const ext=info?.extension||filename.split(".").pop()?.toUpperCase()||"";
+  const formatNames={MKV:"Matroska",MP4:"MPEG-4",M4V:"MPEG-4",MOV:"QuickTime",AVI:"AVI",WEBM:"WebM",TS:"MPEG-TS",M2TS:"MPEG-TS",VOB:"DVD Video"};
+  add(say("Format","Формат"),ext+(formatNames[ext]&&formatNames[ext]!==ext?" ("+formatNames[ext]+")":""));
+  const bytes=Number(info?.size??row.size);
+  if(Number.isFinite(bytes)&&bytes>=0)add(say("File size","Размер файла"),new Intl.NumberFormat(lang(),{maximumFractionDigits:2}).format(bytes/1073741824)+say(" GiB"," ГиБ"));
+  add(say("Filename","Имя файла"),filename);
+  add(say("Location","Расположение"),info?.path||row.nativePath);
+  const streams=Array.isArray(info?.streams)?info.streams:[];
+  const video=streams.find(x=>x.codec_type==="video"),audio=streams.filter(x=>x.codec_type==="audio"),subs=streams.filter(x=>x.codec_type==="subtitle");
+  const codec=x=>({h264:"H.264 / AVC",hevc:"H.265 / HEVC",av1:"AV1",aac:"AAC",ac3:"AC-3",eac3:"E-AC-3",dts:"DTS",vp9:"VP9",subrip:"SRT"}[x]||String(x||"").toUpperCase());
+  const language=x=>{const value=String(x||"und").toLowerCase();try{return new Intl.DisplayNames([lang()],{type:"language"}).of(value);}catch(_){return value==="und"?say("Unspecified","Не указан"):value;}};
+  if(video){
+    add(say("Video codec","Видеокодек"),codec(video.codec_name));
+    if(video.width&&video.height)add(say("Resolution","Разрешение"),video.width+" × "+video.height);
+    const rate=String(video.avg_frame_rate||video.r_frame_rate||"").split("/").map(Number);
+    const fps=rate.length===2&&rate[1]?rate[0]/rate[1]:rate[0];
+    if(Number.isFinite(fps)&&fps>0)add(say("Frame rate","Частота кадров"),new Intl.NumberFormat(lang(),{maximumFractionDigits:3}).format(fps)+say(" FPS"," кадр/с"));
+  }
+  if(audio.length){
+    add(say("Audio codecs","Аудиокодеки"),audio.map(x=>codec(x.codec_name)+(x.tags?.language?" ("+language(x.tags.language)+")":"")).join(", "));
+    add(say("Audio channels","Аудиоканалы"),audio.map(x=>x.channels?String(x.channels):"").filter(Boolean).join(", "));
+  }
+  if(info?.probeStatus==="ok")add(say("Embedded subtitles","Встроенные субтитры"),subs.length?subs.map(x=>language(x.tags?.language)+" ("+codec(x.codec_name)+")").join(", "):say("None","Нет"));
+  $("movieFileStatus").textContent=loading?say("Reading local file…","Чтение локального файла…"):info?.probeStatus==="ok"?"":say("Stream details unavailable; format and file size are based on the catalog or file extension.","Сведения о потоках недоступны; формат и размер указаны по каталогу или расширению файла.");
+}
 async function showMovieDetails(){
   const row=contextRow;hideContextMenu();
   if(row?.kind!=="movie")return;
-  displayMovieDetails(await store.item(row.id)||row);
+  const latest=await store.item(row.id)||row;
+  displayMovieDetails(latest);
+  const revision=++fileInfoRevision;
+  showFileFields(latest,null,!!nativeBridge?.fileInfo);
+  if(!nativeBridge?.fileInfo)return;
+  try{
+    const info=await nativeBridge.fileInfo(latest.id,latest.nativePath);
+    if(revision===fileInfoRevision&&detailMovieId===latest.id&&$("movieDetailsDialog").open)showFileFields(latest,info);
+  }catch(_){
+    if(revision===fileInfoRevision&&detailMovieId===latest.id&&$("movieDetailsDialog").open)showFileFields(latest);
+  }
 }
 async function refreshMovie(){
   const row=contextRow;hideContextMenu();
@@ -454,6 +498,15 @@ async function removeContinueWatching(){
   const row=contextRow;hideContextMenu();if(!row)return;
   try{await store.setContinueHidden(row.id,true);const latest=await store.item(row.id);if(latest)all=all.map(item=>item.id===row.id?latest:item);paintContinueWatching();}
   catch(_){status("Could not remove from Continue Watching.","Не удалось убрать из списка продолжения просмотра.",true);}
+}
+async function removeFromLibrary(){
+  const row=contextRow;hideContextMenu();
+  if(!row||scanning||maintaining){status("Stop the current library operation first.","Сначала остановите текущую операцию.",true);return;}
+  if(!window.confirm(say("Remove this card from the library? The video file will not be deleted, and this path will stay hidden in future scans.","Убрать эту карточку из медиатеки? Видеофайл не будет удалён, а этот путь останется скрытым при следующих проверках.")))return;
+  try{
+    await store.hideEntry(row.id);await render();
+    status("Removed from library. Video file unchanged.","Карточка удалена из медиатеки. Видеофайл не изменён.");
+  }catch(_){status("Could not remove library card.","Не удалось удалить карточку.",true);}
 }
 async function showInFolder(){
   const row=contextRow;hideContextMenu();
@@ -803,12 +856,24 @@ async function libraryMaintenance(action){
   let result={busy:false};
   try{
     if(action==="trash"){
-      const merged=await store.reconcileNative();
-      const removed=await store.emptyTrash();
-      result={busy:false,removed,merged};
+      if(!nativeBridge.checkCatalogPaths)throw Error("Path verification unavailable");
+      const rows=(await store.entries()).filter(row=>row.source==="native"&&row.nativePath);
+      const confirmed=[];let uncertain=0;
+      for(let start=0;start<rows.length;start+=128){
+        const batch=rows.slice(start,start+128).map(({id,nativePath,volumeIdentity})=>({id,nativePath,volumeIdentity}));
+        const checked=await nativeBridge.checkCatalogPaths(batch);
+        for(const entry of checked){
+          if(entry.state==="missing")confirmed.push(entry.id);
+          else if(entry.state==="unknown")uncertain++;
+        }
+        status("Checking library files: "+Math.min(start+128,rows.length)+" / "+rows.length,
+          "Проверка файлов: "+Math.min(start+128,rows.length)+" / "+rows.length);
+      }
+      const removed=await store.emptyTrash(confirmed);
+      result={busy:false,removed,merged:0};
       await render();
-      status("Empty Trash: "+removed+" unavailable records removed, "+merged+" duplicates merged.",
-        "Корзина очищена: удалено записей "+removed+", объединено "+merged+".");
+      status("Empty Trash: "+removed+" deleted-file records removed. "+uncertain+" uncertain paths retained.",
+        "Корзина очищена: удалено записей "+removed+". Сохранено непроверенных путей: "+uncertain+".");
     }else if(action==="refresh"){
       if(!navigator.onLine)throw Error("Offline");
       // Explicit full-library refresh: one item at a time, with a stop
@@ -848,6 +913,7 @@ function connect(){
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
   $("removeContinueWatching").addEventListener("click",()=>void removeContinueWatching());
+  $("removeFromLibrary").addEventListener("click",()=>void removeFromLibrary());
   $("showInFolder").addEventListener("click",()=>void showInFolder());
   $("deleteFromDisk").addEventListener("click",()=>void deleteFromDisk());
   document.addEventListener("pointerdown",event=>{
@@ -900,6 +966,14 @@ function connect(){
     }
     const labels=()=>{$("scanLibrary").textContent=say(scanning?"Stop Scan":"Scan Library",scanning?"Остановить":"Проверить медиатеку");$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
     labels();$("languageSelect").addEventListener("change",()=>queueMicrotask(labels));
+    const trash=$("libraryEmptyTrash");
+    if(nativeBridge.requestMaintenance){
+      trash.hidden=false;
+      trash.addEventListener("click",()=>void nativeBridge.requestMaintenance("trash",lang()).catch(()=>status("Library maintenance failed.","Не удалось выполнить обслуживание медиатеки.",true)));
+      let busy=false;
+      nativeBridge.onMaintenanceStatus?.(value=>{busy=!!value.busy;trash.disabled=busy||scanning;});
+      nativeBridge.onScanState?.(value=>{trash.disabled=busy||!!value;});
+    }
     $("scanLibrary").classList.remove("primary","ghost");
     $("scanLibrary").classList.add("dk-scan");
     nativeBridge.onScanRequest(()=>void scan(true));
@@ -954,7 +1028,7 @@ function connect(){
       if(id==="library"){
         toolButton("Scan Library",()=>{dlg.close();void scan(true);});
         toolButton("Refresh Metadata",()=>{dlg.close();void libraryMaintenance("refresh");});
-        toolButton("Empty Trash",()=>{dlg.close();void libraryMaintenance("trash");});
+        toolButton("Empty Trash",()=>{dlg.close();void nativeBridge.requestMaintenance("trash",lang());});
       }
       if(id==="general")extra.append(create("p","helper","Use the header language selector to change the interface language."));
       if(id==="general")extra.hidden=false;

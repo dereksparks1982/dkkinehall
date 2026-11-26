@@ -36,6 +36,8 @@ The `desktop/` modules retain the existing Electron window, icons and web-based 
 
 The `maintenance/codec_bundle.py` injector, `maintenance/prepare_desktop_codecs.py` packager and runtime synchronization source are configured to refuse incomplete codec bundles and preserve the approved icon/window code. Decoder and container inventories must be generated from the *actually included* FFmpeg tools.
 
+The decoder bridge source now includes user selection of an FFprobe-discovered audio stream and an explicit transcoded Repeat One restart. Real-world playback, synchronization, audio/subtitle combinations and correct seek behavior are still unverified.
+
 **Unverified release blockers:** preloaded Electron bridge detection, selected-file path handling, seek/resume correctness, runtime performance, all supported decoder/encoder combinations, alternate audio and subtitle handling, legal redistribution and an end-to-end Linux package/playback check. This source is not an installed universal decoder, and must not be described or distributed as finished.
 
 ## Required implementation before claiming broad bundled codec coverage

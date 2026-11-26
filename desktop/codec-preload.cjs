@@ -16,10 +16,11 @@ contextBridge.exposeInMainWorld("DKCodecBridge",{
     if(!name)return Promise.reject(new Error("A local file must be selected"));
     return ipcRenderer.invoke("dk-codec:probe",name);
   },
-  start:(file,offset,format="mp4")=>{
+  start:(file,offset,format="mp4",audioIndex=0)=>{
     const name=localPath(file);
     if(!name)return Promise.reject(new Error("A local file must be selected"));
-    return ipcRenderer.invoke("dk-codec:start",name,Number(offset)||0,format==="webm"?"webm":"mp4");
+    return ipcRenderer.invoke("dk-codec:start",name,Number(offset)||0,
+      format==="webm"?"webm":"mp4",Number.isInteger(audioIndex)?audioIndex:0);
   },
   stop:()=>ipcRenderer.invoke("dk-codec:stop")
 });

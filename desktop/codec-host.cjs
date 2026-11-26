@@ -96,7 +96,7 @@ async function probe(localPath) {
   const file=selectedFile(localPath);
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name:stream=index,codec_type,codec_name",
+    "format=duration,format_name:stream=index,codec_type,codec_name:stream_tags=language,title",
     "-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
@@ -108,7 +108,12 @@ async function probe(localPath) {
   return {ready:true,duration:Number.isFinite(seconds)&&seconds>0?seconds:null,
     hasVideo,hasAudio,format:String(json.format?.format_name||"").slice(0,120),
     videoCodec:String(streams.find(s=>s.codec_type==="video")?.codec_name||""),
-    audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||"")};
+    audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
+    audioTracks:streams.filter(s=>s.codec_type==="audio").map((s,index)=>({
+      index,codec:String(s.codec_name||""),
+      language:String(s.tags?.language||"").slice(0,20),
+      title:String(s.tags?.title||"").slice(0,100)
+    }))};
 }
 function cancelStream() {
   if(!session)return;
@@ -128,7 +133,7 @@ function serve(req,res) {
   }
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-ss",String(active.position),"-i",active.path,
-    "-map","0:v:0?","-map","0:a:0?","-sn","-dn"];
+    "-map","0:v:0?","-map","0:a:"+active.audioOrdinal+"?","-sn","-dn"];
   if(active.format==="webm") {
     args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5",
       "-b:v","0","-crf","33","-c:a","libopus","-b:a","160k",
@@ -171,20 +176,23 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="mp4") {
+async function start(localPath,offset=0,format="mp4",audioIndex=0) {
   const info=await probe(localPath);
   if(format==="webm" && !(await status()).webm)
     throw new Error("This bundled decoder cannot create WebM streams");
   if(!["mp4","webm"].includes(format))
     throw new Error("Unsupported streaming output format");
   const target=selectedFile(localPath);
+  const chosen=Number(audioIndex);
+  const audioOrdinal=Number.isInteger(chosen)&&chosen>=0 &&
+    chosen<info.audioTracks.length ? chosen:0;
   const position=Math.max(0,Math.min(
     Number.isFinite(Number(offset))?Number(offset):0,
     info.duration===null?24*60*60:Math.max(0,info.duration-0.5)));
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,position,format,process:null,response:null};
+  session={token,path:target,position,format,audioOrdinal,process:null,response:null};
   return {...info,position,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }
@@ -203,9 +211,9 @@ function install(win) {
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return probe(localPath);
   });
-  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format)=>{
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
-    return start(localPath,offset,format);
+    return start(localPath,offset,format,audioIndex);
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

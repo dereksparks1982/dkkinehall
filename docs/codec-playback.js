@@ -27,7 +27,8 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{}}) {
       try{await bridge.stop();}catch(_){}
     });
   };
-  async function start(item,offset=0,autoplay=true,format="mp4"){
+  async function start(item,offset=0,autoplay=true,format="mp4",
+                       audioIndex=item?.codecAudioIndex||0){
     if(!item?.file||current()!==item)return false;
     const token=++generation;
     return enqueue(async()=>{
@@ -38,12 +39,15 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{}}) {
           throw Error(capability?.reason||"Bundled decoder is unavailable");
         if(token!==generation||current()!==item)return false;
         onStatus("Preparing video with included codecs…");
-        const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),format);
+        const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),
+          format,audioIndex);
         if(token!==generation||current()!==item||!result?.url)return false;
         active={item,offset:Number(result.position)||0,
           duration:result.duration===null||result.duration===undefined?
             null:(Number.isFinite(Number(result.duration))?Number(result.duration):null)};
         item.playbackMethod="Bundled native decoder";
+        item.nativeAudioTracks=Array.isArray(result.audioTracks)?
+          result.audioTracks:[];
         item.codecActive=true;
         media.pause();
         media.src=result.url;
@@ -80,7 +84,8 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{}}) {
     const position=Math.max(0,Number.isFinite(limit)?
       Math.min(limit-0.25,Number(seconds)||0):Number(seconds)||0);
     const playing=!media.paused;
-    return start(item,position,playing,item.requestedFormat==="webm"?"webm":"mp4");
+    return start(item,position,playing,item.requestedFormat==="webm"?"webm":"mp4",
+      item.codecAudioIndex||0);
   };
   return {start,seek,stop,isActive,position,duration};
 }

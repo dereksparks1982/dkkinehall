@@ -1065,6 +1065,11 @@
     const resume=Number(state.resume[item.key]||0);
     const at=Number.isFinite(resume)&&resume>0?resume:
       (Number.isFinite(media.currentTime)?Math.max(0,media.currentTime):0);
+    const preferred=state.audioPreferences[item.key];
+    if(preferred?.mode==="mkv") {
+      const ordinal=(item.embeddedAudio||[]).findIndex(t=>t.number===preferred.number);
+      if(ordinal>=0)item.codecAudioIndex=ordinal;
+    }
     return codecPlayback.start(item,at,Boolean(item.autoplayRequested),
       item.requestedFormat==="webm"?"webm":"mp4");
   };
@@ -1692,7 +1697,9 @@
     if (playbackOrder.loop === "one") {
       state.stopped = false;
       if(codecPlayback?.isActive(completed)) {
-        void codecPlayback.seek(completed,0);
+        void codecPlayback.start(completed,0,true,
+          completed.requestedFormat==="webm"?"webm":"mp4",
+          completed.codecAudioIndex||0);
       }else{
         try { media.currentTime = 0; } catch (_) {}
         const restarted = media.play();
@@ -2000,7 +2007,20 @@
   }) : null;
   const audioTracks = () => audioApi ? audioApi.nativeTracks(media) : [];
   const chooseEmbeddedAudio = async (item,track,remember = true) => {
-    if (!item || !item.file || !mkvAudio || !mkvAudio.canAttempt(track)) return;
+    if (!item || !item.file) return;
+    if (codecPlayback?.isActive(item)) {
+      const ordinal=(item.embeddedAudio || []).findIndex(t=>t.number===track.number);
+      if (ordinal<0 || item.codecAudioIndex===ordinal) return;
+      item.codecAudioIndex=ordinal;
+      if (remember) {
+        state.audioPreferences[item.key]={mode:"mkv",number:track.number};
+        write(store.audioPreferences,state.audioPreferences);
+      }
+      void codecPlayback.start(item,playbackSeconds(),!media.paused,
+        item.requestedFormat==="webm"?"webm":"mp4",ordinal);
+      return;
+    }
+    if (!mkvAudio || !mkvAudio.canAttempt(track)) return;
     if (mkvAudio.selectedNumber() === track.number && current() === item) return;
     status("Opening embedded MKV audio…");
     try {
@@ -2057,7 +2077,7 @@
   };
   const restoreAudioPreference = () => {
     const item = current(), tracks = audioTracks();
-    if (!item || state.stopped) return;
+    if (!item || state.stopped || codecPlayback?.isActive(item)) return;
     const saved = state.audioPreferences[item.key];
     if (!saved) return;
     if (saved.mode === "mkv") {
@@ -2150,6 +2170,28 @@
     addMenuItem("＋ Load SRT / VTT…", () => byId("subtitlePicker").click());
 
     addMenuHeading("Audio tracks");
+    if (codecPlayback?.isActive(current())) {
+      const item=current();
+      const nativeTracks=item.nativeAudioTracks||[];
+      if(nativeTracks.length) {
+        addMenuSubheading("Included audio tracks");
+        nativeTracks.forEach((track,index)=>addMenuItem(
+          (track.title||track.language||"Audio track "+(index+1))+
+            (track.codec?" · "+track.codec:""),
+          ()=>{
+            item.codecAudioIndex=index;
+            const info=(item.embeddedAudio||[])[index];
+            if(info){
+              state.audioPreferences[item.key]={mode:"mkv",number:info.number};
+              write(store.audioPreferences,state.audioPreferences);
+            }
+            void codecPlayback.start(item,playbackSeconds(),!media.paused,
+              item.requestedFormat==="webm"?"webm":"mp4",index);
+          },
+          {checked:(item.codecAudioIndex||0)===index}
+        ));
+      }
+    }
     if (mkvAudio && mkvAudio.selectedNumber() !== null)
       addMenuItem("Use original Chromium audio",restoreOriginalAudio);
     const audios = audioTracks();
@@ -2158,7 +2200,7 @@
       audios.forEach((track,index) => addMenuItem(
         audioApi.labelNative(track,index),
         () => selectAudioTrack(index), {checked: Boolean(track.enabled)}));
-    } else {
+    } else if (!codecPlayback?.isActive(current())) {
       addMenuItem("Browser audio-track switching unavailable", () => {},
         {disabled: true,reason: "This browser does not expose switchable audio streams."});
     }
@@ -2166,11 +2208,16 @@
       if (item.embeddedAudio && item.embeddedAudio.length) {
         addMenuSubheading("Embedded MKV audio · WebCodecs");
         item.embeddedAudio.forEach(track => {
-          const possible = !!(mkvAudio && mkvAudio.canAttempt(track));
+          const usingNative=!!codecPlayback?.isActive(item);
+          const possible = usingNative || !!(mkvAudio && mkvAudio.canAttempt(track));
+          const selected=usingNative?
+            (item.embeddedAudio||[]).findIndex(t=>t.number===track.number) ===
+              (item.codecAudioIndex||0) :
+            !!(mkvAudio && mkvAudio.selectedNumber()===track.number);
           addMenuItem(audioApi ? audioApi.labelEmbedded(track) :
             (track.name || track.language || track.codec),
             () => { if (possible) void chooseEmbeddedAudio(item,track); },
-            {checked:possible ? mkvAudio.selectedNumber() === track.number : undefined,
+            {checked:possible ? selected : undefined,
               disabled:!possible,
               reason:"This format is not supported by the included Chromium audio decoder."});
         });

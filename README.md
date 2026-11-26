@@ -41,6 +41,10 @@ The two editions are separate. The Web App remains available regardless of chang
 
 The existing Chromium-based player has source code for a guarded desktop decoding adapter. When an FFmpeg/FFprobe payload is actually bundled and its Electron bridge works, an unsupported local file can be transcoded inside the application into MP4 (H.264/AAC) or WebM (VP9/Opus, where available) and played through the **same video surface and controls**. The current installed standalone has **not** been verified with this backend. No user codec installations, other media players or manual conversion should be necessary in the finished release.
 
+## Additional decoding source progress
+
+The bundled-codec adapter now also has source-level selection of alternate audio streams discovered by FFprobe. Repeat One explicitly restarts a transcoded file at the beginning. Both still require real standalone runtime verification and do not make the release complete.
+
 ## Final acceptance gate
 
 The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). The native prototype packaging now includes FFmpeg/FFprobe and generates decoder/container inventories, but that native backend is not yet underneath the approved Chromium interface. Neither a code commit nor a successful subtitle lookup establishes universal media decoding. The standalone codec/backend integration and package verification remain unfinished. The updater is now blocked by `maintenance/release-gate.json` until all acceptance checks are verified. No end-user update instructions should be given until all requested functionality is accepted.

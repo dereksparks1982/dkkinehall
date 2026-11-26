@@ -25,6 +25,7 @@
     "Original mode skips conversion and keeps the local source unchanged.":"Оригинальный режим не изменяет файл.",
     "Supported MKV files can be remuxed without re-encoding. Full transcoding and GPU switching are not installed.":"Совместимые файлы МКВ можно перепаковать без перекодирования. Полное перекодирование и переключение видеоускорения не установлены.",
     "This video format is not supported by the current playback engine.":"Текущий проигрыватель не поддерживает этот формат видео.",
+    "Included audio tracks":"Встроенные звуковые дорожки",
     "Preparing video with included codecs…":"Подготовка видео встроенными кодеками…",
     "Playing with included codecs.":"Воспроизведение со встроенными кодеками.",
     "Included decoder output could not be played.":"Не удалось воспроизвести результат встроенного декодера.",

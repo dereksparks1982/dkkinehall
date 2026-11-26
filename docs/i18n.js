@@ -141,7 +141,7 @@
     "Float or dock the video":"Отделить или закрепить видео",
     "Move player into floating mode":"Отделить окно проигрывателя",
     "Dock player back into page":"Вернуть проигрыватель на страницу",
-    "Chapter":"Глава", "Subtitle":"Субтитры",
+    "Chapter":"Глава", "Virtual chapter":"Условная глава", "Subtitle":"Субтитры",
     "Audio track":"Аудиодорожка",
     "Subtitle track":"Дорожка субтитров",
     "Media player and file drop area":"Проигрыватель и область перетаскивания файлов",

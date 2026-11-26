@@ -1000,7 +1000,7 @@
       fallback.className = "queue-artwork-fallback";
       fallback.textContent = item.audio ? "♫" : "▶";
       artworkBox.append(fallback);
-      if (queueHover) queueHover.bind(play, item, artworkBox);
+      if (queueHover&&!item.file?.dvdToken) queueHover.bind(play, item, artworkBox);
       const labels = document.createElement("span");
       labels.className = "queue-item-labels";
       const title = document.createElement("span");
@@ -1162,6 +1162,11 @@
       restoreAudioPreference();
     }
     current().autoplayRequested = true;
+    if(current().file?.dvdToken&&!codecPlayback?.isActive(current())){
+      const item=current();if(item.deinterlacePending)return;
+      item.codecAttempted=false;item.deinterlacePending=true;
+      void tryNativeCodec(item).finally(()=>{item.deinterlacePending=false;});return;
+    }
     const result = media.play();
     if (result && typeof result.catch === "function") result.catch(err => {
       if (err && err.name === "NotAllowedError") status("Tap Play to start playback on this device.");
@@ -1564,13 +1569,13 @@
       else if(item.libraryId&&Number(artData?.libraryPosition)>2 &&
               !Number(state.resume[item.key]))
         state.resume[item.key]=Number(artData.libraryPosition);
-      if (/\.mkv$/i.test(file.name) && window.DKMkvChapters) {
+      if (!file.dvdToken&&/\.mkv$/i.test(file.name) && window.DKMkvChapters) {
         void window.DKMkvChapters.inspectFile(file).then(chapters=>{
           if (!state.queue.includes(item)) return;
           mergeChapters(item,chapters);
         }).catch(()=>{});
       }
-      if (/\.mkv$/i.test(file.name) && window.DKMatroska) {
+      if (!file.dvdToken&&/\.mkv$/i.test(file.name) && window.DKMatroska) {
         item.mkvInspection = "pending";
         void window.DKMatroska.inspectFile(file).then(result => {
           if (!state.queue.includes(item)) return;
@@ -2367,7 +2372,7 @@
       });
     }
     const note=document.createElement("p");note.className="helper";
-    note.textContent="DVD title playback requires a compatible decoder. Menus and disc subtitles are not supported yet. Disc selections are session-only.";
+    note.textContent="DVD titles use automatic native decoding. A compatible decoder is required. Menus and disc subtitles are not supported yet. Disc selections are session-only.";
     section.append(note);byId("playerSettingsPanel").append(section);window.DKLocale?.apply();
   }
   // Frame stepping uses actual source presentation timestamps. Pause before

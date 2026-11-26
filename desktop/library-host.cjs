@@ -8,7 +8,7 @@ const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
 const {fileURLToPath}=require("node:url");
-const VERSION="0.9.2";
+const VERSION="0.9.3";
 let externalSelections=[],externalWork=Promise.resolve();
 let installed=false,home=null,player=null,playerFile=null;
 let scanController=null,scanPromise=null;

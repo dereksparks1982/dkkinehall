@@ -12,6 +12,7 @@ function attach({screen,button,onResize=()=>{}}){
   const nativeDock=Boolean(root.DKLibraryBridge?.internalPages);
   const grid=nativeDock?container.closest(".main-grid"):null;
   const sidebar=grid?.querySelector(":scope > aside");
+  const dockGripHost=nativeDock?(container.querySelector(":scope > .now-playing")||container):container;
   let expanded=false;
   const normalLimit=()=>{
     const width=availableWidth();
@@ -43,7 +44,7 @@ function attach({screen,button,onResize=()=>{}}){
   corner.title="Drag to resize player";
   corner.setAttribute("aria-label","Drag to resize player");
   screen.append(handle);
-  if(nativeDock){container.classList.add("dk-resizable-panel");container.append(corner);}
+  if(nativeDock){container.classList.add("dk-resizable-panel");dockGripHost.append(corner);}
   else screen.append(corner);
   let saved={};
   try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{};}catch(_){}
@@ -93,7 +94,7 @@ function attach({screen,button,onResize=()=>{}}){
     placeholder.hidden=!floating;
     if(nativeDock){
       container.classList.toggle("dk-player-detached",floating);
-      (floating?screen:container).append(corner);
+      (floating?screen:dockGripHost).append(corner);
     }
     button.textContent=floating?"Dock":"Float";
     button.setAttribute("aria-pressed",String(floating));

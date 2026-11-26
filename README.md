@@ -182,7 +182,7 @@ All items are in scope, including network playback; none are deferred indefinite
 | Preserve | Playback speed, fullscreen, mini-player, chapters | Existing; retain |
 | 1 | Brightness, contrast, saturation, hue, reset picture settings | Source added; runtime acceptance pending |
 | 2 | Gamma correction and sharpness | Source added; runtime acceptance pending |
-| 3 | Single-frame forward and reverse navigation | Planned; accurate reverse requires decoder work |
+| 3 | Single-frame forward and reverse navigation | Source added; rendered-frame accuracy and decoder acceptance pending |
 | 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Planned/partial |
 | 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Planned |
 | 6 | Automatic volume leveling and dialogue enhancement | Planned |
@@ -200,4 +200,13 @@ Enhancements belong in the existing settings gear and must not modify original m
 
 The existing playback gear now includes six live picture sliders: brightness, contrast and saturation (0–200%, neutral 100%), hue (−180° to +180°, neutral 0°), gamma (0.25–3.00, neutral 1.00), and sharpness (0–100%, neutral 0%). Values are remembered locally; Reset picture restores all neutral settings. CSS picture filters and local SVG gamma/convolution filters apply only to the existing video element, with no filtering at neutral defaults. Original media, export output, icons, crimson background and playback bar layout are not changed. Native Picture-in-Picture, subtitle rendering and performance with non-neutral filters require later runtime acceptance.
 
-[Master development and acceptance roadmap](docs/ROADMAP.md) is the consolidated source of truth for all outstanding classic player features, previous library/player fixes, translation and codec packaging, design requirements and acceptance gates. Next: frame-by-frame navigation. Standalone source only; no compilation, testing, downloads or terminal commands in this update.
+[Master development and acceptance roadmap](docs/ROADMAP.md) is the consolidated source of truth for all outstanding classic player features, previous library/player fixes, translation and codec packaging, design requirements and acceptance gates. Next: zoom, cropping and aspect ratio controls. Standalone source only; no compilation, testing, downloads or terminal commands in this update.
+
+
+### Expandable docked player and frame navigation
+
+Drag the docked player's right edge or existing bottom-right resize grip beyond the normal two-column boundary to hide Up Next. Drag to the left across the boundary to restore the sidebar. The same video element, playlist and current playback remain mounted; full available content width does not require fullscreen. Width and expanded state are saved. Float/dock behavior remains separate.
+
+Frame navigation in the settings gear adds Previous frame and Next frame; Shift+Left and Shift+Right are keyboard shortcuts. Playback pauses and the guarded native decoder bridge obtains presentation timestamps from the actual local source video using bounded FFprobe windows and a small reusable cache. Direct playback seeks just inside the selected frame interval, while native transcoded playback restarts paused at the selected source timestamp with a frame-specific end clamp. No assumed frame rate, whole-film indexing or modification of the source file. This is source-level implementation, not proof of frame-perfect rendering: variable frame rates, nonzero timestamp origins, browser/remux timelines, decoder keyframes, final frames and native stream startup need acceptance. FFprobe and the existing native bridge are required.
+
+Next implementation priority: video zoom, cropping and aspect ratio controls. Master roadmap updated. No compile, runtime tests, downloads or terminal commands.

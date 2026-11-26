@@ -8,6 +8,8 @@
 
 ## v0.9.3 installed update
 
+**Approved folder controls:** The Player sidebar uses a two-by-two grid of equal-sized buttons: Choose folder and Reopen folder on the first row, Forget folder and white Scan Library on the second. The three folder controls have brown backgrounds, gold borders and gold lettering. Reopen and Forget remain visible but disabled without a saved folder. Scan Library is removed from the Player header; the Library Home header remains unchanged.
+
 **Continue Watching:** Standalone library selections reuse the existing queue entry by library ID or native file identity, with an unambiguous file fingerprint fallback for manually opened files. Repeated selections are serialized, do not append duplicate entries, and resume the selected movie without rearranging the existing queue. Stop preserves the unfinished source position for Continue Watching; pressing Play directly after Stop still restarts the movie. Existing duplicate entries are not automatically deleted.
 
 **Volume requirement:** The standalone volume slider and thumb are red. Standalone volume is 0–200%, including slider, scroll wheel, keyboard and remembered settings. Values above 100% use actual audio gain. Do not reduce the standalone maximum without explicit user approval. Hosted Web App volume stays at 0–100%.
@@ -18,7 +20,7 @@
 
 **Playback settings:** The standalone settings panel has a red × in its upper-right corner to close the panel and return focus to the existing gear. No playback icon artwork or application branding changes.
 
-For updates to an existing installation, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It reuses locally installed FFmpeg/FFprobe; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Player, Library and Scan Library use matching header button dimensions.
+For updates to an existing installation, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It reuses locally installed FFmpeg/FFprobe; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Library Home retains its white Scan Library header button. The Player places Scan Library in the sidebar folder controls.
 
 ## v0.9.3 development preview (not a release)
 

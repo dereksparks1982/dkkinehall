@@ -1017,3 +1017,17 @@ html.dk-standalone .playback-settings-panel .dk-picture-reset{
 html.dk-standalone .playback-settings-panel .dk-picture-reset:hover{
   background:#53322b;border-color:#e2b956;
 }
+
+
+/* Standalone docked resize: the queue stays mounted and retains its state.
+   A single-column grid frees its former space when the player expands. */
+html.dk-standalone .main-grid.dk-player-expanded{grid-template-columns:minmax(0,1fr)}
+html.dk-standalone .main-grid.dk-player-expanded>aside{display:none}
+html.dk-standalone .dk-resizable-panel{min-width:0}
+html.dk-standalone .dk-dock-resize-edge{
+  position:absolute;z-index:47;top:0;bottom:25px;right:0;width:8px;
+  cursor:ew-resize;touch-action:none;user-select:none;
+}
+html.dk-standalone .dk-player-detached>.dk-dock-resize-edge,
+html.dk-desktop-fullscreen .dk-dock-resize-edge,
+html.dk-standalone .dk-resizable-panel:has(>.screen:fullscreen)>.dk-dock-resize-edge{display:none}

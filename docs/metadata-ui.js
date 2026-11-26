@@ -18,6 +18,49 @@ const finder=window.DKMediaMetadata.create({
   enabled:()=>enabled,token:()=>token,selectImage:choose
 });
 const locale=(en,ru)=>document.documentElement.lang==="ru"?ru:en;
+// Full, original filenames remain the keys for artwork and episode metadata.
+const originalFilename=li=>li?.dkQueueItem?.name ||
+  li?.querySelector(".item-title")?.textContent?.trim() || "";
+const EPISODE_STORE="dk-kinehall.episode-titles.v1";
+const episodeNames=(()=>{
+  try{
+    const saved=JSON.parse(localStorage.getItem(EPISODE_STORE)||"[]");
+    return new Map((Array.isArray(saved)?saved:[]).filter(row=>
+      Array.isArray(row)&&typeof row[0]==="string"&&
+      typeof row[1]==="string"&&row[1].length<220).slice(-160));
+  }catch(_){return new Map();}
+})();
+function updateEpisodeName(li,name,rawTitle){
+  const label=li?.querySelector(".item-episode-name");
+  if(!label||typeof rawTitle!=="string")return;
+  const title=rawTitle.trim().slice(0,200);
+  if(!title)return;
+  label.textContent=title;
+  if(li.dkQueueItem)li.dkQueueItem.episodeTitle=title;
+  episodeNames.set(name,title);
+  while(episodeNames.size>160)episodeNames.delete(episodeNames.keys().next().value);
+  try{localStorage.setItem(EPISODE_STORE,JSON.stringify([...episodeNames]));}
+  catch(_){}
+}
+function requestEpisodeName(li,name){
+  if(!li.querySelector(".item-episode-name"))return;
+  const saved=episodeNames.get(name)||li.dkQueueItem?.episodeTitle;
+  if(saved)updateEpisodeName(li,name,saved);
+  if(typeof finder.episodeTitle!=="function"||li.dataset.episodeNameRequested==="1"||saved)return;
+  li.dataset.episodeNameRequested="1";
+  void finder.episodeTitle(name).then(title=>{
+    if(!li.isConnected||originalFilename(li)!==name)return;
+    if(title)updateEpisodeName(li,name,title);
+    else{
+      const label=li.querySelector(".item-episode-name");
+      if(label)label.textContent="Episode title unavailable";
+    }
+  }).catch(()=>{
+    if(!li.isConnected||originalFilename(li)!==name)return;
+    const label=li.querySelector(".item-episode-name");
+    if(label)label.textContent="Episode title unavailable";
+  });
+}
 const stored=(()=>{
   try{
     const entries=JSON.parse(localStorage.getItem(STORE)||"[]");
@@ -84,7 +127,7 @@ function showImage(box,art,requestedGeneration,source="provider"){
       status(box,locale("Local poster from your folder","Местный постер из выбранной папки"),"folder-loaded");
     }else{
       // Only cache successfully rendered image URLs, not broken CDN links.
-      const name=box.closest("li")?.querySelector(".item-title")?.textContent?.trim();
+      const name=originalFilename(box.closest("li"));
       if(name){
         const workingArt=index===0?art:{...art,url:urls[index],fallbackUrl:null};
         cache.set(name,Promise.resolve(workingArt));
@@ -111,7 +154,7 @@ function showImage(box,art,requestedGeneration,source="provider"){
       status(box,locale("Folder poster could not be displayed","Не удалось показать постер из папки"),"folder-error");
     }
     if(source==="provider"){
-      const name=box.closest("li")?.querySelector(".item-title")?.textContent?.trim();
+      const name=originalFilename(box.closest("li"));
       const markUnavailable=()=>{
         if(!box.isConnected||requestedGeneration!==generation)return;
         if(name){cache.delete(name);forgetArt(name);}
@@ -188,7 +231,7 @@ function scheduleRetry(name){
     for(const name of names){cache.delete(name);forgetArt(name);}
     retryQueue.clear();
     for(const li of queue.children){
-      if(names.has(li.querySelector(".item-title")?.textContent?.trim())){
+      if(names.has(originalFilename(li))){
         seen.delete(li);
         // lookup() checks this flag; clear it to make the retry effective.
         delete li.dataset.artworkRequested;
@@ -204,6 +247,7 @@ function lookup(li,box,name,parsed,epoch){
   if(!cache.has(name))cache.set(name,finder.find(name).catch(()=>null));
   cache.get(name).then(art=>{
     if(!box.isConnected||epoch!==generation)return;
+    if(parsed.type==="episode"&&art?.title)updateEpisodeName(li,name,art.title);
     if(art?.url){
       showImage(box,art,epoch);
     }else{
@@ -227,7 +271,7 @@ const intersection=typeof IntersectionObserver==="function"?
       intersection.unobserve(entry.target);
       const li=entry.target;
       const box=li.querySelector(".queue-artwork");
-      const name=li.querySelector(".item-title")?.textContent?.trim();
+      const name=originalFilename(li);
       const parsed=name&&window.DKMediaMetadata.parseFilename(name);
       if(box&&parsed)lookup(li,box,name,parsed,generation);
     }
@@ -240,7 +284,7 @@ function scan(){
     if(!box)continue;
     if(li.dataset.queueKind!=="file"||li.dataset.queueAudio==="1")continue;
     resetBox(box);
-    const name=li.querySelector(".item-title")?.textContent?.trim();
+    const name=originalFilename(li);
     if(!name||name.length>220)continue;
     const parsed=window.DKMediaMetadata.parseFilename(name);
     if(!parsed){
@@ -249,6 +293,10 @@ function scan(){
     }else{
       li.dataset.artworkType=parsed.type;
       const remembered=stored.get(name);
+      if(parsed.type==="episode"){
+        if(remembered?.title)updateEpisodeName(li,name,remembered.title);
+        requestEpisodeName(li,name);
+      }
       if(remembered)showImage(box,remembered,generation);
       else status(box,locale(parsed.type==="movie"?
         "Finding movie poster…":"Finding episode artwork…",

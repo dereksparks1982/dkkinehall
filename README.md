@@ -9,7 +9,7 @@ DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softwork
 ## What can it do?
 
 - Watch movies and TV shows, and play music.
-- Organize your movies and shows with posters and titles.
+- Organize your movies and shows with posters and titles, and find their files on disk.
 - Continue watching where you left off.
 - Make a playlist and choose what plays next.
 - Make dark movies brighter and adjust the picture and sound.

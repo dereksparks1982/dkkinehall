@@ -4,6 +4,8 @@
   const media = byId("media");
   let translationRun=0,translationBusy=false,translationReady=false,translationOriginals=null;
   let translationSession=null;
+  let resetVoiceover=()=>{},refreshVoiceover=()=>{};
+  let nextCountdown=null;
   let deferStartup=Boolean(window.DKLibraryBridge?.internalPages&&new URLSearchParams(location.search).get("settingsOnly")==="1");
   let mkvAudio = null;
   let userMuted = false;
@@ -111,6 +113,40 @@
   for (const control of [playbackFormatInput,hardwareInput,rememberInput,removeWatchedInput])
     control.addEventListener("change",updatePlaybackSettings);
   const current = () => state.queue[state.current] || null;
+  const cancelNextCountdown=()=>{
+    if(nextCountdown){clearInterval(nextCountdown.timer);nextCountdown=null;}
+    const overlay=byId("dkNextCountdown");if(overlay)overlay.hidden=true;
+  };
+  const scheduleNextCountdown=item=>{
+    if(!item)return;
+    if(!window.DKLibraryBridge?.internalPages){load(state.queue.indexOf(item),true);return;}
+    cancelNextCountdown();
+    let overlay=byId("dkNextCountdown");
+    if(!overlay){
+      overlay=document.createElement("div");overlay.id="dkNextCountdown";overlay.className="dk-next-countdown";overlay.hidden=true;
+      overlay.innerHTML='<div class="dk-next-card"><strong>Up Next</strong><span class="dk-next-title"></span><span class="dk-next-clock" role="status" aria-live="polite"></span><div class="dk-next-actions"><button type="button" class="btn primary" data-next-play>Play now</button><button type="button" class="btn" data-next-cancel>Cancel</button></div></div>';
+      screen.append(overlay);
+      overlay.querySelector("[data-next-play]").addEventListener("click",()=>{
+        const pending=nextCountdown;if(!pending)return;
+        cancelNextCountdown();const index=state.queue.indexOf(pending.item);if(index>=0)load(index,true);
+      });
+      overlay.querySelector("[data-next-cancel]").addEventListener("click",cancelNextCountdown);
+      overlay.addEventListener("dblclick",e=>e.stopPropagation());
+    }
+    const parsed=window.DKMediaMetadata?.parseFilename(item.metadataFilename||item.name);
+    overlay.querySelector(".dk-next-title").textContent=parsed?.type==="episode"?parsed.series+" · S"+String(parsed.season).padStart(2,"0")+"E"+String(parsed.episode).padStart(2,"0"):parsed?.title||item.name;
+    const clock=overlay.querySelector(".dk-next-clock"),deadline=Date.now()+5000;
+    const tick=()=>{
+      if(!nextCountdown||nextCountdown.item!==item)return;
+      const index=state.queue.indexOf(item);
+      if(index<0){cancelNextCountdown();return;}
+      const remaining=Math.max(0,Math.ceil((deadline-Date.now())/1000));
+      if(!remaining){cancelNextCountdown();load(index,true);return;}
+      clock.textContent=(window.DKLocale?.get()==="ru"?"Начало через ":"Starting in ")+remaining+(window.DKLocale?.get()==="ru"?" с":" s");
+    };
+    nextCountdown={item,timer:setInterval(tick,100)};
+    overlay.hidden=false;tick();window.DKLocale?.apply();
+  };
   const queueIdentity = item =>
     item.kind+"|"+String(item.path||item.name||"")+"|"+String(item.key||"");
   const rememberQueueSequence = () => {
@@ -334,6 +370,7 @@
   const playbackDuration = () => codecPlayback ?
     codecPlayback.duration(current()) : media.duration;
   const setPlaybackPosition = seconds => {
+    cancelNextCountdown();
     const item=current();
     if (!item) return;
     const value=Math.max(0,Number(seconds)||0);
@@ -466,7 +503,7 @@
     updateSubtitleToggle();
     updateSubtitleDelayControls();
     refreshSubtitleTrackOptions();
-    refreshTranslationControls();
+    refreshTranslationControls();refreshVoiceover();
   };
   const applySubtitlePreference = () => {
     const tracks = subtitleTracks(), pref = state.subtitlePreference;
@@ -1118,6 +1155,7 @@
     updateChapterMarkers();
   };
   const idle = () => {
+    cancelNextCountdown();resetVoiceover();
     if (seekPreview) seekPreview.reset();
     state.current = -1;
     state.stopped = false;
@@ -1144,6 +1182,7 @@
     formatTime: time
   });
   const playCurrent = () => {
+    cancelNextCountdown();
     if (!current()) { status("Open a video or music file first."); return; }
     if (state.stopped) {
       state.stopped = false;
@@ -1177,6 +1216,7 @@
   };
   const load = (index, autoplay = true) => {
     if (index < 0 || index >= state.queue.length) return;
+    cancelNextCountdown();resetVoiceover();
     const previous=current();
     if(previous?.remuxAbort){
       previous.remuxAbort.abort();
@@ -1522,6 +1562,7 @@
   };
   const removeItem = index => {
     if (index < 0 || index >= state.queue.length) return;
+    if(nextCountdown?.item===state.queue[index]||state.current===index)cancelNextCountdown();
     const wasCurrent = state.current === index;
     if (wasCurrent) rememberPosition();
     const old = state.queue.splice(index, 1)[0];
@@ -2098,6 +2139,7 @@
     addFiles(files, [], current() ? "queue" : "open");
   });
   byId("clearQueue").addEventListener("click", () => {
+    cancelNextCountdown();
     // Clearing Up Next should not interrupt the episode currently on screen.
     const old = state.queue.splice(state.current + 1);
     old.forEach(item => {
@@ -2748,6 +2790,7 @@
     }, 330);
   });
   const stopCurrent = () => {
+    cancelNextCountdown();resetVoiceover();
     if (seekPreview) seekPreview.reset();
     const item = current();
     if (!item) return;
@@ -2898,21 +2941,28 @@
         if (restarted?.catch) restarted.catch(()=>status("Couldn't restart video."));
       }
     } else if (playbackOrder.loop === "all") {
-      load((state.current + 1) % state.queue.length,true);
+      const next=state.queue[(state.current+1)%state.queue.length];
+      if(next===completed)load(state.current,true);else scheduleNextCountdown(next);
     } else if (playbackSettings.removeWatched) {
       const previousIndex = state.current;
       state.queue.splice(previousIndex, 1);
       // Detach the completed source before revoking the old object URL.
       // Preserve the order of remaining movies; never replay past items.
-      state.current = -1;
-      if (previousIndex < state.queue.length) load(previousIndex, true);
-      else idle();
+      const next=state.queue[previousIndex];
+      if(window.DKLibraryBridge?.internalPages){
+        if(codecPlayback?.isActive(completed))void codecPlayback.stop();
+        state.current=-1;idle();
+        if(next)scheduleNextCountdown(next);
+      }else{
+        state.current=-1;
+        if(next)load(previousIndex,true);else idle();
+      }
       releaseArtwork(completed);
       releaseCompatible(completed);
       releaseNetwork(completed);
       if (completed.kind === "file") URL.revokeObjectURL(completed.src);
     } else if (state.current < state.queue.length - 1) {
-      load(state.current + 1, true);
+      scheduleNextCountdown(state.queue[state.current+1]);
     } else {
       updateButtons();
       renderQueue();
@@ -4101,6 +4151,7 @@
       setPlaybackPosition(Math.min(playbackDuration(),playbackSeconds()+5));
   });
   window.addEventListener("pagehide", () => {
+    cancelNextCountdown();resetVoiceover();
     cancelVideoClick();
     if (mkvAudio) mkvAudio.stop();
     clearTimeout(hideControlsTimer);
@@ -4368,6 +4419,91 @@
     void check();
   }
   setupTranslation();
+  // First-stage DK Voiceover produces a separate timed audio file. Live
+  // mixing and speech recognition are deliberately not exposed yet.
+  function setupVoiceover(){
+    const bridge=window.DKLibraryBridge;
+    if(!bridge?.internalPages||!bridge.generateVoiceover)return;
+    const group=document.createElement("div");
+    group.className="player-settings-section dk-voiceover";group.id="voiceoverSettings";
+    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from the selected original text subtitles. Export a separate audio file.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option></select><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
+    byId("playerSettingsPanel").append(group);
+    const direction=byId("dkVoiceDirection"),generate=byId("dkVoiceGenerate"),cancel=byId("dkVoiceCancel"),exportButton=byId("dkVoiceExport");
+    const label=byId("dkVoiceStatus"),progress=byId("dkVoiceProgress"),percent=byId("dkVoicePercent");
+    let ready=false,busy=false,ticket=0,checkTicket=0,result=null,exporting=false;
+    const key="dk-kinehall.voiceover-direction.v1";
+    direction.value=read(key,"en-ru")==="ru-en"?"ru-en":"en-ru";
+    const setStatus=value=>{label.textContent=window.DKLocale?.t(value)||value;};
+    const setProgress=value=>{progress.value=value;percent.textContent=Math.floor(value)+"%";};
+    const track=()=>subtitleTracks().find(t=>t.mode==="showing");
+    const usable=()=>{
+      const item=current(),source=track();
+      return !!(item&&item.kind==="file"&&!item.audio&&!item.file?.dvdToken&&!state.stopped&&source?.cues?.length&&!state.activePgsTrack&&!translationOriginals&&!translationBusy&&!(codecPlayback?.isActive(item)&&codecPlayback.offset(item)>0));
+    };
+    refreshVoiceover=()=>{
+      generate.disabled=!ready||busy||exporting||!usable();cancel.disabled=!busy;
+      exportButton.disabled=!result||busy||exporting||result.item!==current();
+      direction.disabled=busy||exporting;
+    };
+    resetVoiceover=()=>{
+      if(busy||result){ticket++;result=null;void bridge.discardVoiceover().catch(()=>{});}
+      setProgress(0);setStatus(ready?"Select original text subtitles to generate voiceover.":"Offline voiceover runtime or voice model not installed.");
+      refreshVoiceover();
+    };
+    const check=async()=>{
+      const id=++checkTicket;ready=false;refreshVoiceover();
+      setStatus("Checking offline voiceover runtime…");
+      const available=await bridge.voiceoverStatus(direction.value).catch(()=>false);
+      if(id!==checkTicket)return;ready=available;
+      setStatus(ready?"Select original text subtitles to generate voiceover.":"Offline voiceover runtime or voice model not installed.");
+      refreshVoiceover();
+    };
+    direction.addEventListener("change",()=>{write(key,direction.value);resetVoiceover();void check();});
+    cancel.addEventListener("click",resetVoiceover);
+    bridge.onVoiceoverProgress?.(data=>{
+      if(!busy||data.ticket!==ticket||!data.total)return;
+      const fraction=data.done/data.total;
+      setProgress(Math.min(100,data.stage==="translation"?fraction*35:data.stage==="complete"?100:35+fraction*65));
+      setStatus(data.stage==="translation"?"Translating dialogue…":"Generating speech…");
+    });
+    generate.addEventListener("click",async()=>{
+      if(generate.disabled||!usable())return;
+      const item=current(),source=track(),sourceLang=normalizeSubtitleLanguage(source.language);
+      if(["en","ru"].includes(sourceLang)&&sourceLang!==direction.value.split("-")[0]){
+        setStatus("Choose the matching original subtitle language.");return;
+      }
+      const rows=Array.from(source.cues).flatMap(cue=>{
+        let plain=cue.text;
+        try{plain=cue.getCueAsHTML().textContent;}catch(_){}
+        if(typeof plain!=="string"||!plain.trim()||!Number.isFinite(cue.startTime)||!Number.isFinite(cue.endTime))return [];
+        return [{start:Math.max(0,cue.startTime),end:cue.endTime,text:plain.trim().replace(/\s+/g," ")}];
+      }).filter(r=>r.end>r.start).sort((a,b)=>a.start-b.start);
+      if(!rows.length){setStatus("No readable text subtitles");return;}
+      const job=++ticket;result=null;busy=true;setProgress(0);setStatus("Translating dialogue…");refreshVoiceover();
+      try{
+        const info=await bridge.generateVoiceover(direction.value,rows,job);
+        if(job!==ticket||current()!==item){await bridge.discardVoiceover();return;}
+        result={item,ticket:job};setProgress(100);
+        setStatus(info.skipped?"Voiceover ready; some lines could not fit their timing.":"Voiceover audio ready.");
+      }catch(_){if(job===ticket){setStatus("Voiceover generation failed; original playback unchanged.");setProgress(0);}}
+      finally{busy=false;refreshVoiceover();}
+    });
+    exportButton.addEventListener("click",async()=>{
+      if(exportButton.disabled||!result)return;
+      exporting=true;refreshVoiceover();
+      try{if(await bridge.exportVoiceover(result.ticket,window.DKLocale?.get()))setStatus("Voiceover audio exported.");}
+      catch(_){setStatus("Could not save voiceover. Choose a new file name.");}
+      finally{exporting=false;refreshVoiceover();}
+    });
+    const localize=()=>{direction.options[0].textContent=window.DKLocale?.t("English → Russian")||"English → Russian";direction.options[1].textContent=window.DKLocale?.t("Russian → English")||"Russian → English";};
+    byId("languageSelect")?.addEventListener("change",localize);localize();
+    media.addEventListener("timeupdate",refreshVoiceover);
+    media.addEventListener("loadeddata",refreshVoiceover);
+    media.textTracks?.addEventListener("change",refreshVoiceover);
+    settingsDetails?.addEventListener("toggle",()=>{if(settingsDetails.open&&!ready&&!busy)void check();});
+    void check();
+  }
+  setupVoiceover();
   if(window.DKLibraryBridge?.internalPages){
     // This is a live projection of the real controls, not a second settings
     // store. Exclude actions that depend on a selected movie or open files.
@@ -4405,8 +4541,8 @@
       byId("smoothingMode")?.closest(".player-settings-section"),
       byId("audioEnhancementsEnabled")?.closest(".player-settings-section")
     ].filter(Boolean);
-    const categoryFor=section=>section.id==="networkSettings"?"network":section.id==="dvdSettings"?"disc":section===globalSubtitles||section.classList.contains("dk-translation")||section.contains(byId("subtitleTrackSelect"))?"subtitles":section.classList.contains("dk-audio-settings")?"audio":section.contains(byId("playbackFormat"))?"playback":section.classList.contains("dk-picture-settings")?"picture":"general";
-    const categories=[["playback","Playback"],["picture","Picture"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["general","General"]];
+    const categoryFor=section=>section.id==="voiceoverSettings"?"voiceover":section.id==="networkSettings"?"network":section.id==="dvdSettings"?"disc":section===globalSubtitles||section.classList.contains("dk-translation")||section.contains(byId("subtitleTrackSelect"))?"subtitles":section.classList.contains("dk-audio-settings")?"audio":section.contains(byId("playbackFormat"))?"playback":section.classList.contains("dk-picture-settings")?"picture":"general";
+    const categories=[["playback","Playback"],["picture","Picture"],["audio","Audio"],["subtitles","Subtitles"],["voiceover","Voiceover"],["disc","DVD & Disc"],["network","Network"],["general","General"]];
     const nav=document.createElement("div");nav.className="dk-settings-category-nav";
     const heading=document.createElement("strong");heading.textContent="Settings";nav.append(heading);
     const sections=Array.from(panel.querySelectorAll(":scope > .player-settings-section"));

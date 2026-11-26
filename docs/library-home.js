@@ -469,6 +469,7 @@ async function scan(manual=false){
     return;
   }
   scanning=true;controller=new AbortController();
+  if(nativeBridge?.internalPages)void nativeBridge.setScanState(true).catch(()=>{});
   $("scanLibrary").textContent=say("Stop Scan","Остановить");
   $("scanLibrary").setAttribute("aria-pressed","true");
   let stopListening=null;
@@ -528,6 +529,7 @@ async function scan(manual=false){
   }finally{
     stopListening?.();
     scanning=false;controller=null;
+    if(nativeBridge?.internalPages)void nativeBridge.setScanState(false).catch(()=>{});
     $("scanLibrary").textContent=say("Scan Library","Проверить медиатеку");
     $("scanLibrary").setAttribute("aria-pressed","false");
   }
@@ -566,6 +568,11 @@ function connect(){
   $("addFirstFolder").addEventListener("click",()=>void chooseFolder());
   $("scanLibrary").addEventListener("click",()=>void scan(true));
   // Standalone navigation only; leave the hosted library unchanged.
+  if(nativeBridge?.internalPages){
+    document.documentElement.classList.add("dk-standalone");
+    $("scanLibrary").classList.add("dk-scan");
+    nativeBridge.onScanRequest(()=>void scan(true));
+  }
   if(nativeBridge?.showPlayer){
     const button=document.createElement("button");
     button.type="button";button.id="showPlayer";button.className="btn primary dk-window-nav";

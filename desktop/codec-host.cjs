@@ -17,6 +17,8 @@ const {app,ipcMain}=require("electron");
 const BIND_ADDRESS="127.0.0.1";
 const MAX_PROBE_OUTPUT=512*1024;
 let installed=false,windowRef=null,server=null,session=null,availability=null;
+const probeCache=new Map();
+const MAX_CACHED_PROBES=64;
 
 function binary(name) {
   const base=app.getAppPath();
@@ -106,6 +108,10 @@ async function probe(localPath) {
   const ready=await status();
   if(!ready.ready)throw new Error(ready.reason);
   const file=selectedFile(localPath);
+  const stat=fs.statSync(file);
+  const key=JSON.stringify([file,stat.size,stat.mtimeMs]);
+  if(probeCache.has(key))return probeCache.get(key);
+  const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name:stream=index,codec_type,codec_name:stream_tags=language,title:chapter=start_time:chapter_tags=title",
@@ -139,6 +145,12 @@ async function probe(localPath) {
       }))
       .filter(chapter=>Number.isFinite(chapter.startTime)&&chapter.startTime>=0)
       .sort((a,b)=>a.startTime-b.startTime)};
+  })();
+  probeCache.set(key,work);
+  if(probeCache.size>MAX_CACHED_PROBES)
+    probeCache.delete(probeCache.keys().next().value);
+  try{return await work;}
+  catch(error){probeCache.delete(key);throw error;}
 }
 async function subtitleVtt(localPath,index) {
   const info=await probe(localPath);

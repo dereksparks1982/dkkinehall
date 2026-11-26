@@ -199,6 +199,7 @@
     });
   };
   let handleWrites = Promise.resolve();
+  let nativeRestoreWrites=Promise.resolve(),restoreInFlight=null;
   const updateStoredHandle = handle => {
     // Serialize writes so the last media selection always wins.
     handleWrites = handleWrites.catch(() => {}).then(
@@ -209,17 +210,30 @@
   const clearRememberedMedia = () => {
     try { localStorage.removeItem(store.lastMedia); } catch (_) {}
     updateStoredHandle(null);
+    if(window.DKLibraryBridge?.forgetMedia)nativeRestoreWrites=nativeRestoreWrites.catch(()=>{}).then(()=>window.DKLibraryBridge.forgetMedia()).catch(()=>{});
     byId("restoreMedia").hidden = true;
     byId("restoreHint").hidden = true;
   };
   const rememberSelectedMedia = item => {
     if (item.handle) {
-      write(store.lastMedia, {kind: "file", name: item.name, key: item.key});
+      write(store.lastMedia, {kind: "file", name: item.name, key: item.key,libraryId:item.libraryId||null});
       updateStoredHandle(item.handle);
     } else {
       // Files selected via the legacy input or drag-and-drop are session-only.
-      write(store.lastMedia, {kind: "temporary-file", name: item.name, key: item.key});
+      write(store.lastMedia, {kind: "temporary-file", name: item.name, key: item.key,libraryId:item.libraryId||null});
       updateStoredHandle(null);
+    }
+    if(window.DKLibraryBridge?.rememberMedia){
+      const bridge=window.DKLibraryBridge;
+      nativeRestoreWrites=nativeRestoreWrites.catch(()=>{}).then(async()=>{
+        if(!item.file)return;
+        const remembered=await bridge.rememberMedia(item.file,item.key).catch(()=>false);
+        if(remembered)return;
+        const resolved=await codecSource(item.file);
+        if(resolved!==item.file)await bridge.rememberMedia({
+          ...resolved,name:item.file.name,size:item.file.size,lastModified:item.file.lastModified
+        },item.key);
+      }).catch(()=>{});
     }
     byId("restoreMedia").hidden = true;
     byId("restoreHint").hidden = true;
@@ -1685,6 +1699,87 @@
     byId("restoreHint").textContent = hint;
     byId("restoreHint").hidden = false;
   };
+  const sameSavedFile=(saved,file)=>Boolean(file&&saved.key===
+    "file:"+file.name+":"+file.size+":"+file.lastModified);
+  const findSavedCatalogRow=async saved=>{
+    const rows=await window.DKLibraryStore?.entries?.()||[];
+    // Older temporary-file records lack a native path. Use the complete
+    // stored fingerprint, not merely a filename or a fuzzy title.
+    const matches=rows.filter(row=>row.source==="native"&&!row.missing&&
+      row.filename===saved.name&&(
+        saved.key==="file:"+row.filename+":"+row.size+":"+row.modified||
+        saved.key==="file:"+row.filename+":"+row.size+":"+Math.trunc(row.modified)
+      )&&(!saved.libraryId||row.id===saved.libraryId));
+    return matches.length===1?matches[0]:null;
+  };
+  const restoreStandalone=async(saved,allowPermission=false)=>{
+    if(restoreInFlight)return restoreInFlight;
+    restoreInFlight=(async()=>{
+      const bridge=window.DKLibraryBridge;
+      if(!saved?.key||!bridge?.internalPages)return false;
+      await nativeRestoreWrites;
+      if(read(store.lastMedia,null)?.key!==saved.key)return false;
+      const existing=state.queue.map((item,index)=>({item,index})).filter(({item})=>
+        item.key===saved.key&&(!saved.libraryId||item.libraryId===saved.libraryId));
+      if(existing.length===1){
+        if(existing[0].index!==state.current||state.stopped)load(existing[0].index,false);
+        status("Last file restored. Press Play to resume.",true);
+        return true;
+      }
+      if(existing.length>1)return false;
+      // If a previously saved native grant is invalid, fail rather than
+      // guessing a different file with the same name.
+      let nativeSelection;
+      try{nativeSelection=await bridge.restoreMedia?.(saved.key);}
+      catch(_){return false;}
+      let catalogRow=null;
+      if(!nativeSelection){
+        try{
+          catalogRow=await findSavedCatalogRow(saved);
+          if(catalogRow)nativeSelection={row:catalogRow,opened:
+            await bridge.nativeOpen(catalogRow.id,catalogRow.nativePath)};
+        }catch(_){catalogRow=null;}
+      }
+      if(nativeSelection){
+        const selected=window.DKNativeFile.create(nativeSelection.row,nativeSelection.opened,bridge);
+        if(!sameSavedFile(saved,selected.file)){
+          // Chromium File timestamps use integer milliseconds; catalog
+          // filesystem timestamps may retain the fractional part.
+          const rounded="file:"+selected.file.name+":"+selected.file.size+":"+Math.trunc(selected.file.lastModified);
+          if(!catalogRow||rounded!==saved.key)return false;
+          if(Number(state.resume[saved.key])>0)
+            state.resume["file:"+selected.file.name+":"+selected.file.size+":"+selected.file.lastModified]=state.resume[saved.key];
+        }
+        if(read(store.lastMedia,null)?.key!==saved.key||current())return false;
+        addFiles([selected.file],[],"restore",{
+          nativeSrc:selected.src,libraryId:saved.libraryId||catalogRow?.id||null,
+          libraryPosition:catalogRow?.position||0,episodeTitle:catalogRow?.episodeTitle||""
+        });
+        status("Last file restored. Press Play to resume.",true);
+        return true;
+      }
+      // Retain valid historical FileSystem handles, including explicit
+      // permission prompts on a Restore click, without opening a picker.
+      if(saved.kind==="file"){
+        try{
+          await handleWrites;
+          const handle=await storedHandle("read");
+          if(!handle?.getFile)return false;
+          let permission=await handle.queryPermission?.({mode:"read"});
+          if(permission!=="granted"&&allowPermission)
+            permission=await handle.requestPermission?.({mode:"read"});
+          if(permission!=="granted")return false;
+          const file=await handle.getFile();
+          if(!sameSavedFile(saved,file)||current()||read(store.lastMedia,null)?.key!==saved.key)return false;
+          addFiles([file],[handle],"restore",{libraryId:saved.libraryId||null});
+          status("Last file restored. Press Play to resume.",true);
+          return true;
+        }catch(_){}
+      }
+      return false;
+    })().catch(()=>false).finally(()=>{restoreInFlight=null;});
+    return restoreInFlight;
+  };
   const restoreLastMedia = async () => {
     const saved = read(store.lastMedia, null);
     if (!saved || state.queue.length) return;
@@ -1694,6 +1789,12 @@
       return;
     }
     if (saved.kind !== "file" && saved.kind !== "temporary-file") return;
+    if(window.DKLibraryBridge?.internalPages){
+      showRestoreChoice(saved,"Restore the previously selected file.");
+      if(!await restoreStandalone(saved))
+        showRestoreChoice(saved,"Saved file unavailable. Reconnect its drive or scan Library.");
+      return;
+    }
     // Permission can expire, and temporary inputs cannot reopen a file
     // silently. Offer the user a Chromium reselect/permission workflow.
     showRestoreChoice(saved, "Choose the same file again to resume where you stopped.");
@@ -1719,6 +1820,11 @@
     }
   };
   byId("restoreMedia").addEventListener("click", async () => {
+    if(window.DKLibraryBridge?.internalPages){
+      const saved=read(store.lastMedia,null);
+      if(!await restoreStandalone(saved,true))status("Saved file unavailable. Reconnect its drive or scan Library.");
+      return;
+    }
     if (state.queue.length) return;
     const handle = state.restoreHandle;
     if (handle) {

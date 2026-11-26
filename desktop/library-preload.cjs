@@ -11,6 +11,10 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  translationStatus:pair=>libIpc.invoke("dk-library:translation-status",String(pair)),
+  translateSubtitles:(pair,lines)=>libIpc.invoke("dk-library:translate",String(pair),lines),
+  cancelTranslation:()=>libIpc.invoke("dk-library:cancel-translation"),
+  onTranslationProgress:callback=>subscribe("dk-library:translation-progress",callback),
   metadataRequest:(url,kind)=>libIpc.invoke("dk-library:metadata-request",String(url),String(kind)),
   onLibrarySelection:callback=>subscribe("dk-library:selection",callback),
   requestScan:()=>libIpc.invoke("dk-library:request-scan"),

@@ -240,3 +240,8 @@ The approved top-level right-click palette uses red Playback, gold Playback form
 **DK Voiceover:** the full offline translated movie speech feature is now tracked in [docs/VOICEOVER_ROADMAP.md](docs/VOICEOVER_ROADMAP.md) and the master roadmap. Candidate local ASR, translation and TTS/diarization engines require pinned models, license review, provisioning, secure processing, mixing, synchronized playback, cache/export and real runtime verification. No engine/model downloads or voiceover implementation yet.
 
 Next priority: deinterlacing. Standalone source only; no compilation, testing or terminal commands.
+
+
+### Approved transport colours
+
+Transport palette: solid brown Previous/Next with gold glyphs; solid white 10-second Rewind/Fast-forward with dark glyphs; red Play/Pause with white glyph; solid gold Stop with dark square. Preserve original symbols, order, dimensions, spacing and gold borders; inset focus indicators and muted disabled states. Standalone CSS only. Runtime appearance remains unverified; next feature remains deinterlacing.

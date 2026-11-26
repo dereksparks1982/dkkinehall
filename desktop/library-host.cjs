@@ -291,7 +291,7 @@ function removeVoiceoverResult(entry){
   if(!entry.exporting)fs.rmSync(entry.dir,{recursive:true,force:true});
 }
 const voiceoverWorker=String.raw`
-import json, sys, wave, os
+import json, sys, wave, os, struct
 from pathlib import Path
 import numpy as np
 import ctranslate2
@@ -305,15 +305,6 @@ rows=json.load(sys.stdin)
 source=spm.SentencePieceProcessor(model_file=str(translation/"source.model"))
 target=spm.SentencePieceProcessor(model_file=str(translation/"target.model"))
 engine=ctranslate2.Translator(str(translation/"model"),device="cpu",inter_threads=1,intra_threads=2)
-texts=[]
-for i in range(0,len(rows),32):
-    tokens=[source.encode(r["text"],out_type=str) for r in rows[i:i+32]]
-    if any(len(t)>512 for t in tokens):
-        raise ValueError("Input exceeds model token limit")
-    decoded=engine.translate_batch(tokens,beam_size=2,max_input_length=512,max_decoding_length=512)
-    texts.extend(target.decode(r.hypotheses[0]) for r in decoded)
-    print(json.dumps({"stage":"translation","done":len(texts),"total":len(rows)}),flush=True)
-del engine
 engines={}
 def engine_for(profile):
     if profile not in voice_paths:
@@ -346,82 +337,100 @@ def synthesize(tts,text,speed):
         samples=np.interp(np.arange(length,dtype=np.float64)*native/rate,
                           np.arange(len(samples),dtype=np.float64),samples).astype(np.float32)
     return samples
-cursor=0
+# A sparse, fixed-duration PCM file lets us synthesize any segment first.
+# Every cue is synthesized once, including cues spanning segment boundaries.
+# A segment is immutable and published only after all its dependencies finish.
+last=round(max(r["end"] for r in rows)*rate)
+if last<=0 or last*2>=2**32-36:
+    raise ValueError("Unsupported output duration")
+block=rate*30
+count=(last+block-1)//block
+bounds=[]
+dependencies=[[] for _ in range(count)]
+for i,row in enumerate(rows):
+    start=max(0,round(row["start"]*rate))
+    end=min(last,round(row["end"]*rate))
+    if i+1<len(rows):
+        end=min(end,round(rows[i+1]["start"]*rate))
+    bounds.append((start,end))
+    if end>start:
+        for segment in range(start//block,(end-1)//block+1):
+            dependencies[segment].append(i)
+def header(frames):
+    size=frames*2
+    return struct.pack("<4sI4s4sIHHIIHH4sI",b"RIFF",36+size,b"WAVE",b"fmt ",16,1,1,rate,rate*2,2,16,b"data",size)
+priority_path=Path(output).parent/"priority.json"
+def priority():
+    if not progressive:
+        return 0
+    try:
+        seconds=float(json.loads(priority_path.read_text(encoding="utf-8"))["seconds"])
+        if not np.isfinite(seconds): return 0
+        return min(count-1,max(0,int(seconds//30)))
+    except (OSError,ValueError,KeyError,TypeError,OverflowError):
+        return 0
+done=set()
+pending=set(range(count))
 skipped=0
-silence=b"\0"*(rate*2)
-# Publish immutable, complete WAV files at 30-second boundaries. Never
-# expose a growing WAV or a partially written header to Chromium.
-class ProgressiveWriter:
-    def __init__(self, main):
-        self.main=main
-        self.part=None
-        self.index=0
-        self.frames=0
-    def publish(self):
-        if self.part is None:
-            return
-        self.part.close()
-        target=Path(output).parent/("chunk-%03d.wav"%self.index)
-        os.replace(str(target)+".tmp",target)
-        print(json.dumps({"stage":"chunk","index":self.index,
-                          "frames":self.frames,"rate":rate,"total":len(rows)}),flush=True)
-        self.index+=1
-        self.part=None
-        self.frames=0
-    def writeframesraw(self, data):
-        self.main.writeframesraw(data)
-        if not progressive:
-            return
-        view=memoryview(data)
-        while len(view):
-            if self.part is None:
-                target=Path(output).parent/("chunk-%03d.wav"%self.index)
-                self.part=wave.open(str(target)+".tmp","wb")
-                self.part.setnchannels(1)
-                self.part.setsampwidth(2)
-                self.part.setframerate(rate)
-            n=min(len(view)//2,rate*30-self.frames)
-            self.part.writeframesraw(view[:n*2])
-            self.frames+=n
-            view=view[n*2:]
-            if self.frames==rate*30:
-                self.publish()
-def pad(wav,n):
-    while n>0:
-        chunk=min(n,rate)
-        wav.writeframesraw(silence[:chunk*2])
-        n-=chunk
-with wave.open(output,"wb") as full:
-    full.setnchannels(1)
-    full.setsampwidth(2)
-    full.setframerate(rate)
-    wav=ProgressiveWriter(full)
-    for i,(row,text) in enumerate(zip(rows,texts)):
-        start=max(cursor,round(row["start"]*rate))
-        end=round(row["end"]*rate)
-        if i+1<len(rows):
-            end=min(end,round(rows[i+1]["start"]*rate))
-        room=end-start
-        if room>rate/10 and text.strip():
-            tts=engine_for(row.get("voice",default_profile))
-            samples=synthesize(tts,text,1.0)
-            if len(samples)>room:
-                speed=min(1.45,max(1.05,len(samples)/room*1.03))
-                samples=synthesize(tts,text,speed)
-            if 0<len(samples)<=room and np.isfinite(samples).all():
-                pad(wav,start-cursor)
-                wav.writeframesraw((np.clip(samples,-1,1)*32767).astype("<i2").tobytes())
-                cursor=start+len(samples)
+def process_cues(full,indices):
+    global skipped
+    for batch_start in range(0,len(indices),32):
+        batch=indices[batch_start:batch_start+32]
+        tokens=[source.encode(rows[i]["text"],out_type=str) for i in batch]
+        if any(len(t)>512 for t in tokens):
+            raise ValueError("Input exceeds model token limit")
+        decoded=engine.translate_batch(tokens,beam_size=2,max_input_length=512,max_decoding_length=512)
+        for i,translation in zip(batch,decoded):
+            row=rows[i]
+            text=target.decode(translation.hypotheses[0])
+            start,end=bounds[i]
+            room=end-start
+            if room>rate/10 and text.strip():
+                tts=engine_for(row.get("voice",default_profile))
+                samples=synthesize(tts,text,1.0)
+                if len(samples)>room:
+                    speed=min(1.45,max(1.05,len(samples)/room*1.03))
+                    samples=synthesize(tts,text,speed)
+                if 0<len(samples)<=room and np.isfinite(samples).all():
+                    full.seek(44+start*2)
+                    full.write((np.clip(samples,-1,1)*32767).astype("<i2").tobytes())
+                else:
+                    skipped+=1
             else:
                 skipped+=1
-        else:
+            done.add(i)
+            print(json.dumps({"stage":"speech","done":len(done),"total":len(rows),"skipped":skipped}),flush=True)
+with open(output,"w+b") as full:
+    full.write(header(last))
+    full.truncate(44+last*2)
+    # Invalid/overlapping zero-length cues never belong to a segment.
+    for i,(start,end) in enumerate(bounds):
+        if end<=start:
+            done.add(i)
             skipped+=1
-        print(json.dumps({"stage":"speech","done":i+1,"total":len(rows),"skipped":skipped}),flush=True)
-    last=round(max(r["end"] for r in rows)*rate)
-    pad(wav,max(0,last-cursor))
-    wav.publish()
-if skipped==len(rows):
-    raise ValueError("No speech could fit the cue timing")
+    while pending:
+        playhead=priority()
+        # Prefer the active segment and a short forward lookahead, then
+        # fill earlier gaps. A new seek is honored at the next segment.
+        index=min(pending,key=lambda n:(0 if playhead<=n<playhead+3 else 1,abs(n-playhead),n<playhead,n))
+        process_cues(full,[i for i in dependencies[index] if i not in done])
+        if progressive:
+            start=index*block
+            frames=min(block,last-start)
+            full.flush()
+            full.seek(44+start*2)
+            pcm=full.read(frames*2)
+            if len(pcm)!=frames*2:
+                raise ValueError("Incomplete PCM segment")
+            target_path=Path(output).parent/("chunk-%03d.wav"%index)
+            with open(str(target_path)+".tmp","wb") as part:
+                part.write(header(frames))
+                part.write(pcm)
+            os.replace(str(target_path)+".tmp",target_path)
+            print(json.dumps({"stage":"chunk","index":index,"frames":frames,"rate":rate,"total":len(rows)}),flush=True)
+        pending.remove(index)
+if len(done)!=len(rows) or skipped==len(rows):
+    raise ValueError("No complete voiceover could be generated")
 print(json.dumps({"stage":"complete","done":len(rows),"total":len(rows),"skipped":skipped}),flush=True)
 `;
 function voiceoverPaths(pair,profile="default"){
@@ -511,7 +520,7 @@ function voiceCacheStats(){
 function removeVoiceCacheDirectory(dir){
   // Only delete known cache-owned names. Unexpected files are left intact.
   if(!fs.lstatSync(dir).isDirectory())throw Error("Invalid cache directory");
-  const names=["voiceover.wav","result.json",...fs.readdirSync(dir).filter(name=>/^chunk-\d{3}\.wav(?:\.tmp)?$/.test(name))];
+  const names=["voiceover.wav","result.json","priority.json","priority.json.tmp",...fs.readdirSync(dir).filter(name=>/^chunk-\d{3}\.wav(?:\.tmp)?$/.test(name))];
   for(const name of names){
     try{
       const file=path.join(dir,name),stat=fs.lstatSync(file);
@@ -609,11 +618,11 @@ function voiceCacheSave(key,rows,output,skipped){
     voiceCachePrune();
   }catch(_){}finally{if(temp)try{fs.rmSync(temp,{recursive:true,force:true});}catch(_){}}
 }
-function generateVoiceover(event,pair,rows,ticket,profile="default",progressive=false){
+function generateVoiceover(event,pair,rows,ticket,profile="default",progressive=false,position=0){
   const runtime=voiceoverPaths(pair,profile);
   if(!runtime.ready)throw Error("Voiceover runtime is not installed");
   if(voiceoverJob||translationJob||asrJob||voiceoverExporting||voiceCacheConfirming)throw Error("Offline speech or translation job already running");
-  if(typeof progressive!=="boolean")throw Error("Invalid progressive mode");
+  if(typeof progressive!=="boolean"||!Number.isFinite(position)||position<0||position>10800)throw Error("Invalid progressive mode or playhead");
   if(!Number.isSafeInteger(ticket)||ticket<1||!Array.isArray(rows)||!rows.length||rows.length>6000||
     Buffer.byteLength(JSON.stringify(rows),"utf8")>2*1024*1024||
     rows.some((r,i)=>!r||!Number.isFinite(r.start)||!Number.isFinite(r.end)||r.start<0||r.end<=r.start||r.end>10800||
@@ -630,6 +639,7 @@ function generateVoiceover(event,pair,rows,ticket,profile="default",progressive=
     dir=fs.mkdtempSync(path.join(root,".session-"));
   }catch(_){dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-voiceover-"));}
   const output=path.join(dir,"voiceover.wav");
+  if(progressive)try{fs.writeFileSync(path.join(dir,"priority.json"),JSON.stringify({seconds:position}),{mode:0o600});}catch(error){fs.rmSync(dir,{recursive:true,force:true});throw error;}
   const cached=voiceCacheLoad(key,rows,output);
   if(cached){
     voiceoverResult={dir,output,ticket,size:cached.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false,complete:true,chunks:new Map()};
@@ -641,7 +651,7 @@ function generateVoiceover(event,pair,rows,ticket,profile="default",progressive=
       shell:false,stdio:["pipe","pipe","pipe"],env:{...process.env,LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1",OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}
     });}catch(error){fs.rmSync(dir,{recursive:true,force:true});reject(error);return;}
     const preview={dir,output,ticket,size:0,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false,complete:false,chunks:new Map()};
-    const job={child,cancelled:false,preview};voiceoverJob=job;
+    const job={child,cancelled:false,preview,progressive,priorityIndex:Math.floor(position/30)};voiceoverJob=job;
     let pending="",complete=null,failed=false;
     const timer=setTimeout(()=>child.kill("SIGKILL"),90*60*1000);
     child.stdout.setEncoding("utf8");child.stderr.resume();
@@ -654,7 +664,7 @@ function generateVoiceover(event,pair,rows,ticket,profile="default",progressive=
           const value=JSON.parse(line);
           if(value.stage==="chunk"){
             const {index,frames,rate}=value;
-            if(!progressive||!Number.isInteger(index)||index!==preview.chunks.size||index<0||index>=360||
+            if(!progressive||!Number.isInteger(index)||preview.chunks.has(index)||index<0||index>=360||
               !Number.isInteger(rate)||rate<8000||rate>32000||!Number.isInteger(frames)||frames<=0||frames>rate*30)
               throw Error("Invalid generated audio segment");
             const part=path.join(dir,"chunk-"+String(index).padStart(3,"0")+".wav");
@@ -1400,9 +1410,20 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
     return voiceoverPaths(pair,profile).ready;
   });
-  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket,profile="default",progressive=false)=>{
+  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket,profile="default",progressive=false,position=0)=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
-    return generateVoiceover(event,pair,rows,ticket,profile,progressive);
+    return generateVoiceover(event,pair,rows,ticket,profile,progressive,position);
+  });
+  ipcMain.handle("dk-library:voiceover-priority",(event,ticket,seconds)=>{
+    if(!onlyPlayer(event)||!Number.isSafeInteger(ticket)||!Number.isFinite(seconds)||seconds<0||seconds>10800)throw Error("Voiceover priority rejected");
+    const job=voiceoverJob;
+    if(!job||!job.progressive||job.cancelled||job.preview.ticket!==ticket)return false;
+    const index=Math.floor(seconds/30);
+    if(index===job.priorityIndex)return true;
+    const dest=path.join(job.preview.dir,"priority.json");
+    fs.writeFileSync(dest+".tmp",JSON.stringify({seconds}),{mode:0o600});
+    fs.renameSync(dest+".tmp",dest);job.priorityIndex=index;
+    return true;
   });
   ipcMain.handle("dk-library:voiceover-discard",event=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");

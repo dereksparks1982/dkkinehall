@@ -8,7 +8,7 @@
 
 ## v0.9.3 installed update
 
-**Volume requirement:** Standalone volume is 0–200%, including slider, scroll wheel, keyboard and remembered settings. Values above 100% use actual audio gain. Do not reduce the standalone maximum without explicit user approval. Hosted Web App volume stays at 0–100%.
+**Volume requirement:** The standalone volume slider and thumb are red. Standalone volume is 0–200%, including slider, scroll wheel, keyboard and remembered settings. Values above 100% use actual audio gain. Do not reduce the standalone maximum without explicit user approval. Hosted Web App volume stays at 0–100%.
 
 **Native codec improvements:** Audio-only sources no longer treat embedded cover images as video. The native decoder supports audio-only AAC/Opus streams, selects the actual video stream, and retries the other supported output format once in Automatic mode. Explicit format choices are honored. The self-contained release codec asset remains pending.
 
@@ -44,7 +44,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 **Catalog corrections:** Native rescans reclassify unchanged files when their classification differs, skip sample clips, and group TV series by normalized name across seasons. In the Grey is treated as a movie. Keyless movie search and poster retrieval use restricted native HTTPS requests rather than renderer CORS or remote JSONP scripts; successful movie title/year updates are stored separately from playback history. Movie lookup removes the 007 James Bond collection prefix before matching titles and release years. The standalone library retrieves movie descriptions, genre, runtime, cast and directors when supplied by Cinemeta or Apple; it saves metadata independently of local artwork. Right-click a movie for Movie Details or Refresh Metadata. Unknown or unavailable provider fields remain blank; existing playback history is retained. Provider availability and the installed UI have not been verified.
 
-**v0.9.3 standalone navigation:** A single native window opens on Library and switches to the persistent embedded Player view. Red navigation buttons keep the approved design. White Scan Library buttons on either page share the same scan and show its active state; gold trim applies only to standalone pages. Switching pages does not reload the player. Installed behavior is not yet verified.
+**v0.9.3 standalone navigation:** A single native window opens on Library and switches to the persistent embedded Player view. Red navigation buttons keep the approved design. Scan Library buttons on both pages must remain white with dark text, including during scanning and hover. They share the same scan and show its active state; gold trim applies only to standalone pages. Switching pages does not reload the player. Installed behavior is not yet verified.
 
 **Standalone automatic discovery:** No folder selection is required. On startup
 DK Kinehall loads its saved collection immediately, then performs one bounded

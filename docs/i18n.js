@@ -201,6 +201,8 @@
     "Choose the matching original subtitle language.":"Выберите соответствующий язык исходных субтитров.",
     "Voiceover ready; some lines could not fit their timing.":"Озвучивание готово; некоторые реплики не удалось уложить в отведённое время.",
     "Voiceover audio ready.":"Звуковая дорожка готова.",
+    "Cached voiceover audio ready.":"Сохранённая звуковая дорожка готова.",
+    "Cached voiceover ready; some lines could not fit their timing.":"Сохранённое озвучивание готово; некоторые реплики не удалось уложить в отведённое время.",
     "Voiceover generation failed; original playback unchanged.":"Не удалось создать озвучивание; исходное воспроизведение не изменено.",
     "Voiceover audio exported.":"Звуковая дорожка сохранена.",
     "Could not save voiceover. Choose a new file name.":"Не удалось сохранить озвучивание. Выберите новое имя файла.",

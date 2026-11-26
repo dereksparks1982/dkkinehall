@@ -314,6 +314,9 @@
   const isTextNativeSubtitle = track =>
     /^(subrip|ass|ssa|webvtt|mov_text|text|ttml|microdvd|sami|realtext)$/i
       .test(String(track?.codec||""));
+  // Defined below with the existing subtitle-switching functions. The
+  // status updater may run before menu initialization during startup.
+  let refreshSubtitleTrackOptions = () => {};
   const updateSubtitleToggle = () => {
     const button = byId("subtitleToggle");
     const item = current();
@@ -322,10 +325,12 @@
       !subtitleTracks().length &&
       !(codecPlayback?.isActive(item) &&
         (item.nativeSubtitleTracks||[]).some(isTextNativeSubtitle)));
-    button.textContent = on ? "On" : "Off";
+    const label=button.querySelector(".subtitle-state");
+    if(label)label.textContent=on?"On":"Off";
+    else button.textContent=on?"On":"Off";
     button.setAttribute("aria-pressed",String(on));
     button.setAttribute("aria-label",on ? "Turn subtitles off" : "Turn subtitles on");
-    button.title = on ? "Turn subtitles off" : "Turn embedded subtitles on";
+    button.title = on ? "Turn subtitles off" : "Turn subtitles on";
   };
   const updateSubtitleStatus = () => {
     const showing = subtitleTracks().find(track => track.mode === "showing");
@@ -340,6 +345,7 @@
         (detected === 1 ? "" : "s") + " found" : "Subtitles off";
     updateSubtitleToggle();
     updateSubtitleDelayControls();
+    refreshSubtitleTrackOptions();
   };
   const applySubtitlePreference = () => {
     const tracks = subtitleTracks(), pref = state.subtitlePreference;
@@ -1635,15 +1641,18 @@
   const controls = byId("screenControls");
   const contextMenu = byId("playerContextMenu");
   const infoPanel = byId("mediaInfo");
+  const settingsDetails = document.querySelector(".player-bar-settings");
   let hideControlsTimer = null;
   let menuOpen = false;
   const revealControls = () => {
     screen.classList.remove("ui-hidden");
     clearTimeout(hideControlsTimer);
-    if (!media.paused && current() && !menuOpen) {
+    if (!media.paused && current() && !menuOpen &&
+        !settingsDetails?.open) {
       hideControlsTimer = setTimeout(() => {
         if (controls.matches(":hover") || controls.contains(document.activeElement) ||
-            !infoPanel.hidden || menuOpen || media.paused) {
+            !infoPanel.hidden || menuOpen || settingsDetails?.open ||
+            media.paused) {
           revealControls();
           return;
         }
@@ -1655,6 +1664,10 @@
     clearTimeout(hideControlsTimer);
     screen.classList.remove("ui-hidden");
   };
+  settingsDetails?.addEventListener("toggle",()=>{
+    if(settingsDetails.open)keepControlsVisible();
+    else revealControls();
+  });
   screen.addEventListener("pointermove", revealControls);
   screen.addEventListener("pointerleave", () => {
     if (!media.paused && current() && !menuOpen) revealControls();
@@ -2203,16 +2216,141 @@
   };
   const switchSubtitles = index => {
     const item = current();
+    if(index<0&&item&&subtitleIsOn()){
+      const choice=byId("subtitleTrackSelect").value;
+      if(choice&&choice!=="off")item.lastSubtitleChoice=choice;
+    }
     if (item && state.embeddedSubtitlePreferences[item.key]) {
       delete state.embeddedSubtitlePreferences[item.key];
       write(store.embeddedSubtitlePreferences,state.embeddedSubtitlePreferences);
     }
     const selected = index >= 0 ? subtitleTracks()[index] || null : null;
+    // Leave manually loaded SRT/VTT and native text tracks available when
+    // switching Off. Their modes are disabled, not their files discarded.
+    // Embedded bitmap/MKV extraction is still cancelled/cleared normally.
     if (state.mkvSubtitlePending || state.activePgsTrack ||
-        (state.subtitleNode && (!selected || selected !== state.subtitleNode.track)))
+        (state.subtitleNode &&
+          ((state.activeEmbeddedTrack!==null &&
+            (!selected || selected!==state.subtitleNode.track)) ||
+           (selected && selected!==state.subtitleNode.track))))
       clearSubtitles();
     chooseSubtitleTrack(selected);
   };
+  const subtitleTrackSelect=byId("subtitleTrackSelect");
+  refreshSubtitleTrackOptions=()=>{
+    if(!subtitleTrackSelect)return;
+    const tr=text=>window.DKLocale?.t(text)||text;
+    const item=current();
+    const visible=subtitleTracks();
+    const options=[{value:"off",label:tr("Subtitles off"),disabled:false}];
+    visible.forEach((track,index)=>options.push({
+      value:"browser:"+index,
+      label:track.label||track.language||tr("Subtitle track")+" "+(index+1),
+      disabled:false
+    }));
+    if(item&&codecPlayback?.isActive(item)){
+      (item.nativeSubtitleTracks||[]).forEach((track,index)=>{
+        const supported=isTextNativeSubtitle(track)&&
+          typeof window.DKCodecBridge?.subtitleVtt==="function";
+        options.push({
+          value:"native:"+index,
+          label:(track.title||track.language||tr("Subtitle track")+" "+(index+1))+
+            (track.codec?" · "+track.codec:""),
+          disabled:!supported
+        });
+      });
+    }
+    if(item){
+      (item.embeddedSubtitles||[]).forEach(track=>{
+        const supported=Boolean(
+          window.DKMkvSubtitles?.canExtract(track.codec)||
+          window.DKPGS?.canRender(track.codec)||
+          window.DKVobSub?.canRender(track.codec));
+        options.push({
+          value:"mkv:"+track.number,
+          label:(track.name||track.language||tr("Subtitle track")+" "+track.number)+
+            (track.codec?" · "+track.codec:""),
+          disabled:!supported
+        });
+      });
+      if(item.mkvInspection==="pending"&&
+         !(item.embeddedSubtitles||[]).length)
+        options.push({value:"pending",label:tr("Checking MKV subtitle tracks…"),
+          disabled:true});
+    }
+    const signature=JSON.stringify(options);
+    if(subtitleTrackSelect.dataset.choiceSignature!==signature){
+      subtitleTrackSelect.replaceChildren(...options.map(choice=>{
+        const option=document.createElement("option");
+        option.value=choice.value;
+        option.textContent=choice.label;
+        option.disabled=choice.disabled;
+        return option;
+      }));
+      subtitleTrackSelect.dataset.choiceSignature=signature;
+      if(window.DKLocale)window.DKLocale.apply();
+    }
+    subtitleTrackSelect.disabled=!item;
+    let choice="off";
+    const activeNative=state.nativeSubtitle;
+    if(subtitleIsOn()&&activeNative?.item===item&&Number.isInteger(activeNative.index))
+      choice="native:"+activeNative.index;
+    else if(state.activePgsTrack)
+      choice="mkv:"+state.activePgsTrack.number;
+    else if(state.activeEmbeddedTrack!==null)
+      choice="mkv:"+state.activeEmbeddedTrack;
+    else {
+      const index=visible.findIndex(track=>track.mode==="showing");
+      if(index>=0)choice="browser:"+index;
+    }
+    if(!options.some(option=>option.value===choice&&!option.disabled))
+      choice="off";
+    subtitleTrackSelect.value=choice;
+  };
+  // Native <option> labels are intentionally not altered by the global
+  // text-node translator, so update the playback format options explicitly
+  // when switching between the English and fully Cyrillic Russian UI.
+  const translateGearOptions=()=>{
+    const format=byId("playbackFormat");
+    for(const option of format.options){
+      if(!option.dataset.englishLabel)
+        option.dataset.englishLabel=option.textContent;
+      option.textContent=window.DKLocale?.t(option.dataset.englishLabel)||
+        option.dataset.englishLabel;
+    }
+    subtitleTrackSelect.dataset.choiceSignature="";
+    refreshSubtitleTrackOptions();
+  };
+  byId("languageSelect").addEventListener("change",()=>{
+    queueMicrotask(translateGearOptions);
+  });
+  translateGearOptions();
+  subtitleTrackSelect.addEventListener("change",event=>{
+    const item=current();
+    if(!item)return;
+    const value=event.target.value;
+    if(value==="off"){switchSubtitles(-1);return;}
+    item.lastSubtitleChoice=value;
+    const [kind,index]=value.split(":");
+    const number=Number(index);
+    if(!Number.isSafeInteger(number)||number<0)return;
+    if(kind==="browser"){switchSubtitles(number);return;}
+    if(kind==="native"){
+      const track=item.nativeSubtitleTracks?.[number];
+      if(track&&isTextNativeSubtitle(track))
+        void loadNativeSubtitle(item,track,number);
+      return;
+    }
+    if(kind==="mkv"){
+      const track=(item.embeddedSubtitles||[]).find(x=>x.number===number);
+      if(!track)return;
+      if(window.DKPGS?.canRender(track.codec))void loadPgsTrack(track);
+      else if(window.DKVobSub?.canRender(track.codec))
+        void loadVobSubTrack(track);
+      else if(window.DKMkvSubtitles?.canExtract(track.codec))
+        void loadEmbeddedTrack(track);
+    }
+  });
   const buildContextMenu = () => {
     contextMenu.replaceChildren();
     activeMenuSection = contextMenu;
@@ -2493,22 +2631,11 @@
   document.addEventListener("fullscreenchange", updateFullscreenButton);
   document.addEventListener("fullscreenchange", () => requestAnimationFrame(syncPgsOverlay));
   updateFullscreenButton();
-  // Embedded MKV tracks use the existing menu; SRT/VTT loading is explicit.
+  // Subtitle tracks and delay live in the gear menu. An external SRT/VTT
+  // is a direct file picker, without opening a second nested settings menu.
   byId("addSubtitles").addEventListener("click", () => {
     if (!current()) return;
-    cancelVideoClick();
-    buildContextMenu();
-    if (window.DKLocale) window.DKLocale.apply();
-    contextMenu.hidden = false;
-    menuOpen = true;
-    keepControlsVisible();
-    const bounds = screen.getBoundingClientRect();
-    const button = byId("addSubtitles").getBoundingClientRect();
-    contextAnchor = {x: button.left - bounds.left, y: button.top - bounds.top};
-    const subtitleSection = contextMenu.querySelector(
-      '.context-section-toggle[data-menu-section="Subtitles"]');
-    if (subtitleSection) subtitleSection.click();
-    else fitContextMenu();
+    byId("subtitlePicker").click();
   });
   // Shift playback subtitle timing without changing video/audio or media files.
   const setSubtitleDelay = seconds => {
@@ -2540,6 +2667,16 @@
     if (subtitleIsOn()) {
       switchSubtitles(-1);
       status("Subtitles turned off.",true);
+      return;
+    }
+    // The quick CC button restores the last explicitly chosen track
+    // (including native, MKV and external captions) when still available.
+    const previous=item.lastSubtitleChoice;
+    const selector=byId("subtitleTrackSelect");
+    if(previous&&previous!=="off"&&
+       Array.from(selector.options).some(o=>o.value===previous&&!o.disabled)){
+      selector.value=previous;
+      selector.dispatchEvent(new Event("change",{bubbles:true}));
       return;
     }
     const available = usableEmbeddedSubtitles(item);

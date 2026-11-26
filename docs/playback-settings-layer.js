@@ -13,14 +13,19 @@
     const reposition = () => {
       if (!details.open || !panel.matches(":popover-open")) return;
       const rect = summary.getBoundingClientRect();
-      const width = Math.min(330, window.innerWidth - 24);
-      const left = Math.max(12, Math.min(rect.right - width, window.innerWidth - width - 12));
-      panel.style.width = width + "px";
-      panel.style.left = left + "px";
-      panel.style.top = Math.max(12, rect.bottom + 7) + "px";
-      const bottom = panel.getBoundingClientRect().bottom;
-      if (bottom > window.innerHeight - 12 && rect.top > panel.offsetHeight + 20)
-        panel.style.top = Math.max(12, rect.top - panel.offsetHeight - 7) + "px";
+      const width = Math.max(240,Math.min(360,window.innerWidth - 24));
+      panel.style.width=width+"px";
+      panel.style.left=Math.max(12,Math.min(rect.right-width,
+        window.innerWidth-width-12))+"px";
+      const height=Math.min(panel.scrollHeight,window.innerHeight-24);
+      const above=rect.top-height-9;
+      const below=rect.bottom+9;
+      // The gear lives at the bottom of the picture. Prefer a popover
+      // opening UP above it, and clamp height when the screen is narrow.
+      const top=above>=12?above:
+        below+height<=window.innerHeight-12?below:
+          Math.max(12,window.innerHeight-height-12);
+      panel.style.top=top+"px";
     };
     const close = () => {
       if (panel.matches(":popover-open")) panel.hidePopover();

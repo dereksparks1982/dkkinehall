@@ -40,6 +40,15 @@ The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved r
 
 These are source-level changes, not a claim that a final release has been fully checked.
 
+## Player-bar Settings build
+
+- Move playback preferences from the upper header to a **gear icon in the video player bar** without changing existing control icons or the Soviet-themed backdrop.
+- Put the caption **On/Off** toggle on the player bar. Move subtitle track selection, SRT/VTT loading, and the 0.25-second subtitle delay buttons into the gear menu together with speed and playback preferences.
+- Remove the former subtitle strip below the playing media, but preserve the existing **series name first line / SxxExx plus episode title second line** without modification.
+- Anchor settings to the player-bar gear in Chromium's top layer, ensure it stays accessible during video playback/fullscreen, and keep unsupported subtitle tracks disabled.
+- Verify Russian translations for the menu and explicit playback formats; do not expose English interface labels in the Russian edition.
+- Source-level changes are not a validated standalone runtime; release stays locked until acceptance.
+
 ## Unfinished, mandatory acceptance gates
 
 1. **All-in-one native codecs.** Finish packaging and verify the Electron-to-FFmpeg backend behind the approved Chromium player interface. Current GitHub changes are source code only, not a finished codec-enabled binary.

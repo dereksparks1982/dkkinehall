@@ -17,6 +17,51 @@ const NEVER=new Set([
   "$RECYCLE.BIN","System Volume Information","snap","flatpak",
   "Cache","Caches",".thumbnails",".Trash-1000"
 ]);
+
+// Do not treat source-code .ts files or development fixtures as movies.
+// Keep manual opening independent of automatic library eligibility.
+const DEVELOPMENT=new Set(["node_modules","__pycache__","cmakefiles","testdata","test-data","fixtures","test-fixtures","desktop-codecs","_internal","vendor","site-packages"]);
+function excludedPath(filePath){
+  const parts=path.resolve(filePath).split(path.sep).map(p=>p.toLowerCase());
+  if(parts.some(p=>DEVELOPMENT.has(p)))return true;
+  if(parts.some((p,i)=>p==="dklab"&&["projects","archives"].includes(parts[i+1])))return true;
+  const stem=path.basename(filePath,path.extname(filePath));
+  return /^(?:av1|apv|cardimageurl|compiler[._ -]?depend)$/i.test(stem);
+}
+const verificationCache=new Map();
+async function inspectCandidate(file,stat,signal,probe){
+  if(excludedPath(file)||stat.size<1024*1024)return false;
+  const key=JSON.stringify([file,stat.size,stat.mtimeMs,!!probe]);
+  if(verificationCache.has(key))return verificationCache.get(key);
+  // Reject obvious source/text masquerading as transport-stream video.
+  const handle=await fsp.open(file,"r");
+  let bytes;
+  try{const buffer=Buffer.alloc(8192);const read=await handle.read(buffer,0,buffer.length,0);bytes=buffer.subarray(0,read.bytesRead);}
+  finally{await handle.close();}
+  const sample=bytes.subarray(0,2048);
+  const text=sample.length>0&&sample.every(b=>b===9||b===10||b===13||b>=32&&b<=126);
+  if(text)return false;
+  let result=null;
+  if(probe){
+    if(signal?.aborted)throw Error("Library scan cancelled");
+    result=await probe(file,signal);
+  }
+  if(result===null){
+    // Recognize common binary containers if the bundled probe is absent.
+    const ascii=(from,to)=>bytes.toString("ascii",from,to);
+    const ts=[188,192,204].some(stride=>[0,4].some(offset=>bytes[offset]===0x47&&bytes[offset+stride]===0x47&&bytes[offset+stride*2]===0x47));
+    result=ts||ascii(4,8)==="ftyp"||bytes.subarray(0,4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3]))||
+      ascii(0,4)==="RIFF"&&ascii(8,12)==="AVI "||ascii(0,4)==="OggS"||ascii(0,3)==="FLV"||
+      bytes.subarray(0,4).equals(Buffer.from([0,0,1,0xba]))||
+      bytes.subarray(0,4).equals(Buffer.from([0x30,0x26,0xb2,0x75]));
+    // Unknown binary types are unverified, not definitely invalid.
+    if(!result)return null;
+  }
+  verificationCache.set(key,result);
+  if(verificationCache.size>30000)verificationCache.delete(verificationCache.keys().next().value);
+  return result;
+}
+
 const MAX_FILES=25000, MAX_VISITS=300000, MAX_DEPTH=24;
 const MAX_BYTES_PER_READ=8*1024*1024;
 const fileIdentity=p=>"native:"+crypto.createHash("sha256")
@@ -53,11 +98,11 @@ async function checkVideo(id,filePath){
   if(!stat.isFile()||stat.isSymbolicLink())throw Error("Not a regular local video");
   return {target,stat};
 }
-async function discover({manual=false,signal,onProgress=()=>{},testRoots=null}={}){
+async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,probe=null}={}){
   // testRoots is used solely by isolated maintainer regression fixtures.
   // The IPC handler never supplies it; users always scan native roots.
   const start=Date.now(),roots=Array.isArray(testRoots)?testRoots:rootPath(),
-    items=[];
+    items=[],rejected=[];
   let visits=0,folders=0,truncated=false,skipped=0;
   const visitedDirs=new Set();
   const maxMillis=manual?180000:60000;
@@ -90,6 +135,7 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null}={
              NEVER.has(entry.name))continue;
           const filePath=path.join(job.dir,entry.name);
           if(entry.isDirectory()){
+            if(excludedPath(filePath))continue;
             if(job.depth<MAX_DEPTH)queue.push({dir:filePath,depth:job.depth+1});
             else truncated=true;
             continue;
@@ -98,6 +144,9 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null}={
           try{
             const stat=await fsp.stat(filePath);
             if(!stat.isFile())continue;
+            const valid=await inspectCandidate(filePath,stat,signal,probe);
+            if(valid===false){if(rejected.length<MAX_FILES)rejected.push(fileIdentity(filePath));continue;}
+            if(valid===null){skipped++;continue;}
             items.push({
               id:fileIdentity(filePath),
               nativePath:filePath,filename:entry.name,
@@ -121,7 +170,7 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null}={
     }
     if(truncated)break;
   }
-  return {items,roots,complete:!truncated&&skipped===0,
+  return {items,roots,rejected,complete:!truncated&&skipped===0,
     partial:truncated||skipped>0,found:items.length,visits,folders,
     skipped,elapsedMs:Date.now()-start};
 }

@@ -33,7 +33,7 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 **[Try the Web App](https://dereksparks1982.github.io/dkkinehall/)**
 
-The standalone Linux edition is not yet a finished release. See the [Linux installation information](docs/PORTABLE_LINUX.md) for availability.
+**[Standalone Linux edition: availability and installation](docs/PORTABLE_LINUX.md)**
 
 ## More information
 

@@ -16,6 +16,7 @@ const storedMode=()=>{
 let mode=storedMode(),selectedSeries=null,selectedSeason=null;
 let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
+let maintaining=false,refreshCancelled=false;
 let bottomObserver=null;
 let contextRow=null;
 let deferredProgress=false;
@@ -135,7 +136,7 @@ function createCard(row,{landscape=false,series=false}={}){
       selectedSeries=row.series;
       selectedSeason=null;
       visibleCount=72;
-      void render();
+      void render().then(recordNavigation);
     }else void openVideo(row);
   });
   // Artwork requests are on-demand and bounded; never fetch every poster
@@ -211,9 +212,9 @@ async function findArtwork(row,id,series=false,force=false){
   // Episode titles and stills are independent. A cached local poster must
   // not suppress title retrieval. Only visible episodes are requested,
   // and successful titles are persisted to IndexedDB once.
-  if(row.kind==="tv"&&!series&&!row.metadataVerified&&
+  if(row.kind==="tv"&&!series&&(force||!row.metadataVerified)&&
      artworkFinder?.episodeTitle&&navigator.onLine&&
-     networkTitleCount<TITLE_LOOKUP_LIMIT){
+     (force||networkTitleCount<TITLE_LOOKUP_LIMIT)){
     networkTitleCount++;
     try{
       const verified=await artworkFinder.episodeTitle(metadataFilename(row));
@@ -255,7 +256,7 @@ async function findArtwork(row,id,series=false,force=false){
     if(result?.provider)excluded.push(result.provider);
     // Episode cards use episode stills; the series grid uses series art.
     const url=row.kind==="tv"&&series?
-      (result?.fallbackUrl||result?.url):result?.url;
+      (nativeBridge?(result?.seriesUrl||result?.fallbackUrl):(result?.fallbackUrl||result?.url)):result?.url;
     if(row.kind==="tv"&&!series&&
        typeof result?.title==="string"&&result.title.trim()&&
        typeof store.updateMetadata==="function"){
@@ -429,7 +430,10 @@ function switchMode(value){
   mode=value==="tv"?"tv":"movie";
   selectedSeries=null;selectedSeason=null;visibleCount=72;
   try{localStorage.setItem("dk-kinehall.library.category.v1",mode);}catch(_){}
-  void render();
+  void render().then(recordNavigation);
+}
+function recordNavigation(){
+  if(nativeBridge?.recordNavigation)void nativeBridge.recordNavigation({mode,series:selectedSeries,season:selectedSeason}).catch(()=>{});
 }
 async function render(){
   const epoch=++renderEpoch;
@@ -540,6 +544,7 @@ async function render(){
   pumpArtwork();
 }
 async function scan(manual=false){
+  if(maintaining)return;
   if(scanning){
     controller?.abort();
     if(nativeBridge)void nativeBridge.cancelScan();
@@ -559,17 +564,18 @@ async function scan(manual=false){
       const discovered=await nativeBridge.discover(manual);
       if(controller.signal.aborted)return;
       const counts=await store.ingestNative(discovered);
+      const merged=await store.reconcileNative();
       await render();
       status((discovered.partial?"Scan incomplete. ":"Scan complete. ")+
         counts.found+" videos found. "+
         counts.added+" added, "+counts.updated+" updated, "+
-        counts.missing+" unavailable."+
+        counts.missing+" unavailable. "+merged+" duplicate records merged."+
         (discovered.partial?" Some folders could not be searched or scan limits were reached.":""),
         (discovered.partial?"Проверка не завершена. ":"Проверка завершена. ")+
         "Найдено видео: "+counts.found+
         ". Добавлено: "+counts.added+
         ". Обновлено: "+counts.updated+
-        ". Недоступно: "+counts.missing+".",
+        ". Недоступно: "+counts.missing+". Объединено записей: "+merged+".",
         discovered.partial);
       return;
     }
@@ -630,6 +636,52 @@ async function chooseFolder(){
         "Не удалось добавить папку.",true);
   }
 }
+async function libraryMaintenance(action){
+  if(maintaining){if(action==="refresh")refreshCancelled=true;return;}
+  maintaining=true;refreshCancelled=false;
+  const send=value=>nativeBridge.setMaintenanceStatus({action,...value}).catch(()=>{});
+  let result={busy:false};
+  try{
+    if(action==="trash"){
+      const merged=await store.reconcileNative();
+      const removed=await store.emptyTrash();
+      result={busy:false,removed,merged};
+      await render();
+      status("Empty Trash: "+removed+" unavailable records removed, "+merged+" duplicates merged.",
+        "Корзина очищена: удалено записей "+removed+", объединено "+merged+".");
+    }else if(action==="refresh"){
+      if(!navigator.onLine)throw Error("Offline");
+      // Explicit full-library refresh: one item at a time, with a stop
+      // command. Retain existing metadata/art when providers fail.
+      artworkFinder?.clear();
+      const rows=(await store.entries()).filter(row=>!row.missing);
+      const tasks=rows.map(row=>({row,series:false,id:artId(row)}));
+      const seen=new Set();
+      for(const row of rows){
+        if(row.kind!=="tv")continue;
+        const id=artId(row,true);
+        if(!seen.has(id)){seen.add(id);tasks.push({row,series:true,id});}
+      }
+      let done=0;
+      await send({busy:true,done,total:tasks.length});
+      for(const task of tasks){
+        if(refreshCancelled)break;
+        try{await findArtwork(task.row,task.id,task.series,true);}catch(_){}
+        done++;
+        status("Refreshing metadata: "+done+" / "+tasks.length,
+          "Обновление данных: "+done+" / "+tasks.length);
+        await send({busy:true,done,total:tasks.length});
+      }
+      result={busy:false,done,total:tasks.length,cancelled:refreshCancelled};
+      await render();
+      status(refreshCancelled?"Metadata refresh stopped.":"Metadata refresh finished; existing data retained when providers had no match.",
+        refreshCancelled?"Обновление остановлено.":"Обновление завершено; прежние данные сохранены при отсутствии совпадений.");
+    }
+  }catch(_){
+    result={busy:false,failed:true};
+    status("Library maintenance failed.","Не удалось выполнить обслуживание медиатеки.",true);
+  }finally{maintaining=false;await send(result);}
+}
 function connect(){
   $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
@@ -656,6 +708,16 @@ function connect(){
     $("scanLibrary").classList.remove("primary","ghost");
     $("scanLibrary").classList.add("dk-scan");
     nativeBridge.onScanRequest(()=>void scan(true));
+    nativeBridge.onMaintenanceRequest?.(action=>void libraryMaintenance(action));
+    nativeBridge.onRestoreNavigation?.(value=>{
+      mode=value.mode;selectedSeries=value.series;selectedSeason=value.season;visibleCount=72;
+      void render();
+    });
+    document.addEventListener("auxclick",event=>{
+      if(event.button!==3&&event.button!==4)return;
+      event.preventDefault();event.stopPropagation();
+      void nativeBridge.navigateHistory(event.button===3?-1:1).catch(()=>{});
+    },true);
   }
   if(nativeBridge?.showPlayer){
     const button=document.createElement("button");
@@ -668,10 +730,10 @@ function connect(){
     });
   }
   $("backToSeries").addEventListener("click",()=>{
-    selectedSeries=null;selectedSeason=null;void render();
+    selectedSeries=null;selectedSeason=null;void render().then(recordNavigation);
   });
   $("seasonSelect").addEventListener("change",event=>{
-    selectedSeason=Number(event.target.value);visibleCount=72;void render();
+    selectedSeason=Number(event.target.value);visibleCount=72;void render().then(recordNavigation);
   });
   store.onChange(event=>{
     if(event.metadata&&event.id){
@@ -690,7 +752,7 @@ function connect(){
       }).catch(()=>{});
       return;
     }
-    if(scanning||(!event.progress&&!event.folders&&!event.entries))return;
+    if(scanning||maintaining||(!event.progress&&!event.folders&&!event.entries))return;
     // Keep the video smooth on low-memory Surface Pro hardware. Playback
     // history still commits to IndexedDB; repaint only when Home is active.
     if(event.progress && (document.hidden||!document.hasFocus())){
@@ -709,6 +771,7 @@ function connect(){
   window.addEventListener("focus",refreshOnReturn);
   document.addEventListener("visibilitychange",refreshOnReturn);
   void render().then(()=>{
+    recordNavigation();
     // Render saved posters immediately. A bounded, one-shot rescan is
     // attempted only after initialization; no daemon or persistent server.
     const start=()=>{

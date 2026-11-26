@@ -28,7 +28,7 @@ The Qt/libmpv prototype's TVmaze lookup code is a separate, optional metadata pa
 
 ## Codec output and redistribution policy
 
-A license-compatible baseline can use `libvpx-vp9` and `libopus` for WebM output without requiring GPL-linked `libx264`. H.264/AAC output is optional and must be present in the actual package inventory. When MP4/H.264 is explicitly chosen but no encoder is bundled, playback must report that format as unavailable, not silently switch output formats. **Automatic** mode may select WebM when MP4 is unavailable. WebM real-time transcoding can be CPU-intensive on the Surface Pro, and no performance guarantee is made before actual playback validation. Licenses, patent obligations and redistribution notices must match the shipped codec binaries.
+A license-compatible baseline can use `libvpx-vp9` and `libopus` for WebM output without requiring GPL-linked `libx264`. Full H.264 re-encoding is optional and must be present in the actual package inventory. AAC encoding is now required; eligible 8-bit 4:2:0 H.264 input at position zero can use lossless video stream-copy into MP4 without an H.264 encoder. Other inputs and nonzero seeks require a full encoder or the WebM fallback. When MP4/H.264 is explicitly chosen but no encoder is bundled, playback must report that format as unavailable, not silently switch output formats. **Automatic** mode may select WebM when MP4 is unavailable. WebM real-time transcoding can be CPU-intensive on the Surface Pro, and no performance guarantee is made before actual playback validation. Licenses, patent obligations and redistribution notices must match the shipped codec binaries.
 
 ## Codec integration hardening (source stage)
 

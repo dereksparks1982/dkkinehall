@@ -14,10 +14,26 @@ ROOT=pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/"maintenance"))
 from library_bundle import LibraryBundle, ORIGINAL, LIBRARY, BOOT
 from codec_bundle import CodecBundle
+from sync_original_runtime import verify_player_settings
 
 class LibraryRuntimeTest(unittest.TestCase):
     def setUp(self):
         self.bridge=LibraryBundle(ROOT)
+
+    def test_settings_gear_only_on_video_bar(self):
+        html=(ROOT/"docs"/"index.html").read_bytes()
+        verify_player_settings(html)
+        self.assertEqual(html.count(b'data-settings-location="player-bar"'),1)
+
+    def test_legacy_top_playback_button_is_rejected(self):
+        html=(ROOT/"docs"/"index.html").read_bytes()
+        self.assertIn(b'<div class="header-tools">',html)
+        old=(b'<div class="header-tools">'
+             b'<details class="playback-settings">'
+             b'<summary>Playback settings</summary></details>')
+        legacy=html.replace(b'<div class="header-tools">',old,1)
+        with self.assertRaisesRegex(RuntimeError,"Legacy Playback settings"):
+            verify_player_settings(legacy)
 
     def test_original_player_startup_stays_available_in_second_window(self):
         main=(b'"use strict";\n'

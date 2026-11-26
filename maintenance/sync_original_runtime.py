@@ -18,6 +18,36 @@ from library_bundle import LibraryBundle
 CHUNK = 70 * 1024 * 1024
 PREFIX = "resources/app/docs/"
 
+def verify_player_settings(html):
+    """Prevent legacy top-header playback controls from shipping again.
+
+    The video-bar gear is the SINGLE owner of playback and subtitle settings.
+    Check the exact HTML that will be installed, not just source comments.
+    """
+    if isinstance(html,str):
+        html=html.encode("utf-8")
+    header_start=html.find(b"<header")
+    header_end=html.find(b"</header>",header_start)
+    if header_start<0 or header_end<0:
+        raise RuntimeError("DK Kinehall player header is missing")
+    header=html[header_start:header_end]
+    if b"playback-settings" in header or b"Playback settings" in header:
+        raise RuntimeError(
+            "Legacy Playback settings control in top header; release blocked")
+    if b'id="languageSelect"' not in header:
+        raise RuntimeError("Player header language selector is missing")
+    if html.count(b'data-settings-location="player-bar"')!=1 or (
+        html.count(b'class="playback-settings player-bar-settings"')!=1):
+        raise RuntimeError("Expected exactly one video-bar playback settings gear")
+    for element in (b'id="subtitleToggle"',b'id="subtitleTrackSelect"',
+                    b'id="playbackFormat"',b'id="rate"',
+                    b'id="subtitleDelayEarlier"',b'id="subtitleDelayLater"',
+                    b'id="subtitleDelayReset"'):
+        if html.count(element)!=1:
+            raise RuntimeError(
+                "Missing or duplicated playback-bar setting: "+
+                element.decode("ascii"))
+
 def sha(path):
     result = hashlib.sha256()
     with path.open("rb") as source:
@@ -44,6 +74,7 @@ def sync(root, codec_source=None):
     if not required.issubset(docs_map):
         raise RuntimeError("Missing original web player resources: " +
                            str(sorted(required - docs_map.keys())))
+    verify_player_settings(docs_map["index.html"].read_bytes())
     # Stage archive chunks on the installation filesystem. /tmp can be a
     # separate mount, where os.replace() fails with EXDEV (errno 18).
     with tempfile.TemporaryDirectory(prefix=".dk-runtime-", dir=internal) as temp:
@@ -141,6 +172,8 @@ def sync(root, codec_source=None):
             codec_bundle.assert_ready()
             codec_bundle.add_entries(after, existing)
         with tarfile.open(updated, "r:gz") as archive:
+            verify_player_settings(
+                archive.extractfile("./" + PREFIX + "index.html").read())
             for name in required:
                 assert archive.extractfile("./" + PREFIX + name).read() == docs_map[name].read_bytes(), name
             host = archive.extractfile("./resources/app/main.cjs").read()

@@ -44,7 +44,7 @@ These are source-level changes, not a claim that a final release has been fully 
 
 ## Player-bar Settings build
 
-- Move playback preferences from the upper header to a **gear icon in the video player bar** without changing existing control icons or the Soviet-themed backdrop.
+- Move playback preferences from the upper header to a **gear icon in the video player bar** without changing existing control icons or the Soviet-themed backdrop. Enforce this at packaging: exactly one video-bar gear, no top-header Playback settings button, and all previous settings still present.
 - Put the caption **On/Off** toggle on the player bar. Move subtitle track selection, SRT/VTT loading, and the 0.25-second subtitle delay buttons into the gear menu together with speed and playback preferences.
 - Remove the former subtitle strip below the playing media, but preserve the existing **series name first line / SxxExx plus episode title second line** without modification.
 - Anchor settings to the player-bar gear in Chromium's top layer, ensure it stays accessible during video playback/fullscreen, and keep unsupported subtitle tracks disabled.

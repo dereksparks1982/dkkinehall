@@ -20,7 +20,12 @@ for(const id of [
 ])assert.equal(count(html,'id="'+id+'"'),1,"exactly one "+id);
 const header=html.slice(html.indexOf("<header"),html.indexOf("</header>"));
 const screen=html.slice(html.indexOf('id="screen"'),html.indexOf('id="chapterPicker"'));
-assert.doesNotMatch(header,/playback-settings/);
+assert.doesNotMatch(header,/playback-settings|Playback settings/i,
+  "The top header cannot show a second Playback settings button");
+assert.match(header,/id="languageSelect"/,
+  "Keep the existing header language selector");
+assert.equal(count(html,'data-settings-location="player-bar"'),1,
+  "The video-bar gear is the only Playback settings control");
 assert.match(screen,/player-bar-settings/);
 assert.match(screen,/id="subtitleToggle"/);
 assert.match(screen,/id="subtitleTrackSelect"/);

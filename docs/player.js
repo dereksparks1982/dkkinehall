@@ -2516,6 +2516,86 @@
   let volumeLimit=supportsVolumeBoost?200:100;
   const volumeSlider=byId("volume");
   volumeSlider.max=String(volumeLimit);
+  // The media element and separately decoded MKV audio use the same EQ
+  // topology and preferences. Neutral/bypassed settings retain the original
+  // signal path and never impose a stereo downmix merely by enabling EQ.
+  const eqKey="dk-kinehall.audio-enhancements.v1";
+  const eqFrequencies=[31,62,125,250,500,1000,2000,4000,8000,16000];
+  const eqPresets={
+    flat:[0,0,0,0,0,0,0,0,0,0],
+    cinema:[4,3,1,-1,0,2,3,2,1,0],
+    speech:[-6,-4,-2,0,2,4,5,3,0,-2],
+    rock:[4,3,1,-1,-2,0,2,3,4,3],
+    classical:[2,1,0,0,-1,-1,0,1,2,2],
+    jazz:[3,2,1,1,0,1,2,1,2,2],
+    bass:[6,5,3,1,0,0,0,0,0,0],
+    treble:[0,0,0,0,0,1,2,3,4,5]
+  };
+  const savedEQ=desktopVolume?(read(eqKey,{})||{}):{};
+  const eqClamp=(value,min,max)=>Number.isFinite(Number(value))?Math.max(min,Math.min(max,Math.round(Number(value)))):0;
+  const eq={enabled:desktopVolume&&savedEQ.enabled===true,
+    bands:eqFrequencies.map((_,index)=>eqClamp(savedEQ.bands?.[index],-12,12)),
+    bass:eqClamp(savedEQ.bass,-12,12),treble:eqClamp(savedEQ.treble,-12,12),
+    balance:eqClamp(savedEQ.balance,-100,100),headroom:savedEQ.headroom!==false};
+  const eqActive=()=>eq.enabled&&(eq.bands.some(Boolean)||eq.bass!==0||eq.treble!==0||eq.balance!==0);
+  const createAudioEffects=(context,input)=>{
+    // Allocate filters lazily, keep the normal gain stage for 0–200%
+    // independent, and use a direct connection for neutral settings.
+    let filters=null,headroom=null,panner=null,route="";
+    const nodes=()=>{
+      if(filters)return;
+      const make=(type,frequency)=>{
+        const node=context.createBiquadFilter();node.type=type;
+        node.frequency.value=Math.min(frequency,context.sampleRate*.49);
+        return node;
+      };
+      const bass=make("lowshelf",100),treble=make("highshelf",10000);
+      const bands=eqFrequencies.map(frequency=>{
+        const node=make("peaking",frequency);node.Q.value=1.4;return node;
+      });
+      const compensation=context.createGain();
+      const stereo=typeof context.createStereoPanner==="function"?context.createStereoPanner():null;
+      filters=[bass,...bands,treble];headroom=compensation;panner=stereo;
+    };
+    const reconnect=next=>{
+      if(next===route)return;
+      input.disconnect();
+      for(const node of [...(filters||[]),headroom,panner])if(node)node.disconnect();
+      if(next==="direct"){input.connect(context.destination);route=next;return;}
+      let tail=input;
+      for(const node of filters){tail.connect(node);tail=node;}
+      tail.connect(headroom);tail=headroom;
+      if(next==="stereo"){tail.connect(panner);tail=panner;}
+      tail.connect(context.destination);route=next;
+    };
+    const apply=()=>{
+      if(!eqActive()){reconnect("direct");return;}
+      nodes();
+      const gains=[eq.bass,...eq.bands,eq.treble];
+      filters.forEach((node,i)=>{node.gain.value=gains[i];});
+      if(panner)panner.pan.value=eq.balance/100;
+      // Estimate peak boost of the combined filter response across the
+      // audible spectrum. This is optional headroom, not a peak limiter.
+      let boost=1;
+      if(eq.headroom&&gains.some(value=>value>0)){
+        const count=128,frequencies=new Float32Array(count),magnitude=new Float32Array(count),phase=new Float32Array(count),combined=new Float32Array(count).fill(1);
+        const high=Math.min(22000,context.sampleRate*.49);
+        for(let i=0;i<count;i++)frequencies[i]=20*Math.pow(high/20,i/(count-1));
+        for(const node of filters){
+          node.getFrequencyResponse(frequencies,magnitude,phase);
+          for(let i=0;i<count;i++)if(Number.isFinite(magnitude[i]))combined[i]*=magnitude[i];
+        }
+        for(const value of combined)if(Number.isFinite(value))boost=Math.max(boost,value);
+      }
+      headroom.gain.value=1/boost;
+      reconnect(eq.balance!==0&&panner?"stereo":"filtered");
+    };
+    try{apply();}catch(error){
+      try{input.disconnect();input.connect(context.destination);route="direct";}catch(_){}
+      throw error;
+    }
+    return {apply};
+  };
   let volumeAudioGraph=null;
   const resumeBoost=()=>{
     if(volumeAudioGraph?.context.state==="suspended")
@@ -2528,9 +2608,14 @@
     try{
       context=new AudioContextType();
       const gain=context.createGain();
+      // Set up output before binding the media source (binding is one-time).
+      let effects=null;
+      if(desktopVolume){
+        try{effects=createAudioEffects(context,gain);}catch(_){gain.disconnect();gain.connect(context.destination);}
+      }else gain.connect(context.destination);
       const source=context.createMediaElementSource(media);
-      source.connect(gain);gain.connect(context.destination);
-      volumeAudioGraph={context,gain};
+      source.connect(gain);
+      volumeAudioGraph={context,gain,effects};
       media.addEventListener("play",resumeBoost);
       resumeBoost();
       return true;
@@ -2548,7 +2633,9 @@
   volumePercent=Math.max(0,Math.min(volumeLimit,Math.round(volumePercent)));
   const applyVolume = () => {
     const separateAudio=Boolean(mkvAudio?.active());
-    if(volumePercent>100&&!separateAudio&&!ensureVolumeBoost())volumePercent=100;
+    if(!separateAudio&&(volumePercent>100||(eqActive()&&current()&&!state.stopped))){
+      if(!ensureVolumeBoost()&&volumePercent>100)volumePercent=100;
+    }
     media.volume=volumeAudioGraph?1:Math.min(1,volumePercent/100);
     if(volumeAudioGraph)volumeAudioGraph.gain.gain.value=userMuted||separateAudio?0:volumePercent/100;
     media.muted=separateAudio||userMuted;
@@ -2581,6 +2668,75 @@
     setVolume(volumePercent + (event.deltaY < 0 ? 5 : -5));
   }, {passive: false});
 
+  // Audio controls remain in the player-bar settings gear, not a new bar.
+  if(desktopVolume&&settingsDetails){
+    const section=document.createElement("section");
+    section.className="player-settings-section dk-audio-settings";
+    const title=document.createElement("strong");title.textContent="Audio enhancements";section.append(title);
+    const enable=document.createElement("input");enable.type="checkbox";enable.id="audioEnhancementsEnabled";
+    const enabledLabel=document.createElement("label");enabledLabel.append(enable,document.createTextNode("Enable audio enhancements"));section.append(enabledLabel);
+    const presetLabel=document.createElement("label");presetLabel.htmlFor="audioEQPreset";presetLabel.textContent="Equalizer preset";
+    const preset=document.createElement("select");preset.id="audioEQPreset";
+    for(const [value,label] of Object.entries({flat:"Flat",cinema:"Cinema",speech:"Speech",rock:"Rock",classical:"Classical",jazz:"Jazz",bass:"Bass boost",treble:"Treble boost",custom:"Custom equalizer"})){
+      const option=document.createElement("option");option.value=value;option.textContent=label;preset.append(option);
+    }
+    section.append(presetLabel,preset);
+    const bands=document.createElement("div");bands.className="dk-eq-bands";bands.setAttribute("role","group");bands.setAttribute("aria-label","Ten-band equalizer");
+    const entries=[];
+    for(const [index,frequency] of eqFrequencies.entries()){
+      const cell=document.createElement("div");cell.className="dk-eq-band";
+      const input=document.createElement("input");input.id="audioEQBand"+index;input.type="range";input.min="-12";input.max="12";input.step="1";
+      const label=document.createElement("label");label.htmlFor=input.id;label.textContent=frequency>=1000?frequency/1000+"k":String(frequency);
+      input.setAttribute("aria-label",frequency>=1000?frequency/1000+" kHz":frequency+" Hz");
+      const output=document.createElement("output");output.htmlFor=input.id;
+      cell.append(output,input,label);bands.append(cell);entries.push({input,output});
+      input.addEventListener("input",()=>{eq.bands[index]=eqClamp(input.value,-12,12);eq.enabled=true;applyAudioSettings();});
+      input.addEventListener("change",()=>write(eqKey,eq));
+    }
+    section.append(bands);
+    const extras={};
+    for(const [id,labelText,min,max] of [["bass","Bass",-12,12],["treble","Treble",-12,12],["balance","Stereo balance",-100,100]]){
+      const row=document.createElement("div");row.className="dk-picture-adjustment";
+      const label=document.createElement("label"),input=document.createElement("input"),output=document.createElement("output");
+      input.id="audioEQ-"+id;input.type="range";input.min=String(min);input.max=String(max);input.step="1";
+      label.htmlFor=input.id;label.textContent=labelText;output.htmlFor=input.id;extras[id]={input,output};
+      row.append(label,output,input);section.append(row);
+      input.addEventListener("input",()=>{eq[id]=eqClamp(input.value,min,max);eq.enabled=true;applyAudioSettings();});
+      input.addEventListener("change",()=>write(eqKey,eq));
+    }
+    const headroom=document.createElement("input");headroom.type="checkbox";
+    const headroomLabel=document.createElement("label");headroomLabel.append(headroom,document.createTextNode("Automatic EQ headroom"));section.append(headroomLabel);
+    const reset=document.createElement("button");reset.type="button";reset.className="btn small dk-picture-reset";reset.textContent="Reset audio enhancements";
+    const note=document.createElement("p");note.className="helper";note.textContent="Equalizer affects playback only. Stereo balance may downmix surround audio. Headroom reduces estimated filter boost, not all clipping.";
+    section.append(reset,note);
+    const applyAudioSettings=()=>{
+      enable.checked=eq.enabled;headroom.checked=eq.headroom;
+      const matching=Object.keys(eqPresets).find(name=>eqPresets[name].every((value,index)=>value===eq.bands[index]));
+      preset.value=matching||"custom";
+      const db=value=>(value>0?"+":"")+value+" "+(window.DKLocale?.get()==="ru"?"дБ":"dB");
+      for(const [index,entry] of entries.entries()){entry.input.value=String(eq.bands[index]);entry.output.textContent=db(eq.bands[index]);}
+      for(const [id,entry] of Object.entries(extras)){entry.input.value=String(eq[id]);entry.output.textContent=id==="balance"?String(eq[id])+"%":db(eq[id]);}
+      applyVolume();
+      try{volumeAudioGraph?.effects?.apply();mkvAudio?.applyEffects?.();}
+      catch(_){status("Audio enhancements unavailable for this output.");}
+    };
+    enable.addEventListener("change",()=>{eq.enabled=enable.checked;applyAudioSettings();write(eqKey,eq);});
+    preset.addEventListener("change",()=>{
+      if(!eqPresets[preset.value])return;
+      eq.bands=[...eqPresets[preset.value]];eq.enabled=true;applyAudioSettings();write(eqKey,eq);
+    });
+    headroom.addEventListener("change",()=>{eq.headroom=headroom.checked;applyAudioSettings();write(eqKey,eq);});
+    reset.addEventListener("click",()=>{
+      Object.assign(eq,{enabled:false,bands:[...eqPresets.flat],bass:0,treble:0,balance:0,headroom:true});
+      applyAudioSettings();write(eqKey,eq);
+    });
+    byId("playerSettingsPanel").append(section);
+    byId("languageSelect").addEventListener("change",()=>queueMicrotask(applyAudioSettings));
+    media.addEventListener("loadedmetadata",()=>{if(eqActive())applyAudioSettings();});
+    if(!supportsVolumeBoost){for(const control of section.querySelectorAll("input,select,button"))control.disabled=true;}
+    // Existing preferences can be shown before a file is selected.
+    applyAudioSettings();window.DKLocale?.apply();
+  }
   applyVolume();
   if(supportsVolumeBoost){
     document.addEventListener("pointerdown",resumeBoost,{passive:true});
@@ -2739,6 +2895,7 @@
   const audioApi = window.DKAudioTracks;
   mkvAudio = window.DKMkvAudio ? window.DKMkvAudio.create({
     media, isMuted: () => userMuted,
+    createEffects:desktopVolume?createAudioEffects:null,
     onError: err => {
       applyVolume();
       status("MKV audio decoding stopped: " +

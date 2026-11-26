@@ -959,3 +959,32 @@ html.dk-standalone :is(.btn.ghost,.header-action):not(.primary):not(.dk-scan):no
   color:var(--dk-gold);
 }
 html.dk-standalone :is(#playerEmptyTrash,#playerRefreshMetadata,#forgetFolder,#shuffleQueue,#loopQueue):disabled{opacity:.55;cursor:default}
+
+
+/* Fixed-size queue order controls in every state. Match the red action
+   row's two equal columns and keep all indicators inside the button. */
+html.dk-standalone .sidebar-play-order{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;align-items:stretch;
+}
+html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue){
+  box-sizing:border-box;width:100%;min-width:0;max-width:100%;
+  height:46px;min-height:46px;max-height:46px;
+  margin:0;padding:8px 9px;border:1px solid #e7e2e2;
+  border-radius:var(--dk-button-radius);font-size:.79rem;line-height:1.2;
+  background:#fff;color:#23171a;outline:none;box-shadow:none;
+  transform:none;white-space:normal;overflow-wrap:anywhere;
+}
+html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue):is(:hover,:active):not(:disabled){
+  background:#fff;color:#23171a;border-color:#a58039;
+}
+html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue).order-active{
+  background:#fff;color:#23171a;border-color:#a58039;
+  box-shadow:inset 0 0 0 1px #a58039;
+}
+html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue):focus-visible{
+  outline:2px solid #a58039;outline-offset:-5px;
+}
+html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue):disabled{
+  opacity:.55;cursor:default;
+}

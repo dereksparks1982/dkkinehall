@@ -94,7 +94,7 @@ let installed=false,home=null,player=null,playerFile=null,playerLoading=null,act
 let scanController=null,scanPromise=null;
 let metadataBusy=0;
 let libraryView={mode:"movie",series:null,season:null};
-let navHistory=[],navIndex=-1;
+let navHistory=[],navIndex=-1,lastNavigationInput=null;
 function recordNavigation(page){
   const entry={page,view:{...libraryView}};
   if(JSON.stringify(navHistory[navIndex])===JSON.stringify(entry))return;
@@ -110,7 +110,12 @@ function recordLibraryView(value){
   if(activePage==="library")recordNavigation("library");
   return true;
 }
-async function navigateHistory(direction){
+async function navigateHistory(direction,origin="renderer"){
+  // Some desktop window managers also deliver app-command for the same
+  // physical mouse event. Suppress only the cross-channel duplicate.
+  const now=Date.now();
+  if(lastNavigationInput?.direction===direction&&lastNavigationInput.origin!==origin&&now-lastNavigationInput.time<220)return false;
+  lastNavigationInput={direction,origin,time:now};
   if(![-1,1].includes(direction)||navIndex+direction<0||navIndex+direction>=navHistory.length)return false;
   const next=navHistory[navIndex+direction];
   if(next.page==="player"&&!installedWindow())return false;
@@ -308,7 +313,7 @@ async function openPlayer(id,external=false){
     if(home.isDestroyed())return false;
     showPage("player");
     view.webContents.send("dk-library:scan-state",scanActive);
-    view.webContents.send("dk-library:maintenance-status",{action:"refresh",busy:metadataRefreshing});
+    view.webContents.send("dk-library:maintenance-status",{action:metadataRefreshing?"refresh":"trash",busy:maintenanceBusy,done:0,total:0});
     return true;
   }finally{playerLoading=null;}
 }
@@ -348,6 +353,10 @@ function install(originalWindow,originalPlayer){
   home.setTitle("DK Kinehall v"+VERSION);
   home.on("page-title-updated",event=>{event.preventDefault();home?.setTitle("DK Kinehall v"+VERSION);});
   home.on("resize",resizePlayer);
+  home.on("app-command",(event,command)=>{
+    if(command!=="browser-backward"&&command!=="browser-forward")return;
+    event.preventDefault?.();void navigateHistory(command==="browser-backward"?-1:1,"window");
+  });
   for(const event of ["enter-full-screen","leave-full-screen"])home.on(event,()=>{
     resizePlayer();
     if(installedWindow())player.webContents.send("dk-library:fullscreen-state",home.isFullScreen());

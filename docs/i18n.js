@@ -254,6 +254,8 @@
     "Cancel translation":"Отменить перевод",
     "Restore original subtitles":"Восстановить исходные субтитры",
     "Empty Trash":"Очистить корзину",
+    "Connect to media server":"Подключиться к медиасерверу",
+    "Media server description URL":"Адрес описания медиасервера",
     "Current playback and nearby segments are generated first. Unfinished audio uses the original soundtrack.":"Сначала создаётся озвучивание текущего и ближайших фрагментов. Пока озвучивание не готово, звучит оригинальная дорожка.",
     "Translating and generating speech…":"Перевод и синтез речи…",
     "Reduce original audio only while translated speech is audible":"Приглушать оригинальную дорожку только во время озвучивания",

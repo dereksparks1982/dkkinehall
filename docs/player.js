@@ -462,7 +462,9 @@
     const delay = subtitleDelayForCurrent();
     for (const track of subtitleTracks()) sync.shiftTextTrack(track,delay);
   };
-  const subtitleIsOn = () => !!state.activePgsTrack ||
+  const dvdSubOn=item=>!!item?.file?.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)&&item.dvdSubtitleIndex>=0;
+  const isDVDSubtitle=(item,track)=>!!item?.file?.dvdToken&&track?.codec==="dvd_subtitle";
+  const subtitleIsOn = () => dvdSubOn(current()) || !!state.activePgsTrack ||
     state.activeEmbeddedTrack !== null || state.mkvSubtitlePending ||
     subtitleTracks().some(track => track.mode === "showing");
   const usableEmbeddedSubtitles = item => (item?.embeddedSubtitles || []).filter(track =>
@@ -482,7 +484,7 @@
     button.disabled = !item || (!on && !usableEmbeddedSubtitles(item).length &&
       !subtitleTracks().length &&
       !(codecPlayback?.isActive(item) &&
-        (item.nativeSubtitleTracks||[]).some(isTextNativeSubtitle)));
+        (item.nativeSubtitleTracks||[]).some(track=>isTextNativeSubtitle(track)||isDVDSubtitle(item,track))));
     const label=button.querySelector(".subtitle-state");
     if(label)label.textContent=on?"On":"Off";
     else button.textContent=on?"On":"Off";
@@ -495,7 +497,7 @@
     const item = current();
     const detected = item && item.embeddedSubtitles ? item.embeddedSubtitles.length : 0;
     byId("subtitleLabel").textContent = state.mkvSubtitlePending ?
-      "Reading embedded MKV subtitles…" : state.activePgsTrack ?
+      "Reading embedded MKV subtitles…" : dvdSubOn(item) ? "DVD subtitles on" : state.activePgsTrack ?
       "Subtitles: " + state.activePgsTrack.label + " · " +
         (state.activePgsTrack.codec || "PGS") : showing ?
       "Subtitles: " + (showing.label || showing.language || "On") :
@@ -1246,6 +1248,7 @@
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
     item.compatAttempted = false;
     item.codecAttempted = false;
+    item.dvdSubtitleIndex=-1;
     item.sourceVideoExpected=false;
     item.nativeAlternateAttempted = false;
     item.codecActive = false;
@@ -2560,7 +2563,7 @@
       });
     }
     const note=document.createElement("p");note.className="helper";
-    note.textContent="DVD titles use automatic native decoding. A compatible decoder is required. Menus and disc subtitles are not supported yet. Disc selections are session-only.";
+    note.textContent="DVD titles use automatic native decoding. A compatible decoder is required. Bitmap subtitles are experimental. Original interactive menus are not supported yet. Disc selections are session-only.";
     section.append(note);byId("playerSettingsPanel").append(section);
     // The playback bar is hidden when idle, so make DVD opening reachable
     // without first playing an unrelated file. Reuse the same controls.
@@ -3173,6 +3176,14 @@
     if(item.kind==="network"){status("Network stream unavailable or unsupported.");updateButtons();return;}
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;
     if(codecPlayback?.isActive(item)){
+      if(dvdSubOn(item)){
+        const at=playbackSeconds();
+        item.dvdSubtitleIndex=-1;
+        void codecPlayback.start(item,at,Boolean(item.autoplayRequested),item.nativeOutputFormat||"auto",item.codecAudioIndex||0).then(ok=>{
+          if(current()===item){updateSubtitleStatus();status(ok?"DVD subtitles unavailable; restored playback without subtitles.":"Included decoder output could not be played.");}
+        });
+        return;
+      }
       if(item.activeSmoothing&&item.smoothingMode!=="off"){
         const at=playbackSeconds();
         item.smoothingMode="off";item.activeSmoothing=0;
@@ -3830,8 +3841,29 @@
     if (target >= 0 && !tracks[target].enabled)
       selectAudioTrack(target,false);
   };
+  const changeDVDSubtitle=async(item,index)=>{
+    if(!item?.file?.dvdToken||!codecPlayback?.isActive(item)||item.dvdSubtitleBusy||state.stopped)return;
+    if(index!==-1&&!isDVDSubtitle(item,item.nativeSubtitleTracks?.[index]))return;
+    const at=playbackSeconds(),playing=!media.paused,epoch=item.playbackEpoch;
+    item.dvdSubtitleBusy=true;
+    try{
+      if(index>=0){
+        clearSubtitles();
+        for(const track of subtitleTracks())track.mode="disabled";
+        item.lastSubtitleChoice="native:"+index;
+      }
+      item.dvdSubtitleIndex=index;
+      const ok=await codecPlayback.start(item,at,playing,item.nativeOutputFormat||"auto",item.codecAudioIndex||0);
+      if(!ok&&current()===item&&item.playbackEpoch===epoch){
+        item.dvdSubtitleIndex=-1;
+        await codecPlayback.start(item,at,playing,item.nativeOutputFormat||"auto",item.codecAudioIndex||0);
+        status("DVD subtitles unavailable; restored playback without subtitles.");
+      }
+    }finally{item.dvdSubtitleBusy=false;if(current()===item)updateSubtitleStatus();}
+  };
   const switchSubtitles = index => {
     const item = current();
+    if(dvdSubOn(item)){void changeDVDSubtitle(item,-1);if(index<0)return;}
     if(index<0&&item&&subtitleIsOn()){
       const choice=byId("subtitleTrackSelect").value;
       if(choice&&choice!=="off")item.lastSubtitleChoice=choice;
@@ -3866,7 +3898,7 @@
     }));
     if(item&&codecPlayback?.isActive(item)){
       (item.nativeSubtitleTracks||[]).forEach((track,index)=>{
-        const supported=isTextNativeSubtitle(track)&&
+        const supported=isDVDSubtitle(item,track)||isTextNativeSubtitle(track)&&
           typeof window.DKCodecBridge?.subtitleVtt==="function";
         options.push({
           value:"native:"+index,
@@ -3909,7 +3941,8 @@
     subtitleTrackSelect.disabled=!item;
     let choice="off";
     const activeNative=state.nativeSubtitle;
-    if(subtitleIsOn()&&activeNative?.item===item&&Number.isInteger(activeNative.index))
+    if(dvdSubOn(item))choice="native:"+item.dvdSubtitleIndex;
+    else if(subtitleIsOn()&&activeNative?.item===item&&Number.isInteger(activeNative.index))
       choice="native:"+activeNative.index;
     else if(state.activePgsTrack)
       choice="mkv:"+state.activePgsTrack.number;
@@ -3953,7 +3986,8 @@
     if(kind==="browser"){switchSubtitles(number);return;}
     if(kind==="native"){
       const track=item.nativeSubtitleTracks?.[number];
-      if(track&&isTextNativeSubtitle(track))
+      if(isDVDSubtitle(item,track))void changeDVDSubtitle(item,number);
+      else if(track&&isTextNativeSubtitle(track))
         void loadNativeSubtitle(item,track,number);
       return;
     }
@@ -3993,7 +4027,7 @@
     addMenuHeading("Subtitles");
     const tracks = subtitleTracks();
     addMenuItem("Subtitles off", () => switchSubtitles(-1),
-      {checked: !state.activePgsTrack && state.activeEmbeddedTrack === null &&
+      {checked: !dvdSubOn(current()) && !state.activePgsTrack && state.activeEmbeddedTrack === null &&
         !state.mkvSubtitlePending &&
         tracks.every(track => track.mode !== "showing")});
     tracks.forEach((track, index) => addMenuItem(
@@ -4005,12 +4039,13 @@
       if(nativeTracks.length) {
         addMenuSubheading("Included subtitle tracks");
         nativeTracks.forEach((track,index)=>{
-          const supported=isTextNativeSubtitle(track) &&
+          const bitmap=isDVDSubtitle(item,track);
+          const supported=bitmap||isTextNativeSubtitle(track) &&
             typeof window.DKCodecBridge?.subtitleVtt==="function";
           addMenuItem((track.title||track.language||"Subtitle "+(index+1))+
             (track.codec?" · "+track.codec:""),
-            ()=>{if(supported)void loadNativeSubtitle(item,track,index);},
-            {checked:supported?state.nativeSubtitle?.item===item &&
+            ()=>{if(bitmap)void changeDVDSubtitle(item,index);else if(supported)void loadNativeSubtitle(item,track,index);},
+            {checked:bitmap?item.dvdSubtitleIndex===index:supported?state.nativeSubtitle?.item===item &&
               state.nativeSubtitle.index===index:undefined,
               disabled:!supported,
               reason:"This graphical subtitle track needs a separate decoder."});
@@ -4311,9 +4346,10 @@
       else void loadEmbeddedTrack(selected);
     } else {
       const nativeTrack=codecPlayback?.isActive(item)?
-        (item.nativeSubtitleTracks||[]).findIndex(isTextNativeSubtitle):-1;
+        (item.nativeSubtitleTracks||[]).findIndex(track=>isDVDSubtitle(item,track)||isTextNativeSubtitle(track)):-1;
       if(nativeTrack>=0) {
-        void loadNativeSubtitle(item,item.nativeSubtitleTracks[nativeTrack],nativeTrack);
+        const track=item.nativeSubtitleTracks[nativeTrack];
+        if(isDVDSubtitle(item,track))void changeDVDSubtitle(item,nativeTrack);else void loadNativeSubtitle(item,track,nativeTrack);
       }else {
         const native=subtitleTracks()[0];
         if(native)chooseSubtitleTrack(native);

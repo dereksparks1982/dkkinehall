@@ -110,6 +110,7 @@ function currentProgress(row){
   return Number.isFinite(value)?value:0;
 }
 function needsContinue(row){
+  if(row.continueHidden)return false;
   const value=currentProgress(row),length=Number(row.duration)||0;
   // Unavailable media still has history; retain its disabled/unavailable card.
   return !row.completed&&value>2&&(!length||value<length);
@@ -155,7 +156,7 @@ function createCard(row,{landscape=false,series=false}={}){
         "Откройте сериал и выберите серию для удаления.");
       return;
     }
-    showContextMenu(all.find(item=>item.id===row.id)||row,event.clientX,event.clientY);
+    showContextMenu(all.find(item=>item.id===row.id)||row,event.clientX,event.clientY,landscape);
   });
   card.addEventListener("click",()=>{
     if(series){
@@ -380,12 +381,13 @@ function hideContextMenu(){
   const menu=$("libraryContextMenu");
   if(menu)menu.hidden=true;
 }
-function showContextMenu(row,x,y){
+function showContextMenu(row,x,y,fromContinue=false){
   const menu=$("libraryContextMenu");
   if(!menu||!nativeBridge||!row?.nativePath)return;
   contextRow=row;
   $("movieDetailsAction").hidden=row.kind!=="movie";
   $("refreshMovieMetadata").hidden=row.kind!=="movie";
+  $("removeContinueWatching").hidden=!fromContinue;
   $("showInFolder").hidden=!nativeBridge.showInFolder;
   $("showInFolder").disabled=!!row.missing;
   menu.hidden=false;
@@ -435,6 +437,11 @@ async function refreshMovie(){
     }else status("No matching movie metadata found.","Данные фильма не найдены.",true);
   }catch(_){status("Could not refresh movie metadata.","Не удалось обновить данные фильма.",true);}
 }
+async function removeContinueWatching(){
+  const row=contextRow;hideContextMenu();if(!row)return;
+  try{await store.setContinueHidden(row.id,true);const latest=await store.item(row.id);if(latest)all=all.map(item=>item.id===row.id?latest:item);paintContinueWatching();}
+  catch(_){status("Could not remove from Continue Watching.","Не удалось убрать из списка продолжения просмотра.",true);}
+}
 async function showInFolder(){
   const row=contextRow;hideContextMenu();
   if(!row?.nativePath||!nativeBridge?.showInFolder)return;
@@ -476,6 +483,7 @@ async function openVideo(row){
   try{
     if(window.DKLibraryBridge?.openPlayer){
       await window.DKLibraryBridge.openPlayer(row.id);
+      if(row.continueHidden)await store.setContinueHidden(row.id,false);
       return;
     }
     const child=window.open(page.href,"dk-kinehall-player");
@@ -792,6 +800,7 @@ function connect(){
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
+  $("removeContinueWatching").addEventListener("click",()=>void removeContinueWatching());
   $("showInFolder").addEventListener("click",()=>void showInFolder());
   $("deleteFromDisk").addEventListener("click",()=>void deleteFromDisk());
   document.addEventListener("pointerdown",event=>{

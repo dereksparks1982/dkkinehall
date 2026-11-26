@@ -3310,8 +3310,10 @@
     button.setAttribute("aria-pressed", String(fullscreen));
   };
   const applyDesktopFullscreen = fullscreen => {
+    const wasFullscreen=screen.classList.contains("desktop-fullscreen");
     screen.classList.toggle("desktop-fullscreen", !!fullscreen);
     document.documentElement.classList.toggle("dk-desktop-fullscreen", !!fullscreen);
+    if(wasFullscreen&&!fullscreen&&window.DKLibraryBridge?.internalPages)playerWindow?.reset();
     updateFullscreenButton();
     requestAnimationFrame(syncPgsOverlay);
     revealControls();
@@ -3937,7 +3939,13 @@
     const next = (index + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
     if (options[next]) { event.preventDefault(); options[next].focus(); }
   });
-  document.addEventListener("fullscreenchange", updateFullscreenButton);
+  let browserWasFullscreen=Boolean(document.fullscreenElement);
+  document.addEventListener("fullscreenchange",()=>{
+    const fullscreen=Boolean(document.fullscreenElement);
+    if(browserWasFullscreen&&!fullscreen&&window.DKLibraryBridge?.internalPages)playerWindow?.reset();
+    browserWasFullscreen=fullscreen;
+    updateFullscreenButton();
+  });
   document.addEventListener("fullscreenchange", () => requestAnimationFrame(syncPgsOverlay));
   updateFullscreenButton();
   // Subtitle tracks and delay live in the gear menu. An external SRT/VTT
@@ -4025,6 +4033,23 @@
   document.addEventListener("keydown", event => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === "Escape") {
+      if(window.DKLibraryBridge?.internalPages){
+        // Native modal dialogs retain their own Escape/cancel behavior.
+        if(document.querySelector("dialog[open]"))return;
+        event.preventDefault();
+        if(!standaloneChapters&&!chapterPicker.hidden)chapterPicker.hidden=true;
+        if(menuOpen)closeContextMenu();
+        if(!infoPanel.hidden)infoPanel.hidden=true;
+        if(settingsDetails?.open)settingsDetails.open=false;
+        playerWindow?.reset();
+        if(desktopFullscreen&&screen.classList.contains("desktop-fullscreen")){
+          void desktopFullscreen.setFullscreen(false).then(applyDesktopFullscreen).catch(()=>status("Fullscreen isn't available for this window."));
+        }else if(document.fullscreenElement){
+          void document.exitFullscreen().catch(()=>{});
+        }
+        revealControls();
+        return;
+      }
       if (!standaloneChapters&&!chapterPicker.hidden) { event.preventDefault(); chapterPicker.hidden = true; }
       else if (menuOpen) { event.preventDefault(); closeContextMenu(); }
       else if (!infoPanel.hidden) { infoPanel.hidden = true; revealControls(); }

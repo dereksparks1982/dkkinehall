@@ -8,6 +8,8 @@
 
 ## v0.9.3 installed update
 
+**Native codec improvements:** Audio-only sources no longer treat embedded cover images as video. The native decoder supports audio-only AAC/Opus streams, selects the actual video stream, and retries the other supported output format once in Automatic mode. Explicit format choices are honored. The self-contained release codec asset remains pending.
+
 **Resize handle:** In the standalone docked player, the original grip is positioned at the bottom-right edge of the entire player panel, beneath the video, playback controls and media information. Dragging resizes the panel width while retaining the video aspect ratio. Floating-player resizing and fullscreen behavior remain unchanged.
 
 **Playback settings:** The standalone settings panel has a red × in its upper-right corner to close the panel and return focus to the existing gear. No playback icon artwork or application branding changes.

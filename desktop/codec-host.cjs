@@ -168,7 +168,11 @@ async function subtitleVtt(localPath,index) {
     throw new Error("This subtitle track cannot be converted to text captions");
   return data;
 }
+function clearConversionProgress() {
+  if(windowRef&&!windowRef.isDestroyed())windowRef.setProgressBar(-1);
+}
 function cancelStream() {
+  clearConversionProgress();
   if(!session)return;
   const old=session;session=null;
   try {old.process?.kill("SIGTERM");} catch(_){}
@@ -185,6 +189,7 @@ function serve(req,res) {
     res.writeHead(409);res.end();return;
   }
   const args=["-hide_banner","-loglevel","error","-nostdin",
+    "-progress","pipe:2","-nostats",
     "-ss",String(active.position),"-i",active.path,
     "-map","0:v:0?","-map","0:a:"+active.audioOrdinal+"?","-sn","-dn"];
   if(active.format==="webm") {
@@ -214,7 +219,23 @@ function serve(req,res) {
     "Cache-Control":"no-store","Access-Control-Allow-Origin":"null",
     "X-Content-Type-Options":"nosniff"});
   child.stdout.pipe(res);
-  child.stderr.on("data",()=>{}); // Consume diagnostics without logging paths.
+  // Progress is encoded media time, not downloaded bytes.
+  let pending="";
+  const remaining=active.duration===null?null:active.duration-active.position;
+  if(windowRef&&!windowRef.isDestroyed())
+    windowRef.setProgressBar(remaining>0?0:2);
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data",chunk=>{
+    if(session!==active)return;
+    pending+=chunk;
+    const lines=pending.split(/\r?\n/);pending=lines.pop().slice(-4096);
+    for(const line of lines){
+      const match=/^out_time_us=(\d+)$/.exec(line);
+      if(match&&remaining>0&&windowRef&&!windowRef.isDestroyed())
+        windowRef.setProgressBar(Math.min(0.99,Number(match[1])/1e6/remaining));
+    }
+  });
+  child.once("close",()=>{if(session===active)clearConversionProgress();});
   child.on("error",()=>{try{res.end();}catch(_){}});
   child.on("close",()=>{try{res.end();}catch(_){}});
   res.on("close",()=>{
@@ -249,7 +270,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0) {
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,position,format:selectedFormat,
+  session={token,path:target,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,process:null,response:null};
   return {...info,position,format:selectedFormat,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};

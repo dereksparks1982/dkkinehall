@@ -867,45 +867,135 @@ async function generateASR(event,source,language,audioIndex,ticket){
 
 // Optional local speaker clustering. The diarization engine returns anonymous
 // speaker numbers only; no identity, gender or biometric matching is inferred.
-const DIARIZATION_LIMIT=3600;
+const DIARIZATION_LIMIT=10800;
 const diarizationWorker=String.raw`
 import json, sys, wave
 from pathlib import Path
 import numpy as np
 import sherpa_onnx
 root=Path(sys.argv[1])
-with wave.open(sys.argv[2], "rb") as wav:
-    if wav.getnchannels()!=1 or wav.getsampwidth()!=2 or wav.getframerate()!=16000:
-        raise ValueError("Unsupported speaker audio")
-    n=wav.getnframes()
-    if not 0<n<=3600*16000:
-        raise ValueError("Speaker audio exceeds duration limit")
-    pcm=np.frombuffer(wav.readframes(n),dtype="<i2").astype(np.float32)/32768.0
+rate=16000
+core=300*rate
+margin=15*rate
+embedding_config=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
+    model=str(root/"embedding.onnx"),num_threads=2,provider="cpu")
 config=sherpa_onnx.OfflineSpeakerDiarizationConfig(
     segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
         pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
             model=str(root/"segmentation.onnx"),window_shift_ratio=0.1),
         num_threads=2,provider="cpu"),
-    embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
-        model=str(root/"embedding.onnx"),num_threads=2,provider="cpu"),
+    embedding=embedding_config,
     clustering=sherpa_onnx.FastClusteringConfig(num_clusters=-1,threshold=0.5),
     min_duration_on=0.3,min_duration_off=0.5)
 if not config.validate():
     raise ValueError("Invalid speaker models")
 engine=sherpa_onnx.OfflineSpeakerDiarization(config)
-if engine.sample_rate!=16000:
+extractor=sherpa_onnx.SpeakerEmbeddingExtractor(embedding_config)
+if engine.sample_rate!=rate:
     raise ValueError("Unexpected speaker sample rate")
-def progress(done,total):
-    if total>0:
-        print("dk_speakers_progress="+str(int(100*done/total)),file=sys.stderr,flush=True)
-    return 0
-result=engine.process(pcm,callback=progress).sort_by_start_time()
+def unit(vector):
+    v=np.asarray(vector,dtype=np.float32)
+    norm=np.linalg.norm(v)
+    return v/norm if v.ndim==1 and np.isfinite(norm) and norm>1e-8 else None
+def fingerprint(pcm,segments,local_id):
+    # Prefer clean solo speech, not simultaneous voices. Limit each
+    # representative sample to 12 seconds.
+    candidates=[]
+    for start,end,speaker in segments:
+        if speaker!=local_id: continue
+        if any(other!=speaker and min(end,b)>max(start,a) for a,b,other in segments):
+            continue
+        if end-start>=1.25:
+            candidates.append((start,end))
+    samples=[]
+    remaining=12*rate
+    for start,end in sorted(candidates,key=lambda x:x[1]-x[0],reverse=True):
+        a=max(0,round(start*rate))
+        b=min(len(pcm),round(end*rate),a+remaining)
+        if b>a:
+            samples.append(pcm[a:b])
+            remaining-=b-a
+        if remaining<=0: break
+    if sum(len(x) for x in samples)<2*rate:
+        return None
+    stream=extractor.create_stream()
+    stream.accept_waveform(sample_rate=rate,waveform=np.ascontiguousarray(np.concatenate(samples)))
+    stream.input_finished()
+    if not extractor.is_ready(stream):
+        return None
+    return unit(extractor.compute(stream))
+centroids=[]
+weights=[]
 rows=[]
-for segment in result:
-    if len(rows)>=6000:
-        raise ValueError("Too many speaker segments")
-    rows.append([float(segment.start),float(segment.end),int(segment.speaker)])
-print(json.dumps(rows,separators=(",",":")),flush=True)
+unassigned=0
+with wave.open(sys.argv[2],"rb") as wav:
+    if wav.getnchannels()!=1 or wav.getsampwidth()!=2 or wav.getframerate()!=rate:
+        raise ValueError("Unsupported speaker audio")
+    n=wav.getnframes()
+    if not 0<n<=10800*rate:
+        raise ValueError("Speaker audio exceeds duration limit")
+    for base in range(0,n,core):
+        end_core=min(n,base+core)
+        lo=max(0,base-margin)
+        hi=min(n,end_core+margin)
+        wav.setpos(lo)
+        pcm=np.frombuffer(wav.readframes(hi-lo),dtype="<i2").astype(np.float32)/32768.0
+        def progress(done,total):
+            if total>0:
+                p=100*(base+(end_core-base)*min(1,done/total)*0.9)/n
+                print("dk_speakers_progress="+str(int(p)),file=sys.stderr,flush=True)
+            return 0
+        result=engine.process(pcm,callback=progress).sort_by_start_time()
+        local=[]
+        for seg in result:
+            start=max(0,float(seg.start))
+            end=min(len(pcm)/rate,float(seg.end))
+            if np.isfinite(start) and np.isfinite(end) and end>start:
+                local.append((start,end,int(seg.speaker)))
+        # Match anonymous local clusters against earlier windows. Do not
+        # infer identity or gender; ambiguous matches use the default voice.
+        ids={}
+        used=set()
+        labels=sorted({speaker for a,b,speaker in local},
+                      key=lambda speaker:-sum(b-a for a,b,s in local if s==speaker))
+        for speaker in labels:
+            vector=fingerprint(pcm,local,speaker)
+            if vector is None:
+                ids[speaker]=-1
+                continue
+            ranked=sorted(((float(np.dot(vector,c)),i) for i,c in enumerate(centroids)
+                           if i not in used),reverse=True)
+            best=ranked[0] if ranked else None
+            if best and best[0]>=0.72 and (len(ranked)==1 or best[0]-ranked[1][0]>=0.08):
+                idx=best[1]
+                updated=unit(centroids[idx]*min(weights[idx],4)+vector)
+                if updated is not None: centroids[idx]=updated
+                weights[idx]+=1
+            elif (best and best[0]>=0.55) or len(centroids)>=32:
+                ids[speaker]=-1
+                continue
+            else:
+                idx=len(centroids)
+                centroids.append(vector)
+                weights.append(1)
+            ids[speaker]=idx
+            used.add(idx)
+        for start,end,speaker in local:
+            a=max(base/rate,lo/rate+start)
+            b=min(end_core/rate,lo/rate+end)
+            if b<=a: continue
+            idx=ids.get(speaker,-1)
+            if idx<0:
+                unassigned+=1
+                continue
+            rows.append([round(a,3),round(b,3),idx])
+            if len(rows)>12000:
+                raise ValueError("Too many speaker segments")
+        print("dk_speakers_progress="+str(int(100*end_core/n)),file=sys.stderr,flush=True)
+if not rows:
+    raise ValueError("No confident speaker clusters")
+rows.sort(key=lambda r:r[0])
+print(json.dumps({"rows":rows,"unassigned":unassigned},separators=(",",":")),flush=True)
 `;
 function diarizationPaths(){
   const base=path.join(process.env.XDG_DATA_HOME||path.join(app.getPath("home"),".local","share"),"dk-kinehall","translation-runtime");
@@ -931,7 +1021,7 @@ async function identifySpeakers(event,source,audioIndex,ticket){
     const probe=JSON.parse(await asrProcess(job,runtime.ffprobe,["-v","error","-protocol_whitelist","file,pipe","-show_entries","format=duration:stream=codec_type","-of","json",target],30000,()=>{},true));
     const duration=Number(probe.format?.duration),tracks=(probe.streams||[]).filter(s=>s.codec_type==="audio");
     if(!Number.isFinite(duration)||duration<=0||duration>DIARIZATION_LIMIT||audioIndex>=tracks.length)
-      throw Error("Speaker analysis currently supports media up to 60 minutes");
+      throw Error("Speaker analysis currently supports media up to 180 minutes");
     dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-speakers-"));
     const wav=path.join(dir,"audio.wav");
     asrProgress(event,job,"speaker-extract",0);
@@ -942,12 +1032,12 @@ async function identifySpeakers(event,source,audioIndex,ticket){
       });
     if(fs.statSync(wav).size>DIARIZATION_LIMIT*32000+1024*1024)throw Error("Speaker audio exceeds limit");
     asrProgress(event,job,"speakers",15);
-    const raw=await asrProcess(job,runtime.python,["-I","-c",diarizationWorker,runtime.root,wav],90*60*1000,line=>{
+    const raw=await asrProcess(job,runtime.python,["-I","-c",diarizationWorker,runtime.root,wav],180*60*1000,line=>{
       const match=/dk_speakers_progress=(\d+)/.exec(line);
       if(match)asrProgress(event,job,"speakers",15+Number(match[1])*.84);
     },true,{LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1"});
-    const rows=JSON.parse(raw);
-    if(!Array.isArray(rows)||!rows.length||rows.length>6000||rows.some(r=>!Array.isArray(r)||r.length!==3||
+    const payload=JSON.parse(raw),rows=payload.rows;
+    if(!Number.isSafeInteger(payload.unassigned)||payload.unassigned<0||!Array.isArray(rows)||!rows.length||rows.length>12000||rows.some(r=>!Array.isArray(r)||r.length!==3||
       !Number.isFinite(r[0])||!Number.isFinite(r[1])||r[0]<0||r[1]<=r[0]||r[1]>duration+2||
       !Number.isSafeInteger(r[2])||r[2]<0||r[2]>10000))throw Error("Invalid speaker timeline");
     const sorted=rows.sort((a,b)=>a[0]-b[0]),ids=new Map(),segments=[];
@@ -962,7 +1052,7 @@ async function identifySpeakers(event,source,audioIndex,ticket){
     const after=await fs.promises.stat(target);
     if(job.cancelled||after.size!==stat.size||after.mtimeMs!==stat.mtimeMs||after.ino!==stat.ino)throw Error("Media changed during speaker analysis");
     asrProgress(event,job,"complete",100);
-    return {segments,count:ids.size};
+    return {segments,count:ids.size,unassigned:payload.unassigned};
   }finally{
     if(dir)fs.rmSync(dir,{recursive:true,force:true});
     if(asrJob===job)asrJob=null;

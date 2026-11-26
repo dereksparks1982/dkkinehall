@@ -2,7 +2,7 @@
 /* Add native discovery controls to the ORIGINAL DKStandalone preload.
  * No arbitrary shell, file-write or raw ipcRenderer exposure.
  */
-const {contextBridge:libContextBridge,ipcRenderer:libIpc}=require("electron");
+const {contextBridge:libContextBridge,ipcRenderer:libIpc,webUtils:libWebUtils}=require("electron");
 const subscribe=(channel,callback)=>{
   if(typeof callback!=="function")return ()=>{};
   const listener=(_event,value)=>callback(value);
@@ -11,6 +11,22 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  rememberMedia:(file,key)=>{
+    if(!file)return Promise.resolve(false);
+    let source;
+    if(file.nativeVirtual===true)source={kind:"native",id:file.nativeId,path:file.nativePath};
+    else{
+      let selected="";
+      try{selected=libWebUtils?.getPathForFile?.(file)||"";}catch(_){}
+      if(!selected)return Promise.resolve(false);
+      source={kind:"picked",path:selected};
+    }
+    return libIpc.invoke("dk-library:remember-media",{
+      ...source,name:file.name,size:file.size,modified:file.lastModified
+    },String(key));
+  },
+  restoreMedia:key=>libIpc.invoke("dk-library:restore-media",String(key)),
+  forgetMedia:()=>libIpc.invoke("dk-library:forget-media"),
   translationStatus:pair=>libIpc.invoke("dk-library:translation-status",String(pair)),
   translateSubtitles:(pair,lines)=>libIpc.invoke("dk-library:translate",String(pair),lines),
   cancelTranslation:()=>libIpc.invoke("dk-library:cancel-translation"),

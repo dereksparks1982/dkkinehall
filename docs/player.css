@@ -597,3 +597,20 @@ html.dk-desktop-fullscreen body {
 /* Browser top layer: Playback Settings must stay above video/GPU overlays. */
 .playback-settings-panel[popover]:not(:popover-open) {display:none!important}
 .playback-settings-panel:popover-open {position:fixed;inset:auto;margin:0;z-index:2147483647;display:grid;max-height:calc(100vh - 24px);overflow-y:auto}
+
+/* Up Next episodes: series, complete SxxExx, actual episode name.
+   Preserve artwork sizes, card width and remove button position. */
+.queue .queue-item-labels{display:flex;flex:1 1 0;flex-direction:column;align-items:flex-start;min-width:0}
+.queue li[data-queue-episode="1"] .item-title{
+ display:block;max-width:100%;white-space:normal;overflow:visible;
+ text-overflow:clip;overflow-wrap:anywhere;line-height:1.3;font-weight:750
+}
+.queue li[data-queue-episode="1"] .item-meta{
+ display:block;max-width:none;white-space:nowrap;overflow:visible;
+ text-overflow:clip;flex-shrink:0;font-size:.83rem;font-weight:750;
+ font-variant-numeric:tabular-nums;line-height:1.45;color:#f2d4d4
+}
+.queue .item-episode-name{
+ display:block;max-width:100%;white-space:normal;overflow-wrap:anywhere;
+ text-overflow:clip;font-size:.75rem;line-height:1.35;color:var(--muted)
+}

@@ -765,6 +765,78 @@ function connect(){
       catch(_){status("Could not open the video player.","Не удалось открыть окно проигрывателя.",true);}
     });
   }
+  if(nativeBridge?.openSharedSettings&&nativeBridge?.changeSharedSetting){
+    const button=create("button","btn","Settings");button.type="button";button.id="librarySettings";
+    $("scanLibrary").after(button);
+    const dlg=create("dialog","dk-library-settings-dialog");dlg.setAttribute("aria-label","Settings");
+    const header=create("div","dk-library-settings-heading");
+    const title=create("strong",null,"Settings");
+    const close=create("button","btn","Close");close.type="button";
+    const feedback=create("p","helper");feedback.setAttribute("role","status");
+    const body=create("div","playback-settings-panel dk-library-settings-content");
+    header.append(title,close);dlg.append(header,feedback,body);document.body.append(dlg);
+    let epoch=0,busy=false;
+    const setFeedback=message=>{feedback.textContent=message;window.DKLocale?.apply();};
+    // Only copy the static settings markup owned by the local Player.
+    // Allowlist element/attribute names; no executable markup or URLs.
+    function renderShared(sections){
+      if(!Array.isArray(sections)||sections.length>12)throw Error("Invalid settings response");
+      const fragment=document.createDocumentFragment();
+      const allowedTags=new Set(["SECTION","DIV","STRONG","LABEL","SELECT","OPTION","INPUT","OUTPUT","BUTTON","P","SPAN"]);
+      const allowedAttrs=new Set(["class","id","for","type","value","min","max","step","checked","selected","disabled","role","aria-label","aria-live","data-shared-setting"]);
+      function clean(source){
+        if(source.nodeType===3)return document.createTextNode(source.nodeValue);
+        if(source.nodeType!==1||!allowedTags.has(source.tagName))return null;
+        const node=document.createElement(source.tagName.toLowerCase());
+        for(const attr of source.attributes)if(allowedAttrs.has(attr.name))node.setAttribute(attr.name,attr.value);
+        if(node.tagName==="BUTTON")node.type="button";
+        if(node.tagName==="INPUT"&&!["range","checkbox"].includes(node.type))return null;
+        for(const child of source.childNodes){const safe=clean(child);if(safe)node.append(safe);}
+        return node;
+      }
+      for(const markup of sections){
+        if(typeof markup!=="string"||markup.length>100000)throw Error("Invalid settings section");
+        const parsed=new DOMParser().parseFromString(markup,"text/html");
+        for(const source of parsed.body.children){const node=clean(source);if(node)fragment.append(node);}
+      }
+      const top=body.scrollTop;
+      const focusId=body.contains(document.activeElement)?document.activeElement.dataset.sharedSetting:null;
+      body.replaceChildren(fragment);body.scrollTop=top;
+      if(focusId)Array.from(body.querySelectorAll("[data-shared-setting]")).find(n=>n.dataset.sharedSetting===focusId)?.focus({preventScroll:true});
+      window.DKLocale?.apply();
+    }
+    async function applyControl(node,action){
+      if(busy||!dlg.open||node.disabled)return;
+      busy=true;body.inert=true;const ticket=epoch;
+      try{
+        const value=action==="click"?null:node.type==="checkbox"?node.checked:node.value;
+        const sections=await nativeBridge.changeSharedSetting(node.dataset.sharedSetting,action,value);
+        if(ticket===epoch&&dlg.open){body.inert=false;renderShared(sections);setFeedback("");}
+      }catch(_){if(ticket===epoch&&dlg.open){setFeedback("Could not apply this setting.");try{renderShared(await nativeBridge.openSharedSettings(lang()));}catch(_){}}}
+      finally{busy=false;body.inert=false;}
+    }
+    body.addEventListener("change",event=>{
+      if(event.target.matches("input[data-shared-setting],select[data-shared-setting]"))void applyControl(event.target,"change");
+    });
+    body.addEventListener("click",event=>{
+      const node=event.target.closest("button[data-shared-setting]");if(node)void applyControl(node,"click");
+    });
+    body.addEventListener("input",event=>{
+      const node=event.target;if(node.type!=="range")return;
+      const output=Array.from(body.querySelectorAll("output")).find(out=>out.htmlFor.value===node.id||out.getAttribute("for")===node.id);
+      if(output){const suffix=output.textContent.match(/(?:%|°|\s?dB|\s?дБ)$/)?.[0]||"";output.textContent=node.value+suffix;}
+    });
+    close.addEventListener("click",()=>{if(!busy)dlg.close();});
+    dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
+    dlg.addEventListener("close",()=>{epoch++;body.replaceChildren();button.focus();});
+    button.addEventListener("click",async()=>{
+      if(dlg.open)return;const ticket=++epoch;
+      dlg.showModal();setFeedback("Loading settings…");body.inert=true;busy=true;
+      try{const sections=await nativeBridge.openSharedSettings(lang());if(ticket===epoch&&dlg.open){renderShared(sections);setFeedback("");}}
+      catch(_){if(ticket===epoch&&dlg.open)setFeedback("Could not open settings.");}
+      finally{busy=false;body.inert=false;}
+    });
+  }
   $("backToSeries").addEventListener("click",()=>{
     selectedSeries=null;selectedSeason=null;void render().then(recordNavigation);
   });

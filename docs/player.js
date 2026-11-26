@@ -1980,7 +1980,7 @@
           return;
         }
         screen.classList.add("ui-hidden");
-      }, 2700);
+      }, standaloneChapters?3000:2700);
     }
   };
   const keepControlsVisible = () => {
@@ -3090,8 +3090,23 @@
       return;
     }
     const tag = event.target && event.target.tagName;
-    if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(tag)) return;
     const key = event.key.toLowerCase();
+    const arrowSeek=key==="arrowleft"||key==="arrowright";
+    if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)||event.target?.isContentEditable) return;
+    // Keep native form/menu navigation intact, but a focused queue or
+    // transport button must not swallow the standalone seek shortcut.
+    if(tag==="BUTTON"&&!(standaloneChapters&&arrowSeek))return;
+    if(standaloneChapters&&arrowSeek){
+      if(menuOpen||settingsDetails?.open||!infoPanel.hidden||
+         event.target?.closest?.('[role="dialog"],dialog,[role="menu"]'))return;
+      if(!current()||state.stopped)return;
+      const length=playbackDuration();
+      if(!Number.isFinite(length)||length<=0)return;
+      event.preventDefault();
+      revealControls();
+      skipTen(key==="arrowleft"?-10:10);
+      return;
+    }
     // Fullscreen is a window command, not a media-decoder command: F works
     // even on the welcome screen before the first file is selected.
     if (key === "f") {

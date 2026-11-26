@@ -815,7 +815,7 @@ html.dk-standalone .screen .controls .extras :is(.dk-text-tool,.subtitle-toggle)
 html.dk-standalone .screen .controls :is(.transport .icon-btn,.extras .icon-btn,.player-bar-settings>summary):hover:not(:disabled){
   background-color:#53262e;border-color:var(--dk-gold);
 }
-html.dk-standalone .screen .controls :is(#playPause,#subtitleToggle[aria-pressed="true"],.player-bar-settings[open]>summary){
+html.dk-standalone .screen .controls :is(#playPause,#subtitleToggle[aria-pressed="true"]){
   background-color:var(--dk-button-red);border-color:var(--dk-button-red-border);color:#fff;
 }
 html.dk-standalone .screen .controls #playPause:hover{background-color:var(--dk-russian-red,#ef434d);color:#fff}

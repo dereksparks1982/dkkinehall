@@ -62,7 +62,6 @@ async function inspectCandidate(file,stat,signal,probe){
   return result;
 }
 
-const MAX_FILES=25000, MAX_VISITS=300000, MAX_DEPTH=24;
 const MAX_BYTES_PER_READ=8*1024*1024;
 const fileIdentity=p=>"native:"+crypto.createHash("sha256")
   .update(path.resolve(p)).digest("hex");
@@ -99,45 +98,48 @@ async function checkVideo(id,filePath){
   return {target,stat};
 }
 async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,probe=null}={}){
-  // testRoots is used solely by isolated maintainer regression fixtures.
-  // The IPC handler never supplies it; users always scan native roots.
+  // Neither automatic nor manual native scans have an arbitrary duration,
+  // directory depth, file count or visited-entry limit. Cancel explicitly.
   const start=Date.now(),roots=Array.isArray(testRoots)?testRoots:rootPath(),
-    items=[],rejected=[];
-  let visits=0,folders=0,truncated=false,skipped=0;
-  const visitedDirs=new Set();
-  const maxMillis=manual?180000:60000;
-  let lastProgress=0;
-  // Recursion is intentionally iterative. Symlinks and hidden/system
-  // directories are not traversed, preventing loops and heavy rescans.
+    items=[],rejected=[],errors=[];
+  let visits=0,folders=0,lastProgress=0;
+  const visitedDirs=new Set(),visitedPaths=new Set(),seenFiles=new Set();
+  const record=(file,operation,error)=>errors.push({path:file,operation,
+    code:typeof error?.code==="string"?error.code:"UNKNOWN"});
+  const progress=async(folder,force=false)=>{
+    if(!force&&Date.now()-lastProgress<450)return;
+    lastProgress=Date.now();
+    onProgress({folder,visits,found:items.length,folders,skipped:errors.length});
+    await new Promise(resolve=>setImmediate(resolve));
+  };
+  // Iterative depth-first traversal, without following directory symlinks.
+  // Real paths and device/inode identities also prevent bind-mount cycles.
   for(const root of roots){
-    if(signal?.aborted)throw Error("Library scan cancelled");
-    const queue=[{dir:root,depth:0}];
-    while(queue.length){
-      if(signal?.aborted)throw Error("Library scan cancelled");
-      if(Date.now()-start>maxMillis || visits>=MAX_VISITS ||
-         items.length>=MAX_FILES){truncated=true;break;}
-      const job=queue.shift();
-      if(job.depth>MAX_DEPTH){truncated=true;continue;}
-      let canonical;
-      try{canonical=await fsp.realpath(job.dir);}catch(_){skipped++;continue;}
-      if(visitedDirs.has(canonical))continue;
-      visitedDirs.add(canonical);
+    if(signal?.aborted)break;
+    const pending=[root];
+    while(pending.length&&!signal?.aborted){
+      const dir=pending.pop();
       let handle;
-      try{handle=await fsp.opendir(job.dir);}catch(_){skipped++;continue;}
+      try{
+        const canonical=await fsp.realpath(dir),stat=await fsp.stat(canonical);
+        if(!stat.isDirectory())continue;
+        const identity=stat.ino?String(stat.dev)+":"+String(stat.ino):canonical;
+        if(visitedDirs.has(identity)||visitedPaths.has(canonical))continue;
+        visitedDirs.add(identity);visitedPaths.add(canonical);
+        handle=await fsp.opendir(dir);
+      }catch(error){if(!signal?.aborted)record(dir,"open-directory",error);continue;}
       folders++;
       try{
         for await(const entry of handle){
-          if(signal?.aborted)throw Error("Library scan cancelled");
+          if(signal?.aborted)break;
           visits++;
-          if(visits>=MAX_VISITS || items.length>=MAX_FILES ||
-             Date.now()-start>maxMillis){truncated=true;break;}
-          if(entry.isSymbolicLink()||entry.name.startsWith(".")||
-             NEVER.has(entry.name))continue;
-          const filePath=path.join(job.dir,entry.name);
+          // Yield for every kind of directory entry, not only video files.
+          if(Date.now()-lastProgress>=450)await progress(dir);
+          if(signal?.aborted)break;
+          if(entry.isSymbolicLink()||entry.name.startsWith(".")||NEVER.has(entry.name))continue;
+          const filePath=path.join(dir,entry.name);
           if(entry.isDirectory()){
-            if(excludedPath(filePath))continue;
-            if(job.depth<MAX_DEPTH)queue.push({dir:filePath,depth:job.depth+1});
-            else truncated=true;
+            if(!excludedPath(filePath))pending.push(filePath);
             continue;
           }
           if(!entry.isFile()||!VIDEO.test(entry.name)||/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(entry.name))continue;
@@ -145,34 +147,26 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,pr
             const stat=await fsp.stat(filePath);
             if(!stat.isFile())continue;
             const valid=await inspectCandidate(filePath,stat,signal,probe);
-            if(valid===false){if(rejected.length<MAX_FILES)rejected.push(fileIdentity(filePath));continue;}
-            if(valid===null){skipped++;continue;}
-            items.push({
-              id:fileIdentity(filePath),
-              nativePath:filePath,filename:entry.name,
+            if(signal?.aborted)break;
+            const id=fileIdentity(filePath);
+            if(seenFiles.has(id))continue;
+            seenFiles.add(id);
+            if(valid===false){rejected.push(id);continue;}
+            if(valid===null){record(filePath,"inspect-video",{code:"UNVERIFIED_VIDEO"});continue;}
+            items.push({id,nativePath:filePath,filename:entry.name,
               relative:path.relative(root,filePath).split(path.sep).join("/"),
-              size:stat.size,modified:stat.mtimeMs,
-              root
-            });
-          }catch(_){skipped++;}
-          if(Date.now()-lastProgress>450){
-            lastProgress=Date.now();
-            onProgress({folder:job.dir,visits,found:items.length,folders});
-            // Yield occasionally to keep the rest of Electron responsive.
-            await new Promise(resolve=>setImmediate(resolve));
-          }
+              size:stat.size,modified:stat.mtimeMs,root});
+          }catch(error){if(!signal?.aborted)record(filePath,"inspect-video",error);}
         }
-      }catch(error){
-        if(signal?.aborted)throw error;
-        skipped++;
-      }finally{await handle.close().catch(()=>{});}
-      if(truncated)break;
+      }catch(error){if(!signal?.aborted)record(dir,"read-directory",error);}
+      finally{await handle.close().catch(()=>{});}
     }
-    if(truncated)break;
   }
-  return {items,roots,rejected,complete:!truncated&&skipped===0,
-    partial:truncated||skipped>0,found:items.length,visits,folders,
-    skipped,elapsedMs:Date.now()-start};
+  const cancelled=Boolean(signal?.aborted);
+  await progress("",true);
+  return {items,roots,rejected,complete:!cancelled&&errors.length===0,
+    partial:cancelled||errors.length>0,cancelled,errors,
+    found:items.length,visits,folders,skipped:errors.length,elapsedMs:Date.now()-start};
 }
 async function openVideo(id,filePath){
   const {target,stat}=await checkVideo(id,filePath);

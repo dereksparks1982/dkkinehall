@@ -144,9 +144,9 @@ function serveNetwork(req,res){
     reply.on("error",()=>res.destroy());reply.on("aborted",()=>res.destroy());
     if(req.method==="HEAD"){reply.resume();res.end();}else reply.pipe(res);
   });
-  networkClients.add(upstream);
+  networkClients.add(upstream);entry.clients.add(upstream);
   upstream.setTimeout(20000,()=>upstream.destroy(Error("Network media timed out")));
-  upstream.on("close",()=>networkClients.delete(upstream));
+  upstream.on("close",()=>{networkClients.delete(upstream);entry.clients.delete(upstream);});
   upstream.on("error",()=>{if(res.headersSent)res.destroy();else fail(502);});
   res.on("close",()=>upstream.destroy());
   upstream.end();
@@ -168,7 +168,8 @@ async function grantNetwork(id,value){
   const url=networkURL(value,server?.host);
   if(networkGrants.size>=256)throw Error("Network media queue is full");
   const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
-  networkGrants.set(token,{url});
+  if(networkGrants.size>=256)throw Error("Network media queue is full");
+  networkGrants.set(token,{url,clients:new Set()});
   return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
 }
 function closeNetwork(){
@@ -1409,7 +1410,12 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Network request rejected");return grantNetwork(id,url);
   });
   ipcMain.handle("dk-network:release",(event,token)=>{
-    if(!onlyPlayer(event))return false;return networkGrants.delete(token);
+    if(!onlyPlayer(event))return false;
+    const entry=networkGrants.get(token);
+    if(!entry)return false;
+    networkGrants.delete(token);
+    for(const client of entry.clients)client.destroy();
+    return true;
   });
   ipcMain.handle("dk-library:open-acp",async event=>{
     if(!allowed(event)&&!onlyPlayer(event))throw Error("External link rejected");

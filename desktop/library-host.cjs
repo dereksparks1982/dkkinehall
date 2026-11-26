@@ -982,6 +982,12 @@ function install(originalWindow,originalPlayer){
     return native.localArtwork(id,filePath,{
       series:Boolean(series),kind:kind==="tv"?"tv":"movie"});
   });
+  ipcMain.handle("dk-library:show-in-folder",async(event,id,filePath)=>{
+    if(!allowed(event))throw Error("File location request rejected");
+    const {target}=await native.checkVideo(id,filePath);
+    shell.showItemInFolder(target);
+    return true;
+  });
   ipcMain.handle("dk-library:delete-video",(event,id,filePath)=>{
     if(!allowed(event))throw Error("Native deletion rejected");
     return native.deleteVideo(id,filePath,{dialog,shell,window:home});

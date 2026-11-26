@@ -364,6 +364,88 @@ async function ingestNative(scan){
   if(changes.length)changed({entries:true,native:true});
   return {added,updated,missing,found:seen.size,complete:scan.complete===true};
 }
+// Consolidate obsolete catalog records, not physical media. Keep two
+// independently available native paths even if their fingerprints match.
+async function reconcileNative(){
+  const rows=await entries(),live=new Map(),legacyFolders=new Map((await folders()).map(f=>[f.id,f]));
+  const fingerprint=row=>JSON.stringify([row.filename,row.size,Math.trunc(row.modified)]);
+  for(const row of rows){
+    if(row.source!=="native"||row.missing)continue;
+    const key=fingerprint(row);
+    if(!live.has(key))live.set(key,[]);
+    live.get(key).push(row);
+  }
+  let merged=0;
+  for(const old of rows){
+    if(old.source==="native"&&!old.missing)continue;
+    if(!Number.isFinite(old.modified)||!Number.isFinite(old.size))continue;
+    const candidates=live.get(fingerprint(old))||[];
+    if(candidates.length!==1)continue;
+    const target=candidates[0];
+    if(target.id===old.id)continue;
+    if(old.source!=="native"){
+      const folder=legacyFolders.get(old.folderId);
+      const relative=String(old.relative||old.filename).replace(/\\/g,"/");
+      const suffix=folder?.name?"/"+folder.name+"/"+relative:"";
+      if(!suffix||!target.nativePath?.endsWith(suffix))continue;
+    }
+    // Atomic merge with the current playback history, even when the player
+    // is writing progress in another internal view.
+    const db=await open();
+    let didMerge=false;
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(["entries","art"],"readwrite"),entries=tx.objectStore("entries"),art=tx.objectStore("art");
+      const a=entries.get(old.id),b=entries.get(target.id);
+      let count=0;
+      const combine=()=>{
+        if(++count!==2||!a.result||!b.result||b.result.missing)return;
+        const from=a.result,to=b.result;
+        const recent=(from.lastPlayed||0)>(to.lastPlayed||0)?from:to;
+        const updated={...to,position:recent.position||0,duration:recent.duration||to.duration||0,
+          lastPlayed:recent.lastPlayed||0,completed:!!recent.completed};
+        if(from.metadataVerified&&!to.metadataVerified){
+          updated.episodeTitle=from.episodeTitle;updated.metadataVerified=true;
+        }
+        if(from.movieMetadataVerified&&!to.movieMetadataVerified){
+          for(const field of ["title","year","movieDetails","movieProvider","movieMetadataVerified"])
+            if(from[field]!==undefined)updated[field]=from[field];
+        }
+        entries.put(updated);entries.delete(from.id);
+        const oldArt=art.get(from.id),newArt=art.get(to.id);
+        let read=0;
+        const transfer=()=>{
+          if(++read!==2)return;
+          if(oldArt.result?.blob&&!newArt.result?.blob)art.put({...oldArt.result,id:to.id});
+          art.delete(from.id);
+        };
+        oldArt.onsuccess=transfer;newArt.onsuccess=transfer;didMerge=true;
+      };
+      a.onsuccess=combine;b.onsuccess=combine;
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Library reconciliation failed"));
+    });
+    if(didMerge)merged++;
+  }
+  if(merged)changed({entries:true,native:true});
+  return merged;
+}
+async function emptyTrash(){
+  const rows=await entries();
+  const ids=rows.filter(row=>row.missing).map(row=>row.id);
+  let removed=0;
+  for(let start=0;start<ids.length;start+=80){
+    const db=await open();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(["entries","art"],"readwrite"),entries=tx.objectStore("entries"),art=tx.objectStore("art");
+      for(const id of ids.slice(start,start+80)){
+        const request=entries.get(id);
+        request.onsuccess=()=>{if(request.result?.missing){entries.delete(id);art.delete(id);removed++;}};
+      }
+      tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Empty Trash failed"));
+    });
+  }
+  if(removed)changed({entries:true,native:true});
+  return removed;
+}
 async function removeEntry(id){
   const itemRow=await item(id);
   if(!itemRow)return false;
@@ -467,7 +549,7 @@ async function saveArtwork(id,blob,credit=""){
 }
 return Object.freeze({
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
-  ingestNative,removeEntry,
+  ingestNative,reconcileNative,emptyTrash,removeEntry,
   checkReadPermission,openFile,updateProgress,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });

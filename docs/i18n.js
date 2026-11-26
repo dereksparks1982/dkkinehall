@@ -128,6 +128,7 @@
     "Restore original subtitles":"Восстановить исходные субтитры",
     "Empty Trash":"Очистить корзину",
     "Picture enhancements":"Улучшение изображения",
+    "Open DVD…":"Открыть ДВД…",
     "DVD playback":"Воспроизведение ДВД",
     "DVD title":"Раздел ДВД",
     "Start chapter":"Начальная глава",

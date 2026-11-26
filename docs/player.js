@@ -3222,7 +3222,16 @@
     showVolumeOverlay();
   };
   screen.addEventListener("wheel", event => {
-    if (!current() || !event.deltaY) return;
+    if (!current() || !event.deltaY || event.defaultPrevented || event.ctrlKey) return;
+    // Menus and settings live inside the video screen. Leave their native
+    // scrolling alone, including at the top and bottom of a scroll panel.
+    if (menuOpen || !contextMenu.hidden || !infoPanel.hidden ||
+        settingsDetails?.open || (chapterPicker && !chapterPicker.hidden)) return;
+    const target = event.target;
+    // Only the actual media surface (including audio art and subtitles)
+    // owns the volume gesture; interactive controls and overlays do not.
+    if (target !== media && target !== screen &&
+        !target?.closest?.(".audio-art,.mkv-pgs-overlay")) return;
     event.preventDefault();
     setVolume(volumePercent + (event.deltaY < 0 ? 5 : -5));
   }, {passive: false});

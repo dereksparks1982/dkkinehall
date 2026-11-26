@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld("DKCodecBridge",{
   status:()=>ipcRenderer.invoke("dk-codec:status"),
   selectDVD:(kind,title,chapter,angle,language)=>ipcRenderer.invoke("dk-codec:dvd-select",
     kind,Number(title),Number(chapter),Number(angle),language==="ru"?"ru":"en"),
+  changeDVD:(id,title,chapter,angle)=>ipcRenderer.invoke("dk-codec:dvd-change",String(id),Number(title),Number(chapter),Number(angle)),
   exportVideo:language=>ipcRenderer.invoke("dk-codec:export",language==="ru"?"ru":"en"),
   probe:file=>{
     const name=localPath(file);

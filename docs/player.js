@@ -525,6 +525,12 @@
       li.dkQueueItem = item;
       li.dataset.queueKind = item.kind;
       li.dataset.queueAudio = item.audio ? "1" : "0";
+      // The original filename remains attached for artwork and playback.
+      const parsed = window.DKMediaMetadata?.parseFilename(item.name);
+      const isEpisode = parsed?.type === "episode";
+      if (isEpisode) li.dataset.queueEpisode = "1";
+      const episodeCode = isEpisode ? "S" + String(parsed.season).padStart(2,"0") +
+        "E" + String(parsed.episode).padStart(2,"0") : "";
       if (index === state.current) {
         li.classList.add("current");
         li.setAttribute("aria-current", "true");
@@ -532,7 +538,8 @@
       const play = document.createElement("button");
       play.type = "button";
       play.className = "item-play";
-      play.title = "Play " + item.name;
+      play.title = isEpisode ? "Play " + parsed.series + " " + episodeCode :
+        "Play " + item.name;
       const artworkBox = document.createElement("span");
       artworkBox.className = "queue-artwork";
       artworkBox.setAttribute("aria-hidden", "true");
@@ -542,14 +549,20 @@
       artworkBox.append(fallback);
       if (queueHover) queueHover.bind(play, item, artworkBox);
       const labels = document.createElement("span");
-      labels.style.minWidth = "0";
+      labels.className = "queue-item-labels";
       const title = document.createElement("span");
       title.className = "item-title";
-      title.textContent = item.name;
+      title.textContent = isEpisode ? parsed.series : item.name;
       const source = document.createElement("span");
       source.className = "item-meta";
-      source.textContent = "Local file";
+      source.textContent = isEpisode ? episodeCode : "Local file";
       labels.append(title, source);
+      if (isEpisode) {
+        const episodeName = document.createElement("span");
+        episodeName.className = "item-episode-name";
+        episodeName.textContent = item.episodeTitle || "Finding episode title…";
+        labels.append(episodeName);
+      }
       play.append(artworkBox, labels);
       play.addEventListener("click", () => load(index));
       const remove = document.createElement("button");

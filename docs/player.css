@@ -1321,3 +1321,36 @@ html.dk-standalone .dk-settings-category-nav>.btn:nth-of-type(4n+1){background:#
 html.dk-standalone .dk-settings-category-nav>.btn:is(:hover,:focus-visible){outline:2px solid currentColor;outline-offset:-4px}
 html.dk-standalone .dk-settings-extra,html.dk-standalone .dk-picture-profile-actions{display:grid;gap:8px}
 html.dk-standalone .dk-settings-extra>.helper{margin:0;font-size:.8rem;color:var(--muted)}
+
+/* Standalone dock layout never inherits the website's one-column breakpoint.
+   Keep Up Next beside the player unless the user intentionally expands it. */
+html.dk-standalone .main-grid:not(.dk-player-expanded){
+  grid-template-columns:minmax(0,1fr) min(45%,clamp(180px,31%,305px));
+}
+html.dk-standalone .main-grid>aside{min-width:0;max-width:100%}
+html.dk-standalone .dk-resizable-panel{min-width:0;max-width:100%}
+html.dk-standalone .dk-resizable-panel>.screen:not(.dk-floating):not(.desktop-fullscreen):not(:fullscreen){
+  width:100%;aspect-ratio:16/9;min-height:0;
+}
+html.dk-standalone .dk-resizable-panel>.now-playing{padding-right:62px}
+html.dk-standalone .dk-resizable-panel :is(.dk-player-resize,.dk-player-reset){
+  position:absolute;z-index:46;bottom:3px;width:25px;height:25px;
+  min-width:25px;min-height:25px;padding:0;margin:0;
+  box-sizing:border-box;border-radius:4px;line-height:1;
+  display:grid;place-items:center;box-shadow:none;transform:none;
+}
+html.dk-standalone .dk-resizable-panel .dk-player-resize{
+  right:3px;background:#e2b956;color:#462a25;border:1px solid #a58039;
+  font-size:16px;cursor:nwse-resize;touch-action:none;user-select:none;
+}
+html.dk-standalone .dk-resizable-panel .dk-player-reset{
+  right:32px;background:#d52b1e;color:#fff;border:1px solid #d52b1e;
+  font-size:20px;font-weight:700;cursor:pointer;
+}
+html.dk-standalone .dk-resizable-panel :is(.dk-player-resize,.dk-player-reset):is(:hover,:focus-visible){
+  outline:2px solid currentColor;outline-offset:-4px;
+}
+html.dk-desktop-fullscreen .dk-resizable-panel :is(.dk-player-reset,.dk-player-resize),
+html.dk-standalone .dk-resizable-panel:has(>.screen:fullscreen) :is(.dk-player-reset,.dk-player-resize){
+  display:none!important;
+}

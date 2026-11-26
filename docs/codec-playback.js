@@ -37,7 +37,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
     });
   };
   async function start(item,offset=0,autoplay=true,format="auto",
-                       audioIndex=item?.codecAudioIndex||0){
+                       audioIndex=item?.codecAudioIndex||0,frameStep=false){
     if(!item?.file||current()!==item)return false;
     const token=++generation;
     return enqueue(async()=>{
@@ -49,7 +49,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         if(token!==generation||current()!==item)return false;
         onStatus("Preparing video with included codecs…");
         const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),
-          format,audioIndex);
+          format,audioIndex,frameStep);
         if(token!==generation||current()!==item||!result?.url)return false;
         active={item,url:result.url,offset:Number(result.position)||0,
           duration:result.duration===null||result.duration===undefined?
@@ -106,19 +106,19 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
       }
     });
   }
-  const seek=(item,seconds)=>{
+  const seek=(item,seconds,{frameStep=false}={})=>{
     if(!isActive(item)) {
       if(Number.isFinite(Number(seconds)))media.currentTime=Math.max(0,Number(seconds));
       return Promise.resolve(true);
     }
     const limit=duration(item);
     const position=Math.max(0,Number.isFinite(limit)?
-      Math.min(limit-0.25,Number(seconds)||0):Number(seconds)||0);
+      Math.min(limit-(frameStep?0.001:0.25),Number(seconds)||0):Number(seconds)||0);
     const playing=!media.paused;
     return start(item,position,playing,
       ["mp4","webm"].includes(item.requestedFormat)?
         item.requestedFormat:"auto",
-      item.codecAudioIndex||0);
+      item.codecAudioIndex||0,frameStep);
   };
   async function retryAlternate(item){
     if(!isActive(item)||item.requestedFormat!=="auto"||item.nativeAlternateAttempted)return false;

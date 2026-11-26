@@ -651,6 +651,7 @@
   };
   const renderQueue = () => {
     if (queueHover) queueHover.stop();
+    const scrollPosition=queueView.scrollTop;
     queueView.replaceChildren();
     // Keep queued items in their selected order. Finished entries can be
     // automatically removed by the queue lifecycle preference.
@@ -799,6 +800,7 @@
       li.append(grip,play,remove);
       queueView.append(li);
     });
+    queueView.scrollTop=scrollPosition;
     updateButtons();
     updateChapterButton();
   };
@@ -1764,61 +1766,23 @@
     updateButtons();
   });
   let volumeOverlayTimer = null;
-  // Only the original standalone Chromium window gets amplified volume.
-  // The hosted Web App keeps its native 0–100% slider and audio routing.
-  const desktopVolume = typeof window.DKStandalone?.setFullscreen === "function";
-  const AudioContextType = window.AudioContext || window.webkitAudioContext;
-  const supportsVolumeBoost = desktopVolume && typeof AudioContextType === "function";
-  let volumeLimit = supportsVolumeBoost ? 200 : 100;
-  const volumeSlider = byId("volume");
-  volumeSlider.max = String(volumeLimit);
-  let volumeAudioGraph = null;
-  const ensureVolumeBoost = () => {
-    if (volumeAudioGraph) return true;
-    if (!supportsVolumeBoost) return false;
-    let context = null;
-    try {
-      context = new AudioContextType();
-      const source = context.createMediaElementSource(media);
-      const gain = context.createGain();
-      source.connect(gain);
-      gain.connect(context.destination);
-      volumeAudioGraph = {context,gain};
-      // Playback can begin later, including after a new file is opened.
-      media.addEventListener("play", () => {
-        void context.resume().catch(() => {});
-      });
-      return true;
-    } catch (_) {
-      if (context) void context.close().catch(() => {});
-      volumeLimit = 100;
-      volumeSlider.max = "100";
-      status("200% volume isn't available with this audio output.");
-      return false;
-    }
-  };
-  const resumeBoost = () => {
-    if (volumeAudioGraph && volumeAudioGraph.context.state === "suspended")
-      void volumeAudioGraph.context.resume().catch(() => {});
-  };
-  const savedVolumeV2 = read(store.volume, null);
-  const legacyVolume = Number(read("dkmedia.web.volume.v1", 1));
-  // Older releases stored native media.volume as a decimal from 0 to 1.
-  let volumePercent = savedVolumeV2 === null ? Math.round(legacyVolume * 100) :
-    Number(savedVolumeV2);
-  if (!Number.isFinite(volumePercent)) volumePercent = 100;
-  volumePercent = Math.max(0, Math.min(volumeLimit, Math.round(volumePercent)));
-  if (volumePercent > 100 && !ensureVolumeBoost()) volumePercent = 100;
+  // User-approved 0–100% volume in BOTH editions. No gain amplification
+  // or extra audio graph; the stream and its codec can switch freely.
+  const volumeLimit=100;
+  const volumeSlider=byId("volume");
+  volumeSlider.max="100";
+  const savedVolumeV2=read(store.volume,null);
+  const legacyVolume=Number(read("dkmedia.web.volume.v1",1));
+  let volumePercent=savedVolumeV2===null?
+    Math.round(legacyVolume*100):Number(savedVolumeV2);
+  if(!Number.isFinite(volumePercent))volumePercent=100;
+  volumePercent=Math.max(0,Math.min(100,Math.round(volumePercent)));
   const applyVolume = () => {
-    // Web Audio gain goes up to 2x; HTMLMediaElement.volume stops at 1.
-    // Do not route audio through Web Audio until the user requests >100%.
-    media.volume = volumeAudioGraph ? 1 : Math.min(1, volumePercent / 100);
-    if (volumeAudioGraph)
-      volumeAudioGraph.gain.gain.value = userMuted ? 0 : volumePercent / 100;
-    media.muted = mkvAudio && mkvAudio.active() ? true : userMuted;
-    if (mkvAudio) mkvAudio.setVolume(userMuted ? 0 : volumePercent / 100);
-    volumeSlider.value = String(volumePercent);
-    byId("volumeValue").textContent = (userMuted ? 0 : volumePercent) + "%";
+    media.volume=volumePercent/100;
+    media.muted=mkvAudio&&mkvAudio.active()?true:userMuted;
+    if(mkvAudio)mkvAudio.setVolume(userMuted?0:volumePercent/100);
+    volumeSlider.value=String(volumePercent);
+    byId("volumeValue").textContent=(userMuted?0:volumePercent)+"%";
     updateButtons();
   };
   const showVolumeOverlay = () => {
@@ -1829,13 +1793,11 @@
     volumeOverlayTimer = setTimeout(() => overlay.classList.remove("visible"), 950);
   };
   const setVolume = percent => {
-    let next = Math.max(0, Math.min(volumeLimit, Math.round(Number(percent))));
+    const next=Math.max(0,Math.min(100,Math.round(Number(percent))));
     if (!Number.isFinite(next)) return;
-    if (next > 100 && !ensureVolumeBoost()) next = 100;
-    volumePercent = next;
+    volumePercent=next;
     userMuted = false;
     applyVolume();
-    resumeBoost();
     write(store.volume, volumePercent);
     showVolumeOverlay();
   };

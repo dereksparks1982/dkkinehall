@@ -11,6 +11,7 @@ The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved r
 - Mouse/touch/keyboard Up Next reordering, Shuffle, Loop Off/One/All.
 - Visible Chapters button with embedded Matroska chapter reading and native cue fallback.
 - Resizable video, Float/Dock in the application, Chromium native Picture-in-Picture.
+- Reordering preserves the Up Next scroll position. Both editions enforce the approved 0–100% volume range without an amplification layer.
 - Episode show title on line one; SxxExx and episode name together on the wrapping second line.
 - Source-level native Qt/libmpv chapter menu, queue drag ordering, Shuffle/Loop and wider file selection.
 - Native prototype: TVmaze episode lookup from series and SxxExx only, cached verified names and stills, with original release filename kept for playback and local poster priority.

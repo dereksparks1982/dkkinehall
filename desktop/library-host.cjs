@@ -105,6 +105,7 @@ async function browseNetwork(id,control,type,objectId,start){
   finally{networkBrowseBusy--;}
 }
 function serveNetwork(req,res){
+  if((req.url||"").startsWith("/voiceover/"))return serveVoiceover(req,res);
   const match=/^\/media\/([a-f0-9]{48})$/.exec(req.url||"");
   const entry=match&&networkGrants.get(match[1]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
@@ -254,6 +255,39 @@ function translateLocal(event,pair,lines,ticket){
 // mono WAV. No source file access, network API, downloads or arbitrary commands.
 // The separately provisioned TTS package/model must be explicitly installed.
 let voiceoverJob=null,voiceoverResult=null,voiceoverExporting=false;
+function serveVoiceover(req,res){
+  const entry=voiceoverResult;
+  const fail=(code=404,headers={})=>{res.writeHead(code,{"Cache-Control":"no-store",...headers});res.end();};
+  if(!entry||entry.discarded||req.url!=="/voiceover/"+entry.token||
+    !["GET","HEAD"].includes(req.method)||entry.streams.size>=4)return fail();
+  const size=entry.size;
+  let start=0,end=size-1,status=200;
+  const range=req.headers.range;
+  if(range){
+    const match=/^bytes=(\d{0,15})-(\d{0,15})$/.exec(range);
+    if(!match||(!match[1]&&!match[2]))return fail(416,{"Content-Range":"bytes */"+size});
+    if(!match[1])start=Math.max(0,size-Number(match[2]));
+    else {start=Number(match[1]);if(match[2])end=Math.min(end,Number(match[2]));}
+    if(start<0||start>end||start>=size)return fail(416,{"Content-Range":"bytes */"+size});
+    status=206;
+  }
+  const headers={"Content-Type":"audio/wav","Content-Length":String(end-start+1),
+    "Accept-Ranges":"bytes","Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
+    "Access-Control-Allow-Origin":"null"};
+  if(status===206)headers["Content-Range"]="bytes "+start+"-"+end+"/"+size;
+  res.writeHead(status,headers);
+  if(req.method==="HEAD"){res.end();return;}
+  const stream=fs.createReadStream(entry.output,{start,end});
+  entry.streams.add(stream);
+  stream.on("error",()=>res.destroy());stream.on("close",()=>entry.streams.delete(stream));
+  res.on("close",()=>stream.destroy());stream.pipe(res);
+}
+function removeVoiceoverResult(entry){
+  if(!entry)return;
+  entry.discarded=true;
+  for(const stream of entry.streams)stream.destroy();
+  if(!entry.exporting)fs.rmSync(entry.dir,{recursive:true,force:true});
+}
 const voiceoverWorker=String.raw`
 import json, sys, wave
 from pathlib import Path
@@ -335,9 +369,7 @@ function voiceoverPaths(pair){
 }
 function discardVoiceover(){
   if(voiceoverJob){voiceoverJob.cancelled=true;voiceoverJob.child?.kill("SIGKILL");}
-  if(voiceoverResult&&!voiceoverExporting){
-    fs.rmSync(voiceoverResult.dir,{recursive:true,force:true});voiceoverResult=null;
-  }
+  const previous=voiceoverResult;voiceoverResult=null;removeVoiceoverResult(previous);
 }
 function generateVoiceover(event,pair,rows,ticket){
   const runtime=voiceoverPaths(pair);
@@ -382,7 +414,7 @@ function generateVoiceover(event,pair,rows,ticket){
       if(code!==0||failed||job.cancelled||!complete||!stat?.isFile()||stat.size<44||stat.size>700*1024*1024){
         fs.rmSync(dir,{recursive:true,force:true});reject(Error("Voiceover generation failed or was cancelled"));return;
       }
-      voiceoverResult={dir,output,ticket};
+      voiceoverResult={dir,output,ticket,size:stat.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false};
       resolve({skipped:complete.skipped,total:rows.length});
     });
     child.stdin.end(JSON.stringify(rows));
@@ -777,9 +809,15 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
     discardVoiceover();return true;
   });
+  ipcMain.handle("dk-library:voiceover-source",async(event,ticket)=>{
+    if(!onlyPlayer(event)||!voiceoverResult||voiceoverResult.ticket!==ticket||voiceoverResult.discarded)throw Error("Voiceover source rejected");
+    const entry=voiceoverResult,port=await startNetworkProxy();
+    if(voiceoverResult!==entry||entry.discarded)throw Error("Voiceover source expired");
+    return "http://127.0.0.1:"+port+"/voiceover/"+entry.token;
+  });
   ipcMain.handle("dk-library:voiceover-export",async(event,ticket,language)=>{
     if(!onlyPlayer(event)||voiceoverExporting||voiceoverJob||!voiceoverResult||voiceoverResult.ticket!==ticket)throw Error("Voiceover export rejected");
-    const result=voiceoverResult;voiceoverExporting=true;
+    const result=voiceoverResult;voiceoverExporting=true;result.exporting=true;
     try{
       const ru=language==="ru";
       const chosen=await dialog.showSaveDialog(home,{title:ru?"Сохранить озвучивание":"Save voiceover",defaultPath:"voiceover.wav",filters:[{name:ru?"Звуковой файл ВАВ":"WAV audio",extensions:["wav"]}]});
@@ -787,7 +825,7 @@ function install(originalWindow,originalPlayer){
       if(!/\.wav$/i.test(chosen.filePath))throw Error("WAV extension required");
       await fs.promises.copyFile(result.output,chosen.filePath,fs.constants.COPYFILE_EXCL);
       return true;
-    }finally{voiceoverExporting=false;}
+    }finally{voiceoverExporting=false;result.exporting=false;if(result.discarded)removeVoiceoverResult(result);}
   });
   home.on("closed",()=>{cancelTranslation();discardVoiceover();});
   ipcMain.handle("dk-library:remember-media",async(event,source,key)=>{

@@ -296,7 +296,7 @@ import ctranslate2
 import sentencepiece as spm
 import sherpa_onnx
 translation=Path(sys.argv[1])
-voice=Path(sys.argv[2])
+voice_paths={key:Path(value) for key,value in json.loads(sys.argv[2]).items()}
 output=sys.argv[3]
 rows=json.load(sys.stdin)
 source=spm.SentencePieceProcessor(model_file=str(translation/"source.model"))
@@ -311,16 +311,38 @@ for i in range(0,len(rows),32):
     texts.extend(target.decode(r.hypotheses[0]) for r in decoded)
     print(json.dumps({"stage":"translation","done":len(texts),"total":len(rows)}),flush=True)
 del engine
-config=sherpa_onnx.OfflineTtsConfig(
-    model=sherpa_onnx.OfflineTtsModelConfig(
-        vits=sherpa_onnx.OfflineTtsVitsModelConfig(model=str(voice/"model.onnx"),tokens=str(voice/"tokens.txt"),data_dir=str(voice/"espeak-ng-data")),
-        num_threads=2,provider="cpu"))
-if not config.validate():
-    raise ValueError("Invalid voice model")
-tts=sherpa_onnx.OfflineTts(config)
-rate=int(tts.sample_rate)
+engines={}
+def engine_for(profile):
+    if profile not in voice_paths:
+        raise ValueError("Unsupported voice assignment")
+    if profile not in engines:
+        voice=voice_paths[profile]
+        config=sherpa_onnx.OfflineTtsConfig(
+            model=sherpa_onnx.OfflineTtsModelConfig(
+                vits=sherpa_onnx.OfflineTtsVitsModelConfig(model=str(voice/"model.onnx"),tokens=str(voice/"tokens.txt"),data_dir=str(voice/"espeak-ng-data")),
+                num_threads=2,provider="cpu"))
+        if not config.validate():
+            raise ValueError("Invalid voice model")
+        engines[profile]=sherpa_onnx.OfflineTts(config)
+    return engines[profile]
+default_profile=next(iter(voice_paths))
+rate=int(engine_for(default_profile).sample_rate)
 if not 8000<=rate<=32000:
     raise ValueError("Unsupported sample rate")
+def synthesize(tts,text,speed):
+    audio=tts.generate(text=text,sid=0,speed=speed)
+    samples=np.asarray(audio.samples,dtype=np.float32)
+    native=int(audio.sample_rate)
+    if not 8000<=native<=32000 or not len(samples) or not np.isfinite(samples).all():
+        return np.empty(0,dtype=np.float32)
+    if native!=rate:
+        # Convert each generated clip to the common output sample rate.
+        length=round(len(samples)*rate/native)
+        if length<=0:
+            return np.empty(0,dtype=np.float32)
+        samples=np.interp(np.arange(length,dtype=np.float64)*native/rate,
+                          np.arange(len(samples),dtype=np.float64),samples).astype(np.float32)
+    return samples
 cursor=0
 skipped=0
 silence=b"\0"*(rate*2)
@@ -340,12 +362,12 @@ with wave.open(output,"wb") as wav:
             end=min(end,round(rows[i+1]["start"]*rate))
         room=end-start
         if room>rate/10 and text.strip():
-            audio=tts.generate(text=text,sid=0,speed=1.0)
-            if len(audio.samples)>room:
-                speed=min(1.45,max(1.05,len(audio.samples)/room*1.03))
-                audio=tts.generate(text=text,sid=0,speed=speed)
-            samples=np.asarray(audio.samples,dtype=np.float32)
-            if int(audio.sample_rate)==rate and 0<len(samples)<=room and np.isfinite(samples).all():
+            tts=engine_for(row.get("voice",default_profile))
+            samples=synthesize(tts,text,1.0)
+            if len(samples)>room:
+                speed=min(1.45,max(1.05,len(samples)/room*1.03))
+                samples=synthesize(tts,text,speed)
+            if 0<len(samples)<=room and np.isfinite(samples).all():
                 pad(wav,start-cursor)
                 wav.writeframesraw((np.clip(samples,-1,1)*32767).astype("<i2").tobytes())
                 cursor=start+len(samples)
@@ -361,13 +383,15 @@ if skipped==len(rows):
 print(json.dumps({"stage":"complete","done":len(rows),"total":len(rows),"skipped":skipped}),flush=True)
 `;
 function voiceoverPaths(pair,profile="default"){
-  if(!["default","male","female"].includes(profile))throw Error("Unsupported voice profile");
+  if(!["default","male","female","speakers"].includes(profile))throw Error("Unsupported voice profile");
   const runtime=translationPaths(pair);
   const root=path.dirname(path.dirname(runtime.model));
   const baseVoice=path.join(root,"voices",pair.split("-")[1]);
-  const voice=profile==="default"?baseVoice:path.join(baseVoice,profile);
-  const ready=runtime.ready&&[path.join(voice,"READY.json"),path.join(voice,"model.onnx"),path.join(voice,"tokens.txt"),path.join(voice,"espeak-ng-data")].every(p=>fs.existsSync(p));
-  return {...runtime,voice,ready};
+  const profiles=profile==="speakers"?["default","male","female"]:[profile];
+  const voices=Object.fromEntries(profiles.map(name=>[name,name==="default"?baseVoice:path.join(baseVoice,name)]));
+  const ready=runtime.ready&&Object.values(voices).every(voice=>
+    [path.join(voice,"READY.json"),path.join(voice,"model.onnx"),path.join(voice,"tokens.txt"),path.join(voice,"espeak-ng-data")].every(p=>fs.existsSync(p)));
+  return {...runtime,voices,ready};
 }
 function discardVoiceover(){
   if(voiceoverJob){voiceoverJob.cancelled=true;voiceoverJob.child?.kill("SIGKILL");}
@@ -392,7 +416,7 @@ function voiceCacheKey(runtime,pair,rows){
         inventory.push([file,stat.size,stat.mtimeMs,stat.ctimeMs,stat.ino]);
       }else throw Error("Unsupported runtime file");
     };
-    visit(runtime.python);visit(runtime.model);visit(runtime.voice);
+    visit(runtime.python);visit(runtime.model);for(const voice of Object.values(runtime.voices))visit(voice);
     visit(path.join(path.dirname(path.dirname(runtime.model)),"READY.json"));
     // The identical timed source text produces identical output regardless of
     // which media file supplied it. A changed track/cue or model invalidates it.
@@ -548,7 +572,8 @@ function generateVoiceover(event,pair,rows,ticket,profile="default"){
   if(!Number.isSafeInteger(ticket)||ticket<1||!Array.isArray(rows)||!rows.length||rows.length>6000||
     Buffer.byteLength(JSON.stringify(rows),"utf8")>2*1024*1024||
     rows.some((r,i)=>!r||!Number.isFinite(r.start)||!Number.isFinite(r.end)||r.start<0||r.end<=r.start||r.end>10800||
-      (i>0&&r.start<rows[i-1].start)||typeof r.text!=="string"||!r.text.trim()||r.text.length>1000))
+      (i>0&&r.start<rows[i-1].start)||typeof r.text!=="string"||!r.text.trim()||r.text.length>1000||
+      (profile==="speakers"?!["default","male","female"].includes(r.voice):r.voice!==undefined)))
     throw Error("Invalid voiceover cues");
   discardVoiceover();
   const key=voiceCacheKey(runtime,pair,rows);
@@ -567,7 +592,7 @@ function generateVoiceover(event,pair,rows,ticket,profile="default"){
   }
   return new Promise((resolve,reject)=>{
     let child;
-    try{child=spawn(runtime.python,["-I","-c",voiceoverWorker,runtime.model,runtime.voice,output],{
+    try{child=spawn(runtime.python,["-I","-c",voiceoverWorker,runtime.model,JSON.stringify(runtime.voices),output],{
       shell:false,stdio:["pipe","pipe","pipe"],env:{...process.env,LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1",OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}
     });}catch(error){fs.rmSync(dir,{recursive:true,force:true});reject(error);return;}
     const job={child,cancelled:false};voiceoverJob=job;

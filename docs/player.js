@@ -2697,15 +2697,22 @@
         await browse(ctx,[{id:"0",name:ctx.name}],0);
       }catch(_){if(dlg.open&&epoch===generation){say("Cannot read this media server.");results.append(makeButton("Back to servers",()=>void showServers()));}}
     };
-    const browse=async(ctx,trail,start)=>{
+    const browse=async(ctx,trail,start,query=null)=>{
       const epoch=++generation;results.replaceChildren();say("Loading media folder…");
       const folder=trail[trail.length-1];
       try{
-        const soap=parse(await bridge.networkBrowse(ctx.id,ctx.control,ctx.type,folder.id,start));
+        const soap=parse(await bridge.networkBrowse(ctx.id,ctx.control,ctx.type,folder.id,start,query));
         const result=first(soap,"Result");
         const doc=parse(result);
         if(!dlg.open||epoch!==generation)return;
         say(folder.name);
+        const searchBox=document.createElement("input");searchBox.type="search";searchBox.maxLength=150;
+        searchBox.value=query||"";searchBox.placeholder=translate("Search media titles");
+        searchBox.setAttribute("aria-label",translate("Search media titles"));
+        const search=()=>{const value=searchBox.value.trim();if(value)void browse(ctx,trail,0,value);};
+        searchBox.addEventListener("keydown",event=>{if(event.key==="Enter"){event.preventDefault();search();}});
+        results.append(searchBox,makeButton("Search media titles",search));
+        if(query!==null)results.append(makeButton("Clear search",()=>void browse(ctx,trail,0)));
         results.append(makeButton(trail.length>1?"Parent folder":"Back to servers",()=>trail.length>1?void browse(ctx,trail.slice(0,-1),0):void showServers()));
         const page=[],seenAddresses=new Set();
         for(const element of Array.from(doc.documentElement.children).slice(0,100)){
@@ -2735,9 +2742,9 @@
         }
         if(page.length)results.prepend(makeButton("Add this page to queue",()=>void queuePage(ctx.id,page)));
         const count=Number(first(soap,"NumberReturned")),total=Number(first(soap,"TotalMatches"));
-        if(start>0)results.append(makeButton("Previous page",()=>void browse(ctx,trail,Math.max(0,start-100))));
-        if(count>0&&Number.isFinite(total)&&start+count<total)results.append(makeButton("Next page",()=>void browse(ctx,trail,start+count)));
-      }catch(_){if(dlg.open&&epoch===generation){say("Cannot read this media folder.");results.append(makeButton("Back to servers",()=>void showServers()));}}
+        if(start>0)results.append(makeButton("Previous page",()=>void browse(ctx,trail,Math.max(0,start-100),query)));
+        if(count>0&&Number.isFinite(total)&&start+count<total)results.append(makeButton("Next page",()=>void browse(ctx,trail,start+count,query)));
+      }catch(_){if(dlg.open&&epoch===generation){say(query===null?"Cannot read this media folder.":"This server could not search media titles.");if(query!==null)results.append(makeButton("Clear search",()=>void browse(ctx,trail,0)));results.append(makeButton("Back to servers",()=>void showServers()));}}
     };
     const direct=makeButton("Open network URL",()=>{
       try{

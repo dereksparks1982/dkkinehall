@@ -94,7 +94,7 @@ async function putBatch(table,rows){
       request.onsuccess=()=>{
         const live=request.result;
         s.put(live?{...row,position:live.position||0,duration:live.duration||0,
-          lastPlayed:live.lastPlayed||0,completed:!!live.completed}:row);
+          lastPlayed:live.lastPlayed||0,completed:!!live.completed,continueHidden:!!live.continueHidden}:row);
       };
     }
     tx.oncomplete=resolve;
@@ -377,7 +377,7 @@ function excludedDiscovery(row){
     Number.isFinite(row.size)&&row.size<1024*1024;
 }
 async function ingestNative(scan){
-  if(!scan||!Array.isArray(scan.items)||scan.items.length>MAX_FILES)
+  if(!scan||!Array.isArray(scan.items))
     throw new Error("Invalid native library scan");
   const existing=(await entries()).filter(row=>row.source==="native");
   const old=new Map(existing.map(row=>[row.id,row]));

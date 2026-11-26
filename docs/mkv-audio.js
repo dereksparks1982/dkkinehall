@@ -309,8 +309,8 @@
     }
     return {config,frames};
   };
-  const create=({media,onError=()=>{},isMuted=()=>false})=>{
-    let epoch=0,ctx=null,gain=null,decoder=null,selection=null;
+  const create=({media,onError=()=>{},isMuted=()=>false,createEffects=null})=>{
+    let epoch=0,ctx=null,gain=null,decoder=null,selection=null,effects=null;
     let level=1,scheduled=new Set(),recovering=false,pausedAt=0;
     const selectedNumber=()=>selection?selection.track.number:null;
     const active=()=>Boolean(selection&&decoder);
@@ -326,7 +326,7 @@
       for(const node of scheduled){try{node.stop();}catch(_){}}
       scheduled.clear();
       pausedAt=0;
-      const previous=ctx;ctx=null;gain=null;
+      const previous=ctx;ctx=null;gain=null;effects=null;
       if(previous)void previous.close().catch(()=>{});
       media.muted=Boolean(isMuted());
     };
@@ -413,7 +413,10 @@
       selection={file,track};
       const AudioContext=contextType();
       ctx=new AudioContext();
-      gain=ctx.createGain();gain.gain.value=level;gain.connect(ctx.destination);
+      gain=ctx.createGain();gain.gain.value=level;
+      try{effects=createEffects?createEffects(ctx,gain):null;}
+      catch(_){effects=null;gain.disconnect();}
+      if(!effects)gain.connect(ctx.destination);
       try{
         const info=await discover(file,track.number);
         if(token!==epoch)return false;
@@ -459,7 +462,8 @@
       else void ctx.resume().catch(()=>{});
       pausedAt=0;
     });
-    return {start,stop,hold,restart,active,selectedNumber,setVolume,canAttempt};
+    return {start,stop,hold,restart,active,selectedNumber,setVolume,canAttempt,
+      applyEffects:()=>effects?.apply()};
   };
   return {create,canAttempt,configFor,opusDuration,frameDuration,splitBlock,
     flacDescription,vorbisDescription,mp3Samples,flacSamples,inspectAudioPackets};

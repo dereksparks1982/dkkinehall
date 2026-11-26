@@ -418,6 +418,76 @@ function voiceCacheWav(file,rows){
     return stat.size;
   }finally{fs.closeSync(fd);}
 }
+// Enumerate only files owned by the completed generated-audio cache.
+// Do not follow symlinks or accept arbitrary paths from a renderer.
+function voiceCacheEntries(){
+  const root=voiceCacheRoot();
+  try{
+    if(!fs.lstatSync(root).isDirectory())return [];
+    return fs.readdirSync(root).filter(n=>/^[a-f0-9]{64}$/.test(n)).flatMap(n=>{
+      const dir=path.join(root,n);
+      try{
+        if(!fs.lstatSync(dir).isDirectory())return [];
+        const wav=fs.lstatSync(path.join(dir,"voiceover.wav"));
+        if(!wav.isFile())return [];
+        return [{dir,size:wav.size}];
+      }catch(_){return [];}
+    });
+  }catch(error){if(error.code==="ENOENT")return [];throw error;}
+}
+function voiceCacheStats(){
+  const entries=voiceCacheEntries();
+  return {count:entries.length,bytes:entries.reduce((sum,item)=>sum+item.size,0)};
+}
+function removeVoiceCacheDirectory(dir){
+  // Only delete known cache-owned names. Unexpected files are left intact.
+  if(!fs.lstatSync(dir).isDirectory())throw Error("Invalid cache directory");
+  for(const name of ["voiceover.wav","result.json"]){
+    try{
+      const file=path.join(dir,name),stat=fs.lstatSync(file);
+      if(!stat.isFile())throw Error("Unexpected cache entry");
+      fs.unlinkSync(file);
+    }catch(error){if(error.code!=="ENOENT")throw error;}
+  }
+  try{fs.rmdirSync(dir);}catch(error){if(error.code!=="ENOTEMPTY"&&error.code!=="ENOENT")throw error;}
+}
+function cleanVoiceCacheTemporary(){
+  // Called only after obtaining the application single-instance lock.
+  try{
+    const root=voiceCacheRoot();
+    if(!fs.lstatSync(root).isDirectory())return;
+    for(const name of fs.readdirSync(root)){
+      if(!/^\.(?:session|stage)-[A-Za-z0-9]{6}$/.test(name))continue;
+      try{removeVoiceCacheDirectory(path.join(root,name));}catch(_){}
+    }
+    voiceCachePrune();
+  }catch(_){}
+}
+let voiceCacheConfirming=false;
+async function clearVoiceCache(language){
+  if(voiceoverJob||asrJob||translationJob||voiceoverExporting||voiceCacheConfirming)
+    throw Error("Offline speech operation in progress");
+  voiceCacheConfirming=true;
+  try{
+    if(!voiceCacheStats().count)return {cancelled:false,removed:0,...voiceCacheStats()};
+    const ru=language==="ru";
+    const answer=await dialog.showMessageBox(home,{
+      type:"warning",title:ru?"Очистка кэша озвучивания":"Clear voiceover cache",
+      message:ru?"Удалить сохранённые звуковые дорожки озвучивания?":"Remove saved generated voiceover audio?",
+      detail:ru?"Фильмы, субтитры, экспортированные файлы и история просмотра сохранятся. Текущее озвучивание не прервётся.":"Movies, subtitles, exported files and playback history are retained. Active voiceover playback is not interrupted.",
+      buttons:ru?["Отмена","Очистить кэш"]:["Cancel","Clear cache"],defaultId:0,cancelId:0,noLink:true
+    });
+    if(answer.response!==1)return {cancelled:true,removed:0,...voiceCacheStats()};
+    if(voiceoverJob||asrJob||translationJob||voiceoverExporting)
+      throw Error("Offline speech operation in progress");
+    let removed=0,failed=0;
+    for(const entry of voiceCacheEntries()){
+      try{removeVoiceCacheDirectory(entry.dir);removed++;}
+      catch(_){failed++;}
+    }
+    return {cancelled:false,removed,failed,...voiceCacheStats()};
+  }finally{voiceCacheConfirming=false;}
+}
 function voiceCachePrune(){
   try{
     const root=voiceCacheRoot(),entries=[];
@@ -988,6 +1058,7 @@ function install(originalWindow,originalPlayer){
     if(installedWindow())player.webContents.send("dk-library:fullscreen-state",home.isFullScreen());
   });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
+  cleanVoiceCacheTemporary();
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
   ipcMain.handle("dk-library:language-get",(event,fallback)=>{
     if(!allowed(event)&&!onlyPlayer(event))throw Error("Language request rejected");
@@ -1099,6 +1170,14 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:asr-cancel",event=>{
     if(!onlyPlayer(event))throw Error("Speech recognition request rejected");
     cancelASR();return true;
+  });
+  ipcMain.handle("dk-library:voiceover-cache-stats",event=>{
+    if(!onlyPlayer(event))throw Error("Voiceover cache request rejected");
+    return voiceCacheStats();
+  });
+  ipcMain.handle("dk-library:voiceover-cache-clear",(event,language)=>{
+    if(!onlyPlayer(event)||!["en","ru"].includes(language))throw Error("Voiceover cache request rejected");
+    return clearVoiceCache(language);
   });
   ipcMain.handle("dk-library:voiceover-status",(event,pair)=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");

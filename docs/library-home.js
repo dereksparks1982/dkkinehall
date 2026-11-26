@@ -384,14 +384,16 @@ function showContextMenu(row,x,y){
   const menu=$("libraryContextMenu");
   if(!menu||!nativeBridge||!row?.nativePath)return;
   contextRow=row;
+  $("movieDetailsAction").hidden=row.kind!=="movie";
+  $("refreshMovieMetadata").hidden=row.kind!=="movie";
+  $("showInFolder").hidden=!nativeBridge.showInFolder;
+  $("showInFolder").disabled=!!row.missing;
   menu.hidden=false;
   menu.style.left=Math.max(4,Math.min(x,
     window.innerWidth-menu.offsetWidth-8))+"px";
   menu.style.top=Math.max(4,Math.min(y,
     window.innerHeight-menu.offsetHeight-8))+"px";
-  $("movieDetailsAction").hidden=row.kind!=="movie";
-  $("refreshMovieMetadata").hidden=row.kind!=="movie";
-  (row.kind==="movie"?$("movieDetailsAction"):$("deleteFromDisk")).focus();
+  (row.kind==="movie"?$("movieDetailsAction"):!$("showInFolder").hidden&&!$("showInFolder").disabled?$("showInFolder"):$("deleteFromDisk")).focus();
 }
 let detailMovieId=null;
 function displayMovieDetails(row){
@@ -432,6 +434,12 @@ async function refreshMovie(){
       status("Movie metadata refreshed where available.","Доступные данные фильма обновлены.");
     }else status("No matching movie metadata found.","Данные фильма не найдены.",true);
   }catch(_){status("Could not refresh movie metadata.","Не удалось обновить данные фильма.",true);}
+}
+async function showInFolder(){
+  const row=contextRow;hideContextMenu();
+  if(!row?.nativePath||!nativeBridge?.showInFolder)return;
+  try{await nativeBridge.showInFolder(row.id,row.nativePath);}
+  catch(_){status("Could not locate this file. Reconnect its drive or scan the library.","Не удалось найти файл. Подключите накопитель или проверьте медиатеку.",true);}
 }
 async function deleteFromDisk(){
   const row=contextRow;
@@ -784,6 +792,7 @@ function connect(){
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
+  $("showInFolder").addEventListener("click",()=>void showInFolder());
   $("deleteFromDisk").addEventListener("click",()=>void deleteFromDisk());
   document.addEventListener("pointerdown",event=>{
     if(!event.target.closest("#libraryContextMenu"))hideContextMenu();

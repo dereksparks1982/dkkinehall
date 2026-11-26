@@ -29,7 +29,7 @@ A standalone Linux edition is also in development. It offers additional features
 
 ## What's next?
 
-We're working on better file-format support, DVD and network playback, offline subtitle translation, and DK Voiceover so you can hear foreign-language movies in your own language. English, Russian and Arabic are the planned Voiceover languages.
+We're working on better file-format support, DVD and network playback, offline subtitle translation, and DK Voiceover so you can hear foreign-language movies in your own language. Voiceover playback is under development and requires separately installed language and voice models. English, Russian and Arabic are the planned Voiceover languages.
 
 **Current standalone development version: v0.9.3.** Some advanced features still need testing or additional offline language models. This is not a finished release.
 

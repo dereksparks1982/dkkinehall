@@ -29,7 +29,12 @@ const TITLE_LOOKUP_LIMIT=400;
 let legacyResume={};
 try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
 catch(_){legacyResume={};}
+const nativeJSON=nativeBridge?.metadataRequest?async(url,opts)=>{
+  const result=await nativeBridge.metadataRequest(String(url),"json");
+  return {ok:result.ok,status:result.status,text:async()=>result.text,json:async()=>JSON.parse(result.text)};
+}:null;
 const artworkFinder=window.DKMediaMetadata?.create({
+  ...(nativeJSON?{fetchJSON:nativeJSON,appleSearch:null}:{}),
   enabled:()=>true,token:()=>"",selectImage:(item,opts)=>
     window.DKJellyfinArtwork?.choose(item,opts)||null
 });
@@ -43,6 +48,7 @@ const status=(en,ru=null,error=false)=>{
 const nameSort=(a,b)=>String(a).localeCompare(String(b),undefined,{
   numeric:true,sensitivity:"base"
 });
+const seriesKey=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").trim().toLowerCase();
 const formatCode=row=>"S"+String(row.season).padStart(2,"0")+
   "E"+String(row.episode).padStart(2,"0");
 const metadataFilename=row=>row.kind==="tv"&&
@@ -199,7 +205,7 @@ async function findArtwork(row,id,series=false){
     }catch(_){}
   }
   const cache=await store.artwork(id);
-  if(cache?.blob)return cache.blob;
+  if(cache?.blob&&(row.kind!=="movie"||row.movieMetadataVerified||!nativeBridge))return cache.blob;
   if(nativeBridge&&row.source==="native"&&row.nativePath){
     try{
       const picture=await nativeBridge.localCover(
@@ -237,10 +243,18 @@ async function findArtwork(row,id,series=false){
       void store.updateMetadata(row.id,{episodeTitle:result.title.trim().slice(0,180)})
         .catch(()=>{});
     }
-    if(!url||!/^https:\/\//.test(url))return null;
-    const response=await fetch(url,{credentials:"omit",mode:"cors",cache:"force-cache"});
-    if(!response.ok)return null;
-    const blob=await response.blob();
+    if(row.kind==="movie"&&result?.title)await store.updateMetadata(row.id,{movieTitle:result.title,movieYear:result.year});
+    if(!url||!/^https:\/\//.test(url))return cache?.blob||null;
+    let blob;
+    if(nativeBridge?.metadataRequest){
+      const image=await nativeBridge.metadataRequest(url,"image");
+      if(!image.ok)return cache?.blob||null;
+      blob=new Blob([image.bytes],{type:image.mime});
+    }else{
+      const response=await fetch(url,{credentials:"omit",mode:"cors",cache:"force-cache"});
+      if(!response.ok)return null;
+      blob=await response.blob();
+    }
     if(!/^image\/(jpeg|png|webp)$/.test(blob.type)||
        blob.size>3*1024*1024)return null;
     await store.saveArtwork(id,blob,result.provider||"");
@@ -376,7 +390,7 @@ async function render(){
   detail.hidden=!selectedSeries||!tv;
   let cards=[];
   if(tv&&selectedSeries){
-    const rows=active.filter(row=>row.series===selectedSeries);
+    const rows=active.filter(row=>seriesKey(row.series)===seriesKey(selectedSeries));
     const seasons=[...new Set(rows.map(x=>x.season))].sort((a,b)=>a-b);
     if(!seasons.includes(selectedSeason))
       selectedSeason=seasons.length?seasons[0]:null;
@@ -396,7 +410,7 @@ async function render(){
   }else if(tv){
     const series=new Map();
     for(const row of active){
-      const key=String(row.series||row.title).toLocaleLowerCase();
+      const key=seriesKey(row.series||row.title);
       if(!series.has(key))series.set(key,row);
       else if(!series.get(key).missing&&!row.missing)continue;
       else if(series.get(key).missing&&!row.missing)series.set(key,row);
@@ -424,7 +438,7 @@ async function render(){
       "DK Kinehall searches your device and connected drives automatically. Use Scan Library to search again.",
       "ДК Кинехолл автоматически ищет видео на устройстве и подключённых накопителях. Повторите поиск кнопкой проверки.");
   }
-  visibleCount=Math.min(visibleCount,cards.length);
+  visibleCount=Math.min(Math.max(72,visibleCount),cards.length);
   list.replaceChildren(...cards.slice(0,visibleCount)
     .map(row=>createCard(row,{series:tv&&!selectedSeries})));
   const more=$("loadMoreLibrary");
@@ -594,12 +608,13 @@ function connect(){
       // A verified episode name must update only its visible text, not
       // discard/rebuild the artwork for the entire library.
       void store.item(event.id).then(row=>{
-        if(!row||row.kind!=="tv")return;
+        if(!row)return;
         for(const card of document.querySelectorAll(".library-card")){
           if(card.dataset.libraryId!==row.id ||
              card.dataset.displayRole==="series")continue;
           const detail=card.querySelector(".library-card-detail");
-          if(detail)detail.textContent=row.episodeTitle||"";
+          if(row.kind==="tv"){if(detail)detail.textContent=row.episodeTitle||"";}
+          else{const title=card.querySelector(".library-card-title");if(title)title.textContent=mediaName(row);if(detail)detail.textContent="";}
         }
       }).catch(()=>{});
       return;

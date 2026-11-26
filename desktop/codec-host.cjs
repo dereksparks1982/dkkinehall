@@ -110,22 +110,26 @@ async function probe(localPath) {
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name:stream=index,codec_type,codec_name,pix_fmt:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
   const streams=Array.isArray(json.streams)?json.streams:[];
-  const hasVideo=streams.some(s=>s.codec_type==="video");
+  const video=streams.find(s=>s.codec_type==="video"&&!Number(s.disposition?.attached_pic));
+  const hasVideo=Boolean(video);
   const hasAudio=streams.some(s=>s.codec_type==="audio");
   if(!hasVideo&&!hasAudio)throw new Error("The selected file has no playable media streams");
   const seconds=Number(json.format?.duration);
   return {ready:true,duration:Number.isFinite(seconds)&&seconds>0?seconds:null,
     hasVideo,hasAudio,format:String(json.format?.format_name||"").slice(0,120),
-    videoCodec:String(streams.find(s=>s.codec_type==="video")?.codec_name||""),
-    videoPixelFormat:String(streams.find(s=>s.codec_type==="video")?.pix_fmt||""),
+    videoCodec:String(video?.codec_name||""),
+    videoPixelFormat:String(video?.pix_fmt||""),
+    videoStreamIndex:hasVideo?video.index:null,
+    width:Number(video?.width)||null,height:Number(video?.height)||null,
     audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
     audioTracks:streams.filter(s=>s.codec_type==="audio").map((s,index)=>({
       index,codec:String(s.codec_name||""),
+      channels:Number(s.channels)||null,sampleRate:Number(s.sample_rate)||null,
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
     })),
@@ -192,14 +196,16 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     "-ss",String(active.position),"-i",active.path,
-    "-map","0:v:0?","-map","0:a:"+active.audioOrdinal+"?","-sn","-dn"];
+    ...(active.hasVideo?["-map","0:"+active.videoStreamIndex]:[]),
+    ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   if(active.format==="webm") {
-    args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5",
-      "-b:v","0","-crf","33","-c:a","libopus","-b:a","160k",
-      "-f","webm","pipe:1");
+    if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
+    if(active.hasAudio)args.push("-c:a","libopus","-b:a","160k","-ac","2");
+    args.push("-f","webm","pipe:1");
   }else{
     // Prefer an LGPL-compatible OpenH264 build when supplied. libx264
     // carries GPL obligations and must never be silently mandatory.
+    if(active.hasVideo){
     if(active.copyVideo)
       args.push("-c:v","copy");
     else if(active.encoder==="libopenh264")
@@ -207,7 +213,9 @@ function serve(req,res) {
     else
       args.push("-c:v","libx264","-preset","veryfast","-crf","23");
     if(!active.copyVideo)args.push("-pix_fmt","yuv420p","-g","48");
-    args.push("-c:a","aac","-ac","2","-b:a","160k",
+    }
+    if(active.hasAudio)args.push("-c:a","aac","-ac","2","-b:a","160k");
+    args.push(
       "-movflags","+frag_keyframe+empty_moov+default_base_moof",
       "-frag_duration","1000000","-f","mp4","pipe:1");
   }
@@ -218,7 +226,7 @@ function serve(req,res) {
   });}
   catch(_){res.writeHead(500);res.end();return;}
   active.process=child;active.response=res;
-  res.writeHead(200,{"Content-Type":active.format==="webm"?"video/webm":"video/mp4",
+  res.writeHead(200,{"Content-Type":(active.hasVideo?"video/":"audio/")+(active.format==="webm"?"webm":"mp4"),
     "Cache-Control":"no-store","Access-Control-Allow-Origin":"null",
     "X-Content-Type-Options":"nosniff"});
   child.stdout.pipe(res);
@@ -270,12 +278,12 @@ async function start(localPath,offset=0,format="auto",audioIndex=0) {
     Number.isFinite(Number(offset))?Number(offset):0,
     info.duration===null?24*60*60:Math.max(0,info.duration-0.5)));
   const copyVideo=info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
-  const selectedFormat=chooseOutput(available,format,copyVideo);
+  const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,position,duration:info.duration,format:selectedFormat,
-    encoder:available.h264Encoder,audioOrdinal,
+    encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
     copyVideo:selectedFormat==="mp4"&&copyVideo,
     process:null,response:null};
   return {...info,position,format:selectedFormat,
@@ -336,7 +344,7 @@ async function exportVideo(win,language="en"){
       '<!doctype html><meta charset=utf-8><style>body{background:#202020;color:white;font:16px sans-serif;padding:20px}progress{width:100%;accent-color:#b62525}</style><div id="label">'+t("Preparing conversion…","Подготовка…")+'</div><p><progress id="bar" max="100"></progress></p><button onclick="window.close()">'+t("Cancel","Отмена")+'</button>'));
     if(cancelled||panel.isDestroyed()||win.isDestroyed())return;
     const args=["-hide_banner","-loglevel","error","-nostdin","-n","-progress","pipe:1","-nostats",
-      "-i",source,"-map","0:v:0","-map","0:a?","-map_metadata","0","-map_chapters","0","-dn"];
+      "-i",source,"-map","0:"+info.videoStreamIndex,"-map","0:a?","-map_metadata","0","-map_chapters","0","-dn"];
     if(format==="mkv")args.push("-map","0:s?","-map","0:t?","-c","copy");
     else {
       for(const track of textTracks)args.push("-map","0:s:"+track.index);

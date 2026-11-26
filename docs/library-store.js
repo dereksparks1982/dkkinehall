@@ -180,7 +180,48 @@ async function removeFolder(id) {
   });
   changed({folders:true,entries:true});
 }
-async function entries(){return list("entries");}
+// Repair existing Golden Gun records before painting either library view.
+// No schema reset, full rescan, media rename or playback-history rewrite.
+let goldenGunRepair=null;
+function goldenGunIdentity(row){
+  if(row?.kind!=="movie")return false;
+  const parsed=typeof window!=="undefined"?window.DKMediaMetadata?.parseFilename?.(row.filename):null;
+  const norm=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+  return parsed?.type==="movie"&&parsed.year===1974&&norm(parsed.title)==="the man with the golden gun"||
+    Number(row.year)===1974&&norm(row.title)==="the with the golden gun";
+}
+async function repairGoldenGun(){
+  if(goldenGunRepair)return goldenGunRepair;
+  goldenGunRepair=(async()=>{
+    const db=await open();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction(["entries","art"],"readwrite"),entries=tx.objectStore("entries"),art=tx.objectStore("art");
+      const request=entries.index("kind").openCursor(IDBKeyRange.only("movie"));
+      request.onsuccess=()=>{
+        const cursor=request.result;if(!cursor)return;
+        const row=cursor.value;
+        if(goldenGunIdentity(row)&&(row.title!=="The Man with the Golden Gun"||Number(row.year)!==1974)){
+          cursor.update({...row,title:"The Man with the Golden Gun",year:1974,
+            movieMetadataVerified:false,movieDetails:null,movieProvider:null});
+          // Only invalidate this row's old provider artwork. Local covers
+          // are independent of provider title identity and are retained.
+          const cached=art.get(row.id);
+          cached.onsuccess=()=>{
+            if(cached.result&&!/^Local(?:\s|$)/i.test(String(cached.result.credit||"")))art.delete(row.id);
+          };
+        }
+        cursor.continue();
+      };
+      tx.oncomplete=resolve;
+      tx.onabort=()=>reject(tx.error||new Error("Movie metadata repair failed"));
+    });
+  })().catch(error=>{goldenGunRepair=null;throw error;});
+  return goldenGunRepair;
+}
+async function entries(){
+  if(typeof window!=="undefined"&&window.DKLibraryBridge?.internalPages)await repairGoldenGun();
+  return list("entries");
+}
 async function folderEntries(folderId){
   return operation("entries","readonly",s=>s.index("folderId").getAll(folderId));
 }
@@ -350,10 +391,12 @@ async function ingestNative(scan){
        !file.nativePath.startsWith("/")||
        !Number.isFinite(file.size)||!Number.isFinite(file.modified))
       continue;
-    const info=classify(file.filename,file.relative);
+    let info=classify(file.filename,file.relative);
     if(!info)continue;
     seen.add(file.id);
     const previous=old.get(file.id);
+    if(info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
+      info={...info,title:"The Man with the Golden Gun",year:1974};
     // A provider label must not preserve an obviously wrong title/year
     // once the original filename has been classified correctly.
     const normalized=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").toLowerCase().trim();
@@ -597,6 +640,8 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails
         if(row.episodeTitle===title&&row.metadataVerified)return;
         s.put({...row,episodeTitle:title,metadataVerified:true});
       }else if(row.kind==="movie"&&film){
+        // Reject a stale provider result which would reintroduce the bad title.
+        if(goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
         const details=movieDetails&&typeof movieDetails==="object"?movieDetails:row.movieDetails;
         const provider=typeof movieProvider==="string"?movieProvider:row.movieProvider;
         if(row.title===film&&row.movieMetadataVerified&&(!year||row.year===year)&&

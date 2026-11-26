@@ -51,6 +51,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         const result=await bridge.start(item.file,Math.max(0,Number(offset)||0),
           format,audioIndex,frameStep,item.deinterlaceMode||"off");
         if(token!==generation||current()!==item||!result?.url)return false;
+        item.historyReady=false;
         active={item,url:result.url,offset:Number(result.position)||0,
           duration:result.duration===null||result.duration===undefined?
             null:(Number.isFinite(Number(result.duration))?Number(result.duration):null)};

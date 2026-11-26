@@ -66,6 +66,16 @@ These are source-level changes, not a claim that a final release has been fully 
 
 A decoder cannot literally handle every encrypted, malformed, unpublished or unknown future codec. Target broad coverage with automatic bundled support, never substitute an extension whitelist or metadata inspection for actual video/audio decoding.
 
+## Dedicated Tools section (planned settings organization)
+
+Owner-requested 2026-11-26. Add a clearly separate **Tools** category within the existing Settings interface, accessible from both Player and Library in the standalone edition. Schedule this organizational work with the next suitable settings build; do not wait for the optional future tools to be implemented.
+
+- Keep regular Settings for persistent preferences and playback adjustments: Audio, Picture, Subtitles, Playback, Library preferences, language, network configuration and other applicable categories. Keep the existing player-bar gear and approved appearance.
+- Tools is for deliberate operations rather than ordinary preferences. Group available utilities by purpose: **Video** (format conversion/export, future repair, screenshots and scene gallery), **Subtitles and Voiceover** (generate/export subtitles, translation or soundtrack generation), **Library maintenance** (scan, refresh metadata, stale-record cleanup, future duplicate manager and backup/restore), and **Diagnostics** (file information and future detailed playback/codec diagnostics).
+- Present only utilities actually available in the current build; future examples remain planned. Use the existing guarded native actions, not duplicate implementations. Preserve existing toolbar and right-click shortcuts (especially Scan Library and Empty Trash); the Tools category provides an additional organized entry point. Preserve selected media and ongoing playback; when an operation requires a file, clearly identify it or prompt for selection.
+- Separate tool actions from persistent settings and from destructive disk operations; retain confirmations, progress, cancellation, mount safety, original-file preservation and all applicable permission checks.
+- Keep English and Russian labels complete; verify both settings entry points, navigation/back behavior, focus, fullscreen, availability states and regressions. Standalone only, hosted edition unchanged. No application source implementation or build implied by this roadmap entry.
+
 ## Active feature development sequence
 
 All classic Windows Media Player features below are in scope. Network playback is no longer deferred. Continue sequentially, and retain all existing behavior. The settings gear remains the single home for enhancements; do not add unnecessary controls to the transport bar.

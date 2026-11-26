@@ -9,6 +9,36 @@ const VERSION="0.9.3";
 let externalSelections=[],externalWork=Promise.resolve();
 let installed=false,home=null,player=null,playerFile=null,playerLoading=null,activePage="library",scanActive=false;
 let scanController=null,scanPromise=null;
+let metadataBusy=0;
+async function metadataRequest(raw,kind){
+  if(typeof raw!=="string"||raw.length>1500||!["json","image"].includes(kind))throw Error("Invalid metadata request");
+  const url=new URL(raw);
+  const h=url.hostname;
+  const json=kind==="json"&&(
+    (h==="v3-cinemeta.strem.io"&&url.pathname.startsWith("/catalog/movie/top/search="))||
+    (h==="itunes.apple.com"&&url.pathname==="/search")||
+    (h==="api.tvmaze.com"&&(/^\/search\/shows$/.test(url.pathname)||/^\/shows\/\d+\/episodes$/.test(url.pathname))));
+  const image=kind==="image"&&(["images.metahub.space","static.tvmaze.com","images.tvmaze.com","image.tmdb.org"].includes(h)||/^(?:is\d+-ssl|a\d+|is\d+)\.mzstatic\.com$/.test(h));
+  if(url.protocol!=="https:"||url.username||url.password||url.port||(!json&&!image))throw Error("Metadata provider rejected");
+  if(metadataBusy>=4)return {ok:false,status:429};
+  metadataBusy++;
+  try{
+    const response=await fetch(url,{redirect:"error",credentials:"omit",signal:AbortSignal.timeout(15000)});
+    if(!response.ok)return {ok:false,status:response.status};
+    const limit=3*1024*1024;
+    const mime=(response.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+    if(kind==="image"&&!/^image\/(jpeg|png|webp)$/.test(mime))return {ok:false,status:415};
+    if(Number(response.headers.get("content-length"))>limit)return {ok:false,status:413};
+    const reader=response.body?.getReader();
+    if(!reader)return {ok:false,status:502};
+    const chunks=[];let size=0;
+    for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;
+      if(size>limit){await reader.cancel();return {ok:false,status:413};}chunks.push(Buffer.from(value));}
+    const data=Buffer.concat(chunks);
+    return kind==="json"?{ok:true,status:200,text:data.toString("utf8")}:{ok:true,status:200,mime,bytes:new Uint8Array(data)};
+  }catch(_){return {ok:false,status:502};}
+  finally{metadataBusy--;}
+}
 function onlyPlayer(event){
   return player&&!player.webContents.isDestroyed()&&
     event.sender===player.webContents&&
@@ -142,6 +172,10 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:open-player",(event,id)=>{
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);
+  });
+  ipcMain.handle("dk-library:metadata-request",(event,url,kind)=>{
+    if(!allowed(event))throw Error("Metadata request rejected");
+    return metadataRequest(url,kind);
   });
   ipcMain.handle("dk-library:show-player",event=>{
     if(!allowed(event))throw new Error("Library navigation rejected");

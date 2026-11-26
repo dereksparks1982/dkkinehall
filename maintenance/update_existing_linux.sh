@@ -73,3 +73,18 @@ python3 "$WORK/repo/maintenance/install_linux_icon.py" "$APP"
 
 echo "SUCCESS: Existing DK Kinehall updated from GitHub main, with approved icon."
 echo "Backup: $BACKUP"
+
+# Open the original desktop player once the update and icon registration
+# have succeeded. Launch in its own working directory and detach completely,
+# so a terminal updater invoked from Python can exit normally.
+if [[ "${DK_KINEHALL_NO_LAUNCH:-0}" != "1" ]]; then
+  if [[ -x "$APP/DK Kinehall" ]]; then
+    echo "Opening DK Kinehall..."
+    (
+      cd -- "$APP"
+      nohup "./DK Kinehall" </dev/null >/dev/null 2>&1 &
+    )
+  else
+    echo "WARNING: DK Kinehall is updated but the executable is not marked executable." >&2
+  fi
+fi

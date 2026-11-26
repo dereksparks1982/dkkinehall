@@ -51,6 +51,7 @@
     "General":"Общие",
     "Audio":"Звук",
     "Picture preset":"Предустановка изображения",
+    "Picture adjustments":"Настройки изображения",
     "Original":"Оригинал",
     "Dark cinema":"Тёмное кино",
     "Very dark scenes":"Очень тёмные сцены",

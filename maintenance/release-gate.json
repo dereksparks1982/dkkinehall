@@ -17,5 +17,7 @@
     "full_package_playback_verified": false,
     "licenses_and_notices_verified": false
   },
-  "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player."
+  "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player.",
+  "codec_bundle_asset_url": null,
+  "codec_bundle_asset_sha256": null
 }

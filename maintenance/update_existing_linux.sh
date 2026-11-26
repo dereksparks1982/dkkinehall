@@ -43,7 +43,7 @@ trap cleanup EXIT
 echo "Fetching DK Kinehall source from GitHub main..."
 git clone --quiet --depth 1 --filter=blob:none --sparse --branch main \
   https://github.com/dereksparks1982/dkkinehall.git "$WORK/repo"
-git -C "$WORK/repo" sparse-checkout set docs maintenance desktop desktop-codecs
+git -C "$WORK/repo" sparse-checkout set docs maintenance desktop
 
 # No partial end-user updates. The signed-off release gate remains closed
 # until the complete standalone codec bundle and all roadmap checks pass.
@@ -60,20 +60,18 @@ if not data.get("release_ready") or not checks or not all(checks.values()):
     raise SystemExit("ERROR: DK Kinehall is not fully verified for release. Existing player unchanged.")
 PYTHON
 
-# The release gate alone is insufficient: the actual included codec payload
-# must be present on GitHub main, with its runtime preload/host sources.
+# Release binaries are fetched from a checksum-verified, same-repository
+# GitHub release asset, not from a half-populated source checkout. The
+# verifier refuses to run unless the release gate is fully approved.
 for resource in desktop/codec-host.cjs desktop/codec-preload.cjs \
-                desktop-codecs/bin/ffmpeg desktop-codecs/bin/ffprobe \
-                desktop-codecs/CODECS_INCLUDED.txt desktop-codecs/ENCODERS_INCLUDED.txt; do
+                maintenance/fetch_release_codecs.py \
+                maintenance/prepare_desktop_codecs.py; do
   if [[ ! -f "$WORK/repo/$resource" ]]; then
-    echo "ERROR: Complete bundled-codec release payload is missing: $resource" >&2
+    echo "ERROR: Standalone codec integration source is missing: $resource" >&2
     exit 1
   fi
 done
-if [[ ! -d "$WORK/repo/desktop-codecs/lib" ]]; then
-  echo "ERROR: Native decoding libraries are missing from the release." >&2
-  exit 1
-fi
+python3 "$WORK/repo/maintenance/fetch_release_codecs.py" "$WORK/repo"
 
 # Abort before touching the installed player if the source is incomplete.
 for resource in index.html player.js player.css mkv-tracks.js \

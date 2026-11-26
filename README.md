@@ -47,7 +47,7 @@ The bundled-codec adapter now also has source-level selection of alternate audio
 
 ## Final acceptance gate
 
-The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). The native prototype packaging now includes FFmpeg/FFprobe and generates decoder/container inventories, but that native backend is not yet underneath the approved Chromium interface. Neither a code commit nor a successful subtitle lookup establishes universal media decoding. The standalone codec/backend integration and package verification remain unfinished. The updater is now blocked by `maintenance/release-gate.json` until all acceptance checks are verified. No end-user update instructions should be given until all requested functionality is accepted.
+The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). The native prototype packaging now includes FFmpeg/FFprobe and generates decoder/container inventories, but that native backend is not yet underneath the approved Chromium interface. Neither a code commit nor a successful subtitle lookup establishes universal media decoding. The standalone codec/backend integration and package verification remain unfinished. The maintainer-only codec asset builder produces an audited tarball and SHA-256 digest for GitHub Releases without activating the updater. The updater is blocked by `maintenance/release-gate.json` until all acceptance checks are verified. Once approved, its native codec payload must be retrieved automatically from a DK Kinehall release asset and verified against a pinned SHA-256 checksum before any installed files are touched. No end-user update instructions should be given until all requested functionality is accepted.
 
 ## Getting started
 

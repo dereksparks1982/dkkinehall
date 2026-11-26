@@ -29,7 +29,7 @@ These are source-level changes, not a claim that a final release has been fully 
 4. **Playback/queue UI.** Verify fullscreen, resume, play-now vs queue-only, auto-next, shuffle, repeat, drag, chapters, Picture-in-Picture, float/dock, mouse/touch and keyboard.
 5. **Episode artwork/metadata.** Verify show, episode number and episode name; posters, episode stills, provider retrieval and local fallback.
 6. **Release packaging.** Ship a self-contained executable with actual codec libraries, correct licensing and notices, and unchanged approved icons. Verify English/Russian interface.
-7. **Final release gate.** The existing updater checks `maintenance/release-gate.json` before changing the installed player. It remains closed until all acceptance checks pass. No update command, download instruction or announcement that "everything" is finished before verification of the actual packaged standalone player.
+7. **Final release gate.** The existing updater checks `maintenance/release-gate.json` before changing the installed player. It remains closed until all acceptance checks pass. The future native-codec payload is built by the maintainer-only release asset script and delivered as a checksum-pinned DK Kinehall GitHub release asset, independently verified before installation. No update command, download instruction or announcement that "everything" is finished before verification of the actual packaged standalone player.
 
 A decoder cannot literally handle every encrypted, malformed, unpublished or unknown future codec. Target broad coverage with automatic bundled support, never substitute an extension whitelist or metadata inspection for actual video/audio decoding.
 

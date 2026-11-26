@@ -214,7 +214,8 @@
   const codecPlayback = window.DKCodecPlayback?.attach({
     media,bridge:window.DKCodecBridge,current,
     onStatus:(message,good)=>status(message,good),
-    onClockChanged:()=>updateTime()
+    onClockChanged:()=>updateTime(),
+    onChaptersChanged:()=>updateChapterButton()
   }) || null;
   const playbackSeconds = () => codecPlayback ?
     codecPlayback.position(current()) : media.currentTime;

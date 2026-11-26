@@ -96,8 +96,8 @@ async function probe(localPath) {
   const file=selectedFile(localPath);
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name:stream=index,codec_type,codec_name:stream_tags=language,title",
-    "-of","json","-i",file
+    "format=duration,format_name:stream=index,codec_type,codec_name:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "-show_chapters","-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
   const streams=Array.isArray(json.streams)?json.streams:[];
@@ -113,7 +113,14 @@ async function probe(localPath) {
       index,codec:String(s.codec_name||""),
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
-    }))};
+    })),
+    chapters:(Array.isArray(json.chapters)?json.chapters:[]).slice(0,500)
+      .map((chapter,index)=>({
+        startTime:Number(chapter.start_time),
+        text:String(chapter.tags?.title||"Chapter "+(index+1)).slice(0,180)
+      }))
+      .filter(chapter=>Number.isFinite(chapter.startTime)&&chapter.startTime>=0)
+      .sort((a,b)=>a.startTime-b.startTime)};
 }
 function cancelStream() {
   if(!session)return;

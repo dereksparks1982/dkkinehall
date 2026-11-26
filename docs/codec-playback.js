@@ -5,7 +5,8 @@
  */
 (function(root){
 "use strict";
-function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{}}) {
+function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
+                 onChaptersChanged=()=>{}}) {
   if(!bridge||typeof bridge.start!=="function"||!media)return null;
   let generation=0,active=null,chain=Promise.resolve();
   const enqueue=work=>{
@@ -48,6 +49,17 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{}}) {
         item.playbackMethod="Bundled native decoder";
         item.nativeAudioTracks=Array.isArray(result.audioTracks)?
           result.audioTracks:[];
+        const nativeChapters=Array.isArray(result.chapters)?result.chapters:[];
+        if(nativeChapters.length){
+          // FFprobe reads real source chapters, including MP4/MOV, AVI and
+          // supported containers beyond the Matroska-only chapter parser.
+          const merged=[...(item.chapters||[]),...nativeChapters];
+          item.chapters=merged.sort((a,b)=>a.startTime-b.startTime)
+            .filter((entry,index,list)=>index===0||
+              Math.abs(entry.startTime-list[index-1].startTime)>0.01)
+            .slice(0,500);
+          onChaptersChanged();
+        }
         item.codecActive=true;
         media.pause();
         media.src=result.url;

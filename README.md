@@ -43,7 +43,7 @@ The existing Chromium-based player has source code for a guarded desktop decodin
 
 ## Additional decoding source progress
 
-The bundled-codec adapter now also has source-level selection of alternate audio streams discovered by FFprobe. Repeat One explicitly restarts a transcoded file at the beginning. Both still require real standalone runtime verification and do not make the release complete.
+The bundled-codec adapter now also has source-level selection of alternate audio streams and actual chapter markers discovered by FFprobe, including for source formats beyond Matroska. Repeat One explicitly restarts a transcoded file at the beginning. Both still require real standalone runtime verification and do not make the release complete.
 
 ## Final acceptance gate
 

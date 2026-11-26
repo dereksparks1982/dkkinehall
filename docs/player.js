@@ -1965,6 +1965,94 @@
     byId("playerSettingsPanel").prepend(close);
     close.addEventListener("click",()=>{settingsDetails.open=false;settingsDetails.querySelector("summary")?.focus();});
   }
+  // Standalone picture enhancements only. CSS and local SVG filters operate
+  // on the existing video element; no decoding, canvas copies or file writes.
+  if(window.DKLibraryBridge?.internalPages&&settingsDetails){
+    const key="dk-kinehall.picture.v1";
+    const specs=[
+      {id:"brightness",label:"Brightness",min:0,max:200,step:1,neutral:100,unit:"%"},
+      {id:"contrast",label:"Contrast",min:0,max:200,step:1,neutral:100,unit:"%"},
+      {id:"saturation",label:"Saturation",min:0,max:200,step:1,neutral:100,unit:"%"},
+      {id:"hue",label:"Hue",min:-180,max:180,step:1,neutral:0,unit:"°"},
+      {id:"gamma",label:"Gamma",min:0.25,max:3,step:0.05,neutral:1,unit:""},
+      {id:"sharpness",label:"Sharpness",min:0,max:100,step:1,neutral:0,unit:"%"}
+    ];
+    const saved=read(key,{})||{},values={},controls=new Map();
+    for(const spec of specs){
+      const n=Number(saved[spec.id]);
+      values[spec.id]=saved[spec.id]!=null&&Number.isFinite(n)?
+        Math.min(spec.max,Math.max(spec.min,n)):spec.neutral;
+    }
+    const ns="http://www.w3.org/2000/svg";
+    const svgNode=(tag,attrs={})=>{
+      const node=document.createElementNS(ns,tag);
+      for(const [name,value] of Object.entries(attrs))node.setAttribute(name,String(value));
+      return node;
+    };
+    const svg=svgNode("svg",{width:0,height:0,"aria-hidden":"true",focusable:"false",class:"dk-picture-filter-defs"});
+    const defs=svgNode("defs");
+    const gammaFilter=svgNode("filter",{id:"dk-picture-gamma",x:0,y:0,width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
+    const transfer=svgNode("feComponentTransfer");
+    const gammaChannels=["R","G","B"].map(channel=>svgNode("feFunc"+channel,{type:"gamma",amplitude:1,exponent:1,offset:0}));
+    transfer.append(...gammaChannels);gammaFilter.append(transfer);
+    const sharpFilter=svgNode("filter",{id:"dk-picture-sharpness",x:0,y:0,width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
+    const convolution=svgNode("feConvolveMatrix",{order:3,kernelMatrix:"0 0 0 0 1 0 0 0 0",divisor:1,bias:0,edgeMode:"duplicate",preserveAlpha:"true"});
+    sharpFilter.append(convolution);defs.append(gammaFilter,sharpFilter);svg.append(defs);
+    document.body.append(svg);
+    const section=document.createElement("section");
+    section.id="pictureEnhancements";section.className="player-settings-section dk-picture-settings";
+    const title=document.createElement("strong");title.textContent="Picture enhancements";section.append(title);
+    const applyPicture=()=>{
+      const filters=[];
+      if(values.brightness!==100)filters.push("brightness("+values.brightness+"%)");
+      if(values.contrast!==100)filters.push("contrast("+values.contrast+"%)");
+      if(values.saturation!==100)filters.push("saturate("+values.saturation+"%)");
+      if(values.hue!==0)filters.push("hue-rotate("+values.hue+"deg)");
+      if(values.gamma!==1){
+        for(const channel of gammaChannels)channel.setAttribute("exponent",String(1/values.gamma));
+        filters.push("url(#dk-picture-gamma)");
+      }
+      if(values.sharpness!==0){
+        const amount=values.sharpness/200;
+        convolution.setAttribute("kernelMatrix",[0,-amount,0,-amount,1+4*amount,-amount,0,-amount,0].join(" "));
+        filters.push("url(#dk-picture-sharpness)");
+      }
+      // A neutral picture uses no filter at all. Do not alter overlays,
+      // controls or artwork, and do not force CPU copies of each video frame.
+      media.style.filter=filters.length?filters.join(" "):"";
+      for(const spec of specs){
+        const entry=controls.get(spec.id);
+        if(!entry)continue;
+        entry.input.value=String(values[spec.id]);
+        entry.output.textContent=(spec.id==="gamma"?values[spec.id].toFixed(2):String(Math.round(values[spec.id])))+spec.unit;
+      }
+    };
+    for(const spec of specs){
+      const row=document.createElement("div");row.className="dk-picture-adjustment";
+      const label=document.createElement("label"),input=document.createElement("input"),output=document.createElement("output");
+      input.id="picture-"+spec.id;input.type="range";input.min=String(spec.min);input.max=String(spec.max);input.step=String(spec.step);
+      label.htmlFor=input.id;label.textContent=spec.label;
+      output.htmlFor=input.id;controls.set(spec.id,{input,output});
+      input.addEventListener("input",()=>{
+        values[spec.id]=Math.min(spec.max,Math.max(spec.min,Number(input.value)));
+        applyPicture();
+      });
+      input.addEventListener("change",()=>write(key,values));
+      row.append(label,output,input);section.append(row);
+    }
+    const reset=document.createElement("button");
+    reset.type="button";reset.className="btn small dk-picture-reset";reset.textContent="Reset picture";
+    reset.addEventListener("click",()=>{
+      for(const spec of specs)values[spec.id]=spec.neutral;
+      applyPicture();write(key,values);
+    });
+    const note=document.createElement("p");note.className="helper";
+    note.textContent="Picture adjustments affect playback only, not the original video or exported file.";
+    section.append(reset,note);
+    byId("playerSettingsPanel").append(section);
+    applyPicture();
+    window.DKLocale?.apply();
+  }
   let hideControlsTimer = null;
   let menuOpen = false;
   const revealControls = () => {

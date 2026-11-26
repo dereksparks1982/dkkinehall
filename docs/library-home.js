@@ -57,7 +57,7 @@ const metadataFilename=row=>row.kind==="tv"&&
   row.series+".S"+String(row.season).padStart(2,"0")+
     "E"+String(row.episode).padStart(2,"0")+
     row.filename.slice(row.filename.lastIndexOf(".")):
-  row.filename;
+  row.kind==="movie"&&row.title&&row.year?row.title+" ("+row.year+").mkv":row.filename;
 const mediaName=row=>row.kind==="tv"?
   row.series+" · "+formatCode(row)+
   (row.episodeTitle?" · "+row.episodeTitle:""):
@@ -464,7 +464,7 @@ async function render(){
   if(bottomObserver)bottomObserver.disconnect();
   imageQueue.length=0;cleanImageUrls();
   folders=await store.folders();
-  all=await store.entries();
+  all=(await store.entries()).filter(row=>!nativeBridge||!store.excludedDiscovery?.(row));
   if(epoch!==renderEpoch)return;
   try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
   catch(_){legacyResume={};}
@@ -679,7 +679,7 @@ async function libraryMaintenance(action){
       // Explicit full-library refresh: one item at a time, with a stop
       // command. Retain existing metadata/art when providers fail.
       artworkFinder?.clear();
-      const rows=(await store.entries()).filter(row=>!row.missing);
+      const rows=(await store.entries()).filter(row=>!row.missing&&!store.excludedDiscovery?.(row));
       const tasks=rows.map(row=>({row,series:false,id:artId(row)}));
       const seen=new Set();
       for(const row of rows){

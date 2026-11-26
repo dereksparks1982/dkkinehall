@@ -187,7 +187,7 @@ All items are in scope, including network playback; none are deferred indefinite
 | 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Source added; runtime acceptance pending |
 | 6 | Automatic volume leveling and dialogue enhancement | Source added; runtime acceptance pending |
 | 7 | Deinterlacing | Source added; runtime acceptance pending |
-| 8 | Video smoothing | Planned |
+| 8 | Video smoothing | Source added; runtime acceptance pending |
 | 9 | Physical DVD, ISO and VIDEO_TS playback, interactive menus, chapters, bonus material, audio/subtitle and angle selection | Planned; requires disc navigation backend |
 | 10 | DLNA/UPnP discovery, network shares and client-side streaming | Planned; not a media server |
 | 11 | Offline subtitle translation | In development; local runtime/model installation and acceptance outstanding |
@@ -263,7 +263,7 @@ The standalone six-button transport uses compact SVG symbols matching the approv
 
 Continue Watching retains unfinished entries above two seconds, including unavailable media until their storage is reconnected. Existing legacy resume positions remain a fallback. The standalone player ignores zero/uninitialized/seeking clocks and waits for resume positioning before updating history; completion requires the actual ended event. Native source transitions suspend stale-clock writes. Scan batch transactions preserve the current row's playback fields instead of stale snapshots, and native duplicate reconciliation does not prefer an accidental zero over meaningful unfinished progress. No database deletion, version reset or profile replacement. Previously lost or overwritten entries cannot be guaranteed recoverable; actual local history must be checked after installation.
 
-The standalone player opens docked at the full width of its left grid column, ignoring stale saved pixel widths and expanded/floating startup state. Up Next retains its existing column. Manual drag sizing and expansion remain available during the session, and double-clicking the right resize edge restores automatic width. Floating dimensions and position are retained. Float/Dock is solid white with dark text; Settings gear styling was subsequently superseded by the approved white button with Russian red icon in both languages. No changes to approved SVG shapes, app icons or background.
+The standalone player opens docked at the full width of its left grid column, ignoring stale saved pixel widths and expanded/floating startup state. Up Next retains its existing column. Manual drag sizing and expansion remain available during the session, and double-clicking the right resize edge restores automatic width. Floating dimensions and position are retained. Float/Dock was subsequently changed to brown with gold text; Settings gear styling was subsequently superseded by the approved white button with Russian red icon in both languages. No changes to approved SVG shapes, app icons or background.
 
 Source-only repair build, v0.9.3. Runtime acceptance pending; next new feature remains video smoothing.
 
@@ -285,3 +285,9 @@ Removed the persistent status strip and reserved bottom padding below Now Playin
 ### Standalone Continue Watching identity repair
 
 Manually opened, OS-launched and restored videos now resolve to the existing library record using native ID, exact native path or an unambiguous file fingerprint. Progress and completion writes are serialized per queue item; missing catalog records are retried periodically. The Library can recover existing unfinished positions from the player resume store when native filesystem timestamps differ from Chromium File timestamps by at most one millisecond. Ambiguous matches are not guessed, and completed catalog entries are not resurrected by legacy positions. Returning to Library refreshes the visible history. No database reset, profile replacement, media file changes or icon changes. Recovery requires a surviving saved position and matching catalog record; installed runtime acceptance is pending. Standalone source only, v0.9.3.
+
+### Standalone video smoothing and Float/Dock palette
+
+The existing playback settings gear offers Off (default), Automatic, 60 FPS and 120 FPS. The native FFmpeg backend uses motion-compensated minterpolate, not simple duplicate frames. Automatic targets 60 FPS only for source rates below 59.5 FPS, dimensions at most 1280×720, at least eight available logical CPUs and 7 GiB RAM; this is a conservative eligibility heuristic, not a benchmark. Manual modes request interpolation only when the measured source rate is below the target. Deinterlacing runs first when enabled. Original playback and source-frame stepping bypass interpolation; preferences apply on the next open. Native filter/encoder support is required. Initial setup failures fall back to ordinary playback, and interpolation-stream errors attempt a native restart without smoothing. Real-time throughput, actual output FPS, timing, subtitle synchronization, seeking, final frames and audio behavior remain unverified. Original files and exports are unchanged.
+
+Float/Dock returns to brown (#462A25) with gold (#E2B956) lettering and its existing gold border, retaining the original geometry and behavior. Other approved controls and history are unchanged. Standalone source only; no compile or runtime tests. Next priority: DVD, ISO, VIDEO_TS and interactive menus. Master roadmap updated.

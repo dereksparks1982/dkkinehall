@@ -32,6 +32,8 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Local Library Home (new source; release not verified)
 
+**Catalog corrections:** Native rescans reclassify unchanged files when their classification differs, skip sample clips, and group TV series by normalized name across seasons. In the Grey is treated as a movie. Keyless movie search and poster retrieval use restricted native HTTPS requests rather than renderer CORS or remote JSONP scripts; successful movie title/year updates are stored separately from playback history. Provider availability and actual library contents remain to be tested. Expanded movie details and manual metadata refresh remain planned.
+
 **v0.9.3 standalone navigation:** A single native window opens on Library and switches to the persistent embedded Player view. Red navigation buttons keep the approved design. White Scan Library buttons on either page share the same scan and show its active state; gold trim applies only to standalone pages. Switching pages does not reload the player. Installed behavior is not yet verified.
 
 **Standalone automatic discovery:** No folder selection is required. On startup

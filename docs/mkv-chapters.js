@@ -24,7 +24,7 @@ function header(bytes,at){
     size=size*256+bytes[sizeAt+i];
     unknown=unknown&&bytes[sizeAt+i]===255;
   }
-  if(!Number.isSafeInteger(size))return null;
+  if(!unknown&&!Number.isSafeInteger(size))return null;
   return {id,size:unknown?null:size,start:sizeAt+width};
 }
 function elements(bytes,fn){

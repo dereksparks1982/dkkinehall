@@ -593,3 +593,7 @@ html.dk-desktop-fullscreen body {
 .subtitle-delay-value{display:inline-block;min-width:58px;text-align:center;font-size:.79rem;font-variant-numeric:tabular-nums;color:#f2e5e5;white-space:nowrap}
 .subtitle-delay-reset{min-height:33px;padding:4px 9px;font-size:.76rem}
 @media(max-width:640px){.subtitle-sync-controls{gap:4px}.subtitle-delay-value{min-width:54px}}
+
+/* Browser top layer: Playback Settings must stay above video/GPU overlays. */
+.playback-settings-panel[popover]:not(:popover-open) {display:none!important}
+.playback-settings-panel:popover-open {position:fixed;inset:auto;margin:0;z-index:2147483647;display:grid;max-height:calc(100vh - 24px);overflow-y:auto}

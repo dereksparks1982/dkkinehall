@@ -723,10 +723,33 @@
     else if (window.DKMkvSubtitles?.canExtract(track.codec))
       void loadEmbeddedTrack(track);
   };
+  // Standalone transport artwork follows the approved six-button reference.
+  // Keep the existing buttons, keyboard bindings and ten-second actions.
+  const modernTransport=Boolean(window.DKLibraryBridge?.internalPages);
+  const transportGlyphs={
+    previous:'<path d="M5 5v14M19 5l-10 7 10 7z"/>',
+    rewind10:'<path d="M11 7.5 4 12l7 4.5zM20 7.5 13 12l7 4.5z" fill="currentColor" stroke-linejoin="round"/>',
+    play:'<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z" fill="currentColor" stroke="none"/>',
+    pause:'<circle cx="12" cy="12" r="9"/><path d="M9 8v8m6-8v8" stroke-width="2.5"/>',
+    forward10:'<path d="m4 7.5 7 4.5-7 4.5zM13 7.5 20 12l-7 4.5z" fill="currentColor" stroke-linejoin="round"/>',
+    stop:'<rect x="4.5" y="4.5" width="15" height="15" rx="2"/>',
+    next:'<path d="M19 5v14M5 5l10 7-10 7z"/>'
+  };
+  const setTransportGlyph=(id,name)=>{
+    const button=byId(id);
+    if(button.dataset.transportGlyph===name)return;
+    button.innerHTML='<svg class="dk-transport-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">'+transportGlyphs[name]+'</svg>';
+    button.dataset.transportGlyph=name;
+  };
+  if(modernTransport){
+    for(const id of ["previous","rewind10","forward10","stop","next"])setTransportGlyph(id,id);
+    setTransportGlyph("playPause","play");
+  }
   const updateButtons = () => {
     const item = current();
     const isPlaying = !!item && !media.paused && !media.ended;
-    byId("playPause").textContent = isPlaying ? "⏸" : "▶";
+    if(modernTransport)setTransportGlyph("playPause",isPlaying?"pause":"play");
+    else byId("playPause").textContent = isPlaying ? "⏸" : "▶";
     byId("playPause").setAttribute("aria-label", isPlaying ? "Pause" : "Play");
     byId("playPause").title = isPlaying ? "Pause" : "Play";
     ["playPause", "stop"].forEach(id => { byId(id).disabled = !item; });

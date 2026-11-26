@@ -230,10 +230,13 @@ async function findArtwork(row,id,series=false){
     }catch(_){}
   }
   if(!artworkFinder||networkArtworkCount>=ARTWORK_LIMIT||!navigator.onLine)
-    return null;
+    return cache?.blob||null;
   networkArtworkCount++;
   try{
-    const result=await artworkFinder.find(metadataFilename(row));
+    const excluded=[];
+    for(let attempt=0;attempt<(row.kind==="movie"&&nativeBridge?2:1);attempt++){
+    const result=await artworkFinder.find(metadataFilename(row),{excludeProviders:excluded});
+    if(result?.provider)excluded.push(result.provider);
     // Episode cards use episode stills; the series grid uses series art.
     const url=row.kind==="tv"&&series?
       (result?.fallbackUrl||result?.url):result?.url;
@@ -248,7 +251,7 @@ async function findArtwork(row,id,series=false){
     let blob;
     if(nativeBridge?.metadataRequest){
       const image=await nativeBridge.metadataRequest(url,"image");
-      if(!image.ok)return cache?.blob||null;
+      if(!image.ok)continue;
       blob=new Blob([image.bytes],{type:image.mime});
     }else{
       const response=await fetch(url,{credentials:"omit",mode:"cors",cache:"force-cache"});
@@ -256,9 +259,11 @@ async function findArtwork(row,id,series=false){
       blob=await response.blob();
     }
     if(!/^image\/(jpeg|png|webp)$/.test(blob.type)||
-       blob.size>3*1024*1024)return null;
+       blob.size>3*1024*1024)continue;
     await store.saveArtwork(id,blob,result.provider||"");
     return blob;
+    }
+    return cache?.blob||null;
   }catch(_){return null;}
 }
 async function pumpArtwork(){
@@ -380,7 +385,7 @@ async function render(){
   const tv=mode==="tv";
   $("tabMovies").setAttribute("aria-selected",String(!tv));
   $("tabTV").setAttribute("aria-selected",String(tv));
-  const active=all.filter(x=>x.kind===mode);
+  const active=all.filter(x=>x.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(x.filename)));
   const resume=active.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed)
     .slice(0,30);
   const continueList=$("continueWatching");

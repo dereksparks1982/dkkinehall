@@ -24,7 +24,85 @@ let installed=false,windowRef=null,playerContents=null,server=null,session=null,
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
 let frameCache=null,frameProbeBusy=false;
-let deinterlaceCapability=null,smoothingCapability=null;
+let deinterlaceCapability=null,smoothingCapability=null,dvdCapability=null,dvdPicking=false;
+const dvdGrants=new Map();
+const isDVD=source=>Boolean(source&&typeof source==="object"&&source.kind==="dvd");
+function dvdArgs(source){
+  return ["-f","dvdvideo","-title",String(source.title),"-chapter_start",String(source.chapter),
+    "-angle",String(source.angle),"-preindex",source.drive?"0":"1"];
+}
+async function dvdAvailable(){
+  if(!dvdCapability)dvdCapability=(async()=>{
+    if(!(await status()).ready)return false;
+    const lists=await Promise.all(["ffmpeg","ffprobe"].map(name=>
+      processOutput(binary(name),["-hide_banner","-demuxers"],8000)));
+    return lists.every(list=>/^\s*D\s+dvdvideo\s/m.test(list));
+  })().catch(()=>false);
+  return dvdCapability;
+}
+function opticalDrives(){
+  if(process.platform!=="linux")return [];
+  try{return fs.readdirSync("/sys/class/block").filter(name=>/^sr\d+$/.test(name))
+    .filter(name=>{try{return fs.readFileSync("/sys/class/block/"+name+"/device/type","utf8").trim()==="5"&&fs.statSync("/dev/"+name).isBlockDevice();}catch(_){return false;}})
+    .slice(0,8).map(name=>"/dev/"+name);}
+  catch(_){return [];}
+}
+function verifyDVD(source){
+  const stat=fs.statSync(source.path);
+  if(source.drive){
+    if(!stat.isBlockDevice()||!opticalDrives().includes(source.path))throw Error("DVD drive unavailable");
+  }else if(source.folder){
+    if(!stat.isDirectory()||!fs.statSync(path.join(source.path,"VIDEO_TS.IFO")).isFile())throw Error("DVD folder unavailable");
+  }else if(!stat.isFile()||!(/\.iso$/i.test(source.path))||stat.size!==source.size||stat.mtimeMs!==source.modified)
+    throw Error("DVD image unavailable or changed");
+  return stat;
+}
+async function resolvePlaybackSource(value){
+  if(value?.kind!=="dvd")return resolveSource(value,checkVideo);
+  if(typeof value.id!=="string"||!/^dvd:[a-f0-9]{48}$/.test(value.id))throw Error("Invalid DVD selection");
+  const source=dvdGrants.get(value.id);
+  if(!source)throw Error("DVD selection expired");
+  verifyDVD(source);
+  return source;
+}
+async function selectDVD(win,kind,title,chapter,angle,language){
+  if(dvdPicking)throw Error("DVD selection already open");
+  if(!["drive","iso","folder"].includes(kind)||!Number.isInteger(title)||title<1||title>99||
+     !Number.isInteger(chapter)||chapter<1||chapter>999||!Number.isInteger(angle)||angle<1||angle>9)
+    throw Error("Invalid DVD title selection");
+  if(!await dvdAvailable())return {unavailable:true};
+  if(dvdPicking)throw Error("DVD selection already open");
+  dvdPicking=true;
+  const t=(en,ru)=>language==="ru"?ru:en;
+  try{
+    let target;
+    if(kind==="drive"){
+      const drives=opticalDrives();
+      if(!drives.length)return {noDrive:true};
+      const chosen=await dialog.showMessageBox(win,{type:"question",message:t("Choose DVD drive","Выберите привод DVD"),
+        buttons:[...drives,t("Cancel","Отмена")],cancelId:drives.length,defaultId:0,noLink:true});
+      if(chosen.response>=drives.length)return null;
+      target=drives[chosen.response];
+    }else{
+      const pick=await dialog.showOpenDialog(win,{title:kind==="iso"?t("Open DVD image","Открыть образ DVD"):t("Open DVD folder","Открыть папку DVD"),
+        properties:[kind==="iso"?"openFile":"openDirectory"],
+        ...(kind==="iso"?{filters:[{name:t("DVD image","Образ DVD"),extensions:["iso"]}]}:{})});
+      if(pick.canceled||!pick.filePaths[0])return null;
+      target=fs.realpathSync(pick.filePaths[0]);
+      if(kind==="folder"&&!fs.existsSync(path.join(target,"VIDEO_TS.IFO")))target=fs.realpathSync(path.join(target,"VIDEO_TS"));
+    }
+    const stat=fs.statSync(target);
+    const id="dvd:"+crypto.randomBytes(24).toString("hex");
+    const source={kind:"dvd",id,path:target,title,chapter,angle,drive:kind==="drive",folder:kind==="folder",size:stat.size,modified:stat.mtimeMs};
+    verifyDVD(source);
+    const info=await probe(source);
+    if(!info.hasVideo)throw Error("DVD title has no video");
+    if(win.isDestroyed())return null;
+    dvdGrants.set(id,source);
+    if(dvdGrants.size>64)dvdGrants.delete(dvdGrants.keys().next().value);
+    return {id,name:kind==="folder"?path.basename(path.dirname(target)):path.basename(target),title,chapter,angle};
+  }finally{dvdPicking=false;}
+}
 function frameRate(value){
   const [n,d=1]=String(value||"").split("/").map(Number);
   const fps=n/d;return Number.isFinite(fps)&&fps>0?fps:null;
@@ -110,16 +188,18 @@ function selectedFile(localPath) {
 async function probe(localPath) {
   // Probing chapters and streams does not require a usable output encoder.
   if(!executable(binary("ffprobe")))throw new Error("Bundled FFprobe is missing");
-  const file=selectedFile(localPath);
-  const stat=fs.statSync(file);
-  const key=JSON.stringify([file,stat.size,stat.mtimeMs]);
-  if(probeCache.has(key))return probeCache.get(key);
+  const dvd=isDVD(localPath)?localPath:null;
+  const file=dvd?dvd.path:selectedFile(localPath);
+  const stat=dvd?verifyDVD(dvd):fs.statSync(file);
+  const key=JSON.stringify([file,stat.size,stat.mtimeMs,dvd?.id||null]);
+  const cacheable=!dvd?.drive;
+  if(cacheable&&probeCache.has(key))return probeCache.get(key);
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json","-i",file
-  ],30000);
+    "-show_chapters","-of","json",...(dvd?dvdArgs(dvd):[]),"-i",file
+  ],dvd&&!dvd.drive?90000:30000);
   const json=JSON.parse(stdout);
   const streams=Array.isArray(json.streams)?json.streams:[];
   const video=streams.find(s=>s.codec_type==="video"&&!Number(s.disposition?.attached_pic));
@@ -146,7 +226,7 @@ async function probe(localPath) {
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
     })),
-    subtitleTracks:streams.filter(s=>s.codec_type==="subtitle")
+    subtitleTracks:streams.filter(s=>s.codec_type==="subtitle"&&!dvd)
       .map((s,index)=>({
         index,codec:String(s.codec_name||"").slice(0,60),
         language:String(s.tags?.language||"").slice(0,20),
@@ -160,7 +240,7 @@ async function probe(localPath) {
       .filter(chapter=>Number.isFinite(chapter.startTime)&&chapter.startTime>=0)
       .sort((a,b)=>a.startTime-b.startTime)};
   })();
-  probeCache.set(key,work);
+  if(cacheable)probeCache.set(key,work);
   if(probeCache.size>MAX_CACHED_PROBES)
     probeCache.delete(probeCache.keys().next().value);
   try{return await work;}
@@ -262,7 +342,7 @@ function serve(req,res) {
   }
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
-    "-ss",String(active.position),"-i",active.path,
+    ...(active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map","0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=[];
@@ -343,7 +423,8 @@ async function loopback() {
 async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off") {
   const info=await probe(localPath);
   const available=await status();
-  const target=selectedFile(localPath);
+  const dvd=isDVD(localPath)?localPath:null;
+  const target=dvd?(verifyDVD(dvd),dvd.path):selectedFile(localPath);
   const chosen=Number(audioIndex);
   const audioOrdinal=Number.isInteger(chosen)&&chosen>=0 &&
     chosen<info.audioTracks.length ? chosen:0;
@@ -363,12 +444,12 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
       .then(filters=>/\bminterpolate\s+V->V\b/.test(filters)).catch(error=>{smoothingCapability=null;throw error;});
     if(!await smoothingCapability)throw Error("Bundled decoder does not include the motion interpolation filter");
   }
-  const copyVideo=!filterMode&&!smoothFps&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
+  const copyVideo=!dvd&&!filterMode&&!smoothFps&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,position,duration:info.duration,format:selectedFormat,
+  session={token,path:target,dvd,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
     copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,smoothing:smoothFps,
     process:null,response:null};
@@ -508,9 +589,13 @@ function install(win,contents=win?.webContents) {
   });
   ipcMain.handle("dk-codec:status",async event=>
     onlyWindow(event)?status():{ready:false});
+  ipcMain.handle("dk-codec:dvd-select",async(event,kind,title,chapter,angle,language)=>{
+    if(!onlyWindow(event))throw Error("Rejected DVD request");
+    return selectDVD(windowRef,kind,title,chapter,angle,language);
+  });
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
-    return probe(await resolveSource(localPath,checkVideo));
+    return probe(await resolvePlaybackSource(localPath));
   });
   ipcMain.handle("dk-codec:adjacent-frame",async(event,localPath,position,direction)=>{
     if(!onlyWindow(event))throw Error("Rejected frame request");
@@ -522,7 +607,7 @@ function install(win,contents=win?.webContents) {
   });
   ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
-    return start(await resolveSource(localPath,checkVideo),
+    return start(await resolvePlaybackSource(localPath),
       offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off",
       ["auto","60","120"].includes(smoothing)?smoothing:"off");
   });
@@ -531,6 +616,6 @@ function install(win,contents=win?.webContents) {
     cancelStream();return true;
   });
   win.once("closed",()=>{cancelStream();server?.close();server=null;windowRef=null;});
-  app.once("before-quit",()=>{cancelStream();server?.close();server=null;});
+  app.once("before-quit",()=>{dvdGrants.clear();cancelStream();server?.close();server=null;});
 }
 module.exports={install};

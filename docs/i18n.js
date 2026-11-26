@@ -253,6 +253,8 @@
     "Cancel translation":"Отменить перевод",
     "Restore original subtitles":"Восстановить исходные субтитры",
     "Empty Trash":"Очистить корзину",
+    "Remove from Library":"Убрать из медиатеки",
+    "File Information":"Сведения о файле",
     "Picture enhancements":"Улучшение изображения",
     "Network media":"Сетевые медиа",
     "Network media…":"Сетевые медиа…",

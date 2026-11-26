@@ -1044,3 +1044,27 @@ html.dk-standalone .dk-frame-buttons .btn{
 html.dk-standalone .dk-frame-buttons .btn:hover:not(:disabled){
   background:#53322b;border-color:#e2b956;
 }
+
+
+/* Approved text-only footer, standalone pages. No new image asset. */
+html.dk-standalone .dk-branded-footer{
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  border-top:1px solid var(--dk-antique);color:var(--dk-gold);
+}
+html.dk-standalone .dk-branded-footer a{
+  color:var(--dk-gold);font-weight:750;text-decoration:none;
+}
+html.dk-standalone .dk-branded-footer a:hover{text-decoration:underline}
+html.dk-standalone .dk-branded-footer a:focus-visible{
+  outline:2px solid var(--dk-gold);outline-offset:2px;
+}
+
+/* Apply geometry only to the main video and keep controls, seek preview,
+   and panel layout unaffected. Inline variables are numeric local values. */
+html.dk-standalone .screen.dk-custom-picture>#media{
+  inset:auto!important;
+  left:var(--dk-picture-left)!important;top:var(--dk-picture-top)!important;
+  width:var(--dk-picture-width)!important;height:var(--dk-picture-height)!important;
+  max-width:none!important;max-height:none!important;
+  object-fit:fill!important;clip-path:var(--dk-picture-clip);
+}

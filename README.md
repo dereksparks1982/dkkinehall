@@ -47,3 +47,5 @@ DK Kinehall is free for personal and business use. DK Softworks' original softwa
 
 
 Standalone metadata repair: existing incorrect 1974 Golden Gun movie records are corrected in place on library opening, preserving watch history and local artwork, with a verified IMDb identity for poster lookup. No rescan or filename change is required for this repair.
+
+Standalone Continue Watching uses the same portrait card dimensions and spacing as the collection, keeps the original poster uncropped, and retains its playback progress indicator.

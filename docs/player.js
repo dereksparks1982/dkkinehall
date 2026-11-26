@@ -1026,7 +1026,7 @@
     item.compatAttempted=true;
     const controller=new AbortController();
     item.remuxAbort=controller;
-    status("Preparing H.264 and AAC video for Chromium…");
+    status("Preparing H.264 and AAC video…");
     try{
       const output=await window.DKMkvMP4.remux(item.file,compatibleInfo(item),{
         signal:controller.signal,
@@ -1038,7 +1038,7 @@
       if(!state.queue.includes(item) || current()!==item ||
          item.playbackEpoch!==epoch || state.stopped)return false;
       if(!media.canPlayType(output.mime))
-        throw Error("Chromium cannot decode this H.264/AAC profile");
+        throw Error("This H.264/AAC video profile is not supported by the playback engine");
       if(item.compatSrc)URL.revokeObjectURL(item.compatSrc);
       item.compatSrc=URL.createObjectURL(output.blob);
       item.playbackMethod="MP4 lossless remux";
@@ -1415,7 +1415,7 @@
       else status("No readable video or audio file was selected.");
     } catch (error) {
       if (error && error.name === "AbortError") return;
-      status("The Chromium file picker could not open. Try dragging a file onto the player.");
+      status("The file picker could not open. Try dragging a file onto the player.");
     }
   };
 
@@ -1848,13 +1848,13 @@
   byId("rate").addEventListener("change", event => { media.playbackRate = Number(event.target.value); });
   if (!document.pictureInPictureEnabled || typeof media.requestPictureInPicture !== "function") {
     byId("pip").disabled = true;
-    byId("pip").title = "Picture in picture isn't available for this video or browser.";
+    byId("pip").title = "Picture in picture isn't available for this video or player.";
   }
   byId("pip").addEventListener("click", async () => {
     try {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else if (current()) await media.requestPictureInPicture();
-    } catch (_) { status("Picture in picture isn't available for this video or browser."); }
+    } catch (_) { status("Picture in picture isn't available for this video or player."); }
   });
   // The website uses the browser Fullscreen API. The standalone app must also
   // fullscreen its NATIVE window, not merely resize a video within that window.
@@ -1898,7 +1898,7 @@
       } else if (typeof screen.webkitRequestFullscreen === "function") {
         await screen.webkitRequestFullscreen();
       } else {
-        status("Fullscreen isn't available in this browser.");
+        status("Fullscreen isn't available in this player.");
       }
     } catch (_) {
       status("Fullscreen isn't available for this video.");
@@ -2041,7 +2041,7 @@
       write(store.audioPreferences,state.audioPreferences);
     }
     applyVolume();
-    status("Using Chromium's original audio track.",true);
+    status("Using original audio track.",true);
   };
   const rememberAudioPreference = (item, track, index) => {
     if (!item || !audioApi) return;
@@ -2186,16 +2186,16 @@
       }
     }
     if (mkvAudio && mkvAudio.selectedNumber() !== null)
-      addMenuItem("Use original Chromium audio",restoreOriginalAudio);
+      addMenuItem("Use original audio",restoreOriginalAudio);
     const audios = audioTracks();
     if (audios.length) {
-      addMenuSubheading("Browser audio tracks");
+      addMenuSubheading("Player audio tracks");
       audios.forEach((track,index) => addMenuItem(
         audioApi.labelNative(track,index),
         () => selectAudioTrack(index), {checked: Boolean(track.enabled)}));
     } else if (!codecPlayback?.isActive(current())) {
-      addMenuItem("Browser audio-track switching unavailable", () => {},
-        {disabled: true,reason: "This browser does not expose switchable audio streams."});
+      addMenuItem("Audio-track switching unavailable", () => {},
+        {disabled: true,reason: "This playback engine does not expose switchable audio streams."});
     }
     if (item && item.mkvInspection !== "not-mkv") {
       if (item.embeddedAudio && item.embeddedAudio.length) {
@@ -2212,7 +2212,7 @@
             () => { if (possible) void chooseEmbeddedAudio(item,track); },
             {checked:possible ? selected : undefined,
               disabled:!possible,
-              reason:"This format is not supported by the included Chromium audio decoder."});
+              reason:"This audio format is not supported by the current decoder."});
         });
       } else if (item.mkvInspection === "pending") {
         addMenuItem("Checking MKV audio tracks…", () => {}, {disabled:true});
@@ -2290,7 +2290,7 @@
     addDetail("Requested playback format",item.requestedFormat || "auto");
     addDetail("Actual playback method",item.playbackMethod || "Original source");
     addDetail("Hardware acceleration preference",playbackSettings.hardware
-      ? "Enabled (actual GPU use is controlled by Chromium)" : "Disabled preference (Chromium controls GPU use)");
+      ? "Enabled (GPU availability depends on the playback engine)" : "Disabled (GPU availability depends on the playback engine)");
     if (item.size !== undefined) addDetail("Size", (item.size / 1048576).toFixed(1) + " MiB");
     if (item.mime) addDetail("Format", item.mime);
     if (media.videoWidth && media.videoHeight)
@@ -2307,8 +2307,8 @@
       addDetail("Original-only MKV tracks",item.remuxTrackSummary.skippedTracks);
       addDetail("Embedded MKV subtitles","Available from original file, not copied into MP4");
     }
-    addDetail("Browser subtitle tracks", subtitleTracks().length);
-    addDetail("Browser audio tracks", audioTracks().length);
+    addDetail("Player subtitle tracks", subtitleTracks().length);
+    addDetail("Player audio tracks", audioTracks().length);
     if (item.embeddedAudio && item.embeddedAudio.length)
       addDetail("Detected MKV audio tracks",item.embeddedAudio.map(
         t => audioApi ? audioApi.labelEmbedded(t) :

@@ -34,7 +34,7 @@ The two editions are separate. The Web App remains available regardless of chang
 - **Subtitles and audio:** The **On/Off** button beside **+ Subtitles** shows whether embedded MKV subtitles are currently enabled. Click it to toggle playback, or use **+ Subtitles** to choose a different track or load external SRT/VTT subtitles. **Subtitle delay** controls shift captions earlier (−) or later (+) in 0.25-second steps, with Reset to restore the original timing; the adjustment is remembered separately for each file and works with loaded text, PGS, and VobSub tracks. Both editions use the approved **0–100% volume** range; no audio amplification above 100%.
 - **Playback resume:** Return to where you stopped in a movie when the edition can restore access to that file.
 - **Artwork:** Display movie posters, episode stills, and local cover images when available, with automatic recovery when an online artwork source fails. The native Qt/libmpv source now also includes TVmaze show lookup, season/episode title resolution, and still caching; that prototype is not the approved standalone release.
-- **Languages:** English and Russian interface options.
+- **Languages:** English and Russian interface options. Error messages in the standalone edition describe DK Kinehall's available decoding capabilities rather than implying that another browser needs to be installed.
 - **Background artwork:** The complete Soviet-themed picture is fitted to the window without cutting off its edges.
 
 ## Native codec integration under development

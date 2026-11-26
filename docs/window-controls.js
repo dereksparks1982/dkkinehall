@@ -14,19 +14,22 @@ function attach({screen,button,onResize=()=>{}}){
   const sidebar=grid?.querySelector(":scope > aside");
   const dockGripHost=nativeDock?(container.querySelector(":scope > .now-playing")||container):container;
   let expanded=false;
+  // Match the standalone grid's reserved queue width at every viewport
+  // size, including when the queue is deliberately hidden in expanded mode.
   const normalLimit=()=>{
     const width=availableWidth();
+    if(!grid||!sidebar)return width;
     const gap=Number.parseFloat(getComputedStyle(grid).columnGap)||19;
-    if(innerWidth<=970)return width;
-    const sidebarWidth=305;
-    return Math.max(Math.min(300,width),width-sidebarWidth-gap);
+    const sidebarWidth=Math.min(width*.45,Math.max(180,Math.min(305,width*.31)));
+    return Math.max(0,width-sidebarWidth-gap);
   };
+  const minimumDockWidth=()=>Math.min(normalLimit(),Math.max(480,normalLimit()*.8));
   const applyExpanded=value=>{
     expanded=Boolean(value&&grid&&sidebar);
     grid?.classList.toggle("dk-player-expanded",expanded&&!floating);
     if(sidebar)sidebar.inert=expanded&&!floating;
   };
-  const availableWidth=()=>Math.max(0,nativeDock?(container.parentElement?.clientWidth||container.clientWidth):container.clientWidth);
+  const availableWidth=()=>Math.max(0,nativeDock?(grid?.clientWidth??container.parentElement?.clientWidth??0):container.clientWidth);
   const placeholder=document.createElement("div");
   placeholder.className="dk-player-placeholder";
   placeholder.hidden=true;
@@ -43,8 +46,11 @@ function attach({screen,button,onResize=()=>{}}){
   corner.textContent="◢";
   corner.title="Drag to resize player";
   corner.setAttribute("aria-label","Drag to resize player");
+  const resetButton=document.createElement("button");
+  resetButton.type="button";resetButton.className="dk-player-reset";resetButton.textContent="↺";
+  resetButton.title="Reset player size (Escape)";resetButton.setAttribute("aria-label","Reset player size (Escape)");
   screen.append(handle);
-  if(nativeDock){container.classList.add("dk-resizable-panel");dockGripHost.append(corner);}
+  if(nativeDock){container.classList.add("dk-resizable-panel");dockGripHost.append(resetButton,corner);}
   else screen.append(corner);
   let saved={};
   try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{};}catch(_){}
@@ -58,6 +64,7 @@ function attach({screen,button,onResize=()=>{}}){
   let left=Number.isFinite(saved.left)?saved.left:48;
   let top=Number.isFinite(saved.top)?saved.top:48;
   const notify=()=>requestAnimationFrame(onResize);
+  let cancelPointer=null;
   const save=()=>{
     try{localStorage.setItem(KEY,JSON.stringify({
       dockWidth:nativeDock?0:dockWidth,floatWidth,floatHeight,left,top,
@@ -79,8 +86,10 @@ function attach({screen,button,onResize=()=>{}}){
       if(nativeDock){
         screen.style.removeProperty("width");
         applyExpanded(expanded);
-        if(dockWidth)container.style.width=Math.min(dockWidth,expanded?available:(innerWidth>970&&grid?normalLimit():available))+"px";
-        else container.style.removeProperty("width");
+        if(dockWidth&&available>0){
+          const limit=expanded?available:normalLimit();
+          container.style.width=clamp(dockWidth,minimumDockWidth(),limit)+"px";
+        }else container.style.removeProperty("width");
       }else if(dockWidth)screen.style.width=Math.min(dockWidth,available)+"px";
       else screen.style.removeProperty("width");
       for(const key of ["height","left","top"])screen.style.removeProperty(key);
@@ -94,7 +103,7 @@ function attach({screen,button,onResize=()=>{}}){
     placeholder.hidden=!floating;
     if(nativeDock){
       container.classList.toggle("dk-player-detached",floating);
-      (floating?screen:dockGripHost).append(corner);
+      (floating?screen:dockGripHost).append(resetButton,corner);
     }
     button.textContent=floating?"Dock":"Float";
     button.setAttribute("aria-pressed",String(floating));
@@ -102,12 +111,22 @@ function attach({screen,button,onResize=()=>{}}){
     layout();
     save();
   }
+  function reset(){
+    cancelPointer?.();
+    dockWidth=0;expanded=false;
+    floatWidth=560;floatHeight=315;left=48;top=48;
+    container.style.removeProperty("width");
+    toggle(false);
+    save();
+  }
   button.addEventListener("click",()=>toggle());
+  if(nativeDock)resetButton.addEventListener("click",event=>{event.stopPropagation();reset();});
   function startPointer(element,onMove,onDone){
     element.addEventListener("pointerdown",event=>{
       if(event.button!==0&&event.pointerType!=="touch")return;
       event.preventDefault();
       event.stopPropagation();
+      cancelPointer?.();
       const id=event.pointerId,x=event.clientX,y=event.clientY;
       element.setPointerCapture(id);
       const move=e=>{if(e.pointerId!==id)return;e.preventDefault();onMove(e.clientX-x,e.clientY-y);};
@@ -116,9 +135,13 @@ function attach({screen,button,onResize=()=>{}}){
         element.removeEventListener("pointermove",move);
         element.removeEventListener("pointerup",end);
         element.removeEventListener("pointercancel",end);
+        element.removeEventListener("lostpointercapture",end);
+        cancelPointer=null;
         if(element.hasPointerCapture(id))element.releasePointerCapture(id);
         save();onDone?.();
       };
+      cancelPointer=()=>end({pointerId:id});
+      element.addEventListener("lostpointercapture",end);
       element.addEventListener("pointermove",move);
       element.addEventListener("pointerup",end);
       element.addEventListener("pointercancel",end);
@@ -141,7 +164,7 @@ function attach({screen,button,onResize=()=>{}}){
     }else{
       // The docked surface preserves 16:9; the video always uses contain.
       const available=availableWidth();
-      dockWidth=clamp(sizingStart.width+dx,Math.min(300,available),available);
+      dockWidth=clamp(sizingStart.width+dx,nativeDock?minimumDockWidth():Math.min(300,available),available);
       if(grid&&sidebar){
         const limit=normalLimit();
         // Cross the normal two-column boundary to hide Up Next; crossing
@@ -163,7 +186,7 @@ function attach({screen,button,onResize=()=>{}}){
     startPointer(edge,dx=>{
       if(floating)return;
       const available=availableWidth();
-      dockWidth=clamp(sizingStart.width+dx,Math.min(300,available),available);
+      dockWidth=clamp(sizingStart.width+dx,nativeDock?minimumDockWidth():Math.min(300,available),available);
       const limit=normalLimit();
       if(!expanded&&dockWidth>limit+12)expanded=true;
       else if(expanded&&dockWidth<=limit)expanded=false;
@@ -172,14 +195,14 @@ function attach({screen,button,onResize=()=>{}}){
     edge.addEventListener("dblclick",event=>{
       event.stopPropagation();
       if(floating)return;
-      dockWidth=0;expanded=false;screen.classList.remove("dk-sized");layout();save();
+      reset();
     });
   }
-  for(const element of [handle,corner])element.addEventListener("dblclick",e=>e.stopPropagation());
+  for(const element of [handle,corner,resetButton])element.addEventListener("dblclick",e=>e.stopPropagation());
   window.addEventListener("resize",layout);
   if(!nativeDock&&(dockWidth||saved.floating))toggle(Boolean(saved.floating));
   else layout();
-  return {toggle,isFloating:()=>floating,layout};
+  return {toggle,isFloating:()=>floating,layout,reset};
 }
 root.DKPlayerWindow={attach};
 })(typeof window!=="undefined"?window:globalThis);

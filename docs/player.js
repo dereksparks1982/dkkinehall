@@ -1141,6 +1141,7 @@
     }
     if (seekPreview) seekPreview.reset();
     if (!state.stopped) rememberPosition();
+    if(previous)previous.historyReady=false;
     if(codecPlayback?.isActive(previous))void codecPlayback.stop();
     state.stopped = false;
     clearSubtitles();

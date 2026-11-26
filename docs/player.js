@@ -246,7 +246,7 @@
     media,bridge:window.DKCodecBridge,current,
     onStatus:(message,good)=>status(message,good),
     onClockChanged:()=>updateTime(),
-    onChaptersChanged:()=>updateChapterButton(),
+    onChaptersChanged:()=>updateChapterMarkers(),
     onTracksChanged:()=>updateSubtitleStatus(),
     onOffsetChanged:(item,at)=>{
       const native=state.nativeSubtitle;
@@ -694,6 +694,17 @@
   // selector inside that surface so it remains accessible in both modes.
   if (chapterPicker.parentElement !== screen) screen.append(chapterPicker);
   const chapterEntries = byId("chapterEntries");
+  const standaloneChapters=Boolean(window.DKLibraryBridge?.internalPages);
+  const chapterMarkers=document.createElement("div");
+  chapterMarkers.className="dk-chapter-markers";
+  chapterMarkers.setAttribute("role","group");
+  chapterMarkers.setAttribute("aria-label",window.DKLocale?.t("Chapters")||"Chapters");
+  let chapterMarkerSignature="",chapterMarkerItem=null;
+  if(standaloneChapters){
+    byId("chapters").remove();
+    chapterPicker.remove();
+    byId("seek").after(chapterMarkers);
+  }
   const getChapterEntries = () => {
     const item = current();
     if (!item) return [];
@@ -713,7 +724,35 @@
       .filter((ch,i,list)=>i===0 || Math.abs(ch.startTime-list[i-1].startTime)>.01)
       .slice(0,500);
   };
-  const updateChapterButton = () => {
+  const updateChapterMarkers = () => {
+    if(standaloneChapters){
+      const item=current(),length=playbackDuration();
+      const entries=item&&!state.stopped&&Number.isFinite(length)&&length>0?
+        getChapterEntries().filter(ch=>ch.startTime<length):[];
+      const signature=JSON.stringify([length,entries]);
+      if(item===chapterMarkerItem&&signature===chapterMarkerSignature)return;
+      chapterMarkerItem=item;chapterMarkerSignature=signature;
+      chapterMarkers.replaceChildren();
+      for(const chapter of entries){
+        const marker=document.createElement("button");
+        marker.type="button";marker.className="dk-chapter-marker";
+        marker.style.left=(100*chapter.startTime/length)+"%";
+        const raw=String(chapter.text||"Chapter");
+        const label=raw.replace(/^Chapter(?=\s|$)/,window.DKLocale?.t("Chapter")||"Chapter");
+        marker.title=label+" · "+time(chapter.startTime);
+        marker.setAttribute("aria-label",marker.title);
+        marker.addEventListener("pointerdown",event=>event.stopPropagation());
+        marker.addEventListener("click",event=>{
+          event.stopPropagation();
+          if(current()===item&&!state.stopped){
+            setPlaybackPosition(chapter.startTime);
+            updateTime();
+          }
+        });
+        chapterMarkers.append(marker);
+      }
+      return;
+    }
     const available = getChapterEntries().length > 0 && !state.stopped;
     const button = byId("chapters");
     button.disabled = !available;
@@ -742,8 +781,17 @@
     chapterPicker.hidden = !chapterPicker.hidden;
     if (!chapterPicker.hidden) chapterEntries.querySelector("button")?.focus();
   };
-  byId("chapters").addEventListener("click",showChapterPicker);
-  byId("closeChapters").addEventListener("click",()=>{chapterPicker.hidden=true;});
+  if(!standaloneChapters){
+    byId("chapters").addEventListener("click",showChapterPicker);
+    byId("closeChapters").addEventListener("click",()=>{chapterPicker.hidden=true;});
+  }
+  const mergeChapters=(item,entries)=>{
+    if(!Array.isArray(entries)||!entries.length)return;
+    item.chapters=[...entries,...(item.chapters||[])].filter(ch=>Number.isFinite(ch.startTime)&&ch.startTime>=0)
+      .sort((a,b)=>a.startTime-b.startTime)
+      .filter((ch,i,list)=>i===0||Math.abs(ch.startTime-list[i-1].startTime)>.01).slice(0,500);
+    if(current()===item)updateChapterMarkers();
+  };
   let dragItem = null;
   const clearDropMarkers = () => {
     for (const li of queueView.children)
@@ -915,7 +963,7 @@
     });
     queueView.scrollTop=scrollPosition;
     updateButtons();
-    updateChapterButton();
+    updateChapterMarkers();
   };
   const idle = () => {
     if (seekPreview) seekPreview.reset();
@@ -948,6 +996,7 @@
     if (state.stopped) {
       state.stopped = false;
       screen.classList.remove("empty", "stopped");
+      updateChapterMarkers();
       syncPgsOverlay();
       screen.classList.toggle("audio", current().audio);
       if(current().codecRestart && codecPlayback) {
@@ -1023,6 +1072,7 @@
     applySubtitlePreference();
     screen.classList.remove("ui-hidden", "cursor-hidden");
     chapterPicker.hidden = true;
+    if(standaloneChapters){chapterMarkers.replaceChildren();chapterMarkerSignature="";}
     const titleInfo = window.DKMediaMetadata?.parseFilename(item.metadataFilename||item.name);
     const episode = titleInfo?.type === "episode";
     const displayName = episode ? titleInfo.series :
@@ -1051,6 +1101,7 @@
       const stillCurrent=()=>current()===item && item.playbackEpoch===epoch && !state.stopped;
       void window.DKCodecBridge.probe(item.file).then(async info=>{
         if(!stillCurrent())return;
+        mergeChapters(item,info.chapters);
         const preferred=state.audioPreferences[item.key];
         const ordinal=preferred?.mode==="mkv"?
           (item.embeddedAudio||[]).findIndex(t=>t.number===preferred.number):0;
@@ -1065,6 +1116,12 @@
         if(autoplay&&stillCurrent())playCurrent();
       }).catch(()=>{if(autoplay&&stillCurrent())playCurrent();});
       return;
+    }
+    if(standaloneChapters&&item.file&&window.DKCodecBridge?.probe){
+      // Explicit Original/MP4/WebM selections also need embedded chapters.
+      void window.DKCodecBridge.probe(item.file).then(info=>{
+        if(state.queue.includes(item))mergeChapters(item,info.chapters);
+      }).catch(()=>{});
     }
     if (needsRemux) {
       item.playbackMethod = "Preparing " + item.requestedFormat.toUpperCase();
@@ -1302,8 +1359,7 @@
       if (/\.mkv$/i.test(file.name) && window.DKMkvChapters) {
         void window.DKMkvChapters.inspectFile(file).then(chapters=>{
           if (!state.queue.includes(item)) return;
-          item.chapters = Array.isArray(chapters) ? chapters : [];
-          if (current()===item) updateChapterButton();
+          mergeChapters(item,chapters);
         }).catch(()=>{});
       }
       if (/\.mkv$/i.test(file.name) && window.DKMatroska) {
@@ -1816,6 +1872,7 @@
     screen.classList.remove("audio", "ui-hidden", "cursor-hidden");
     byId("emptyTitle").textContent = "Stopped";
     byId("emptyDescription").textContent = "Press the red Play button to restart this movie.";
+    updateChapterMarkers();
     keepControlsVisible();
     updateButtons();
     updateTime();
@@ -1866,14 +1923,14 @@
     if (state.stopped) { updateTime(); return; }
     if(codecPlayback?.isActive(item)) {
       // The stream has already been started at the original source time.
-      updateTime();updateChapterButton();return;
+      updateTime();updateChapterMarkers();return;
     }
     const position = Number(state.resume[item.key] || 0);
     if (position > 2 && Number.isFinite(media.duration) && position < media.duration - 4) {
       try { media.currentTime = position; } catch (_) {}
     }
     updateTime();
-    updateChapterButton();
+    updateChapterMarkers();
   });
   media.addEventListener("timeupdate", () => {
     updateTime();
@@ -1885,10 +1942,10 @@
     }
   });
   for (const eventName of ["play", "pause", "ended", "emptied"]) media.addEventListener(eventName, updateButtons);
-  media.addEventListener("durationchange", updateTime);
-  media.addEventListener("loadeddata", updateChapterButton);
+  media.addEventListener("durationchange",()=>{updateTime();updateChapterMarkers();});
+  media.addEventListener("loadeddata", updateChapterMarkers);
   if(media.textTracks && typeof media.textTracks.addEventListener==="function")
-    media.textTracks.addEventListener("addtrack",()=>setTimeout(updateChapterButton,0));
+    media.textTracks.addEventListener("addtrack",()=>setTimeout(updateChapterMarkers,0));
   media.addEventListener("loadeddata", applySubtitlePreference);
   // Register lazily: restoreAudioPreference is defined later in this module.
   media.addEventListener("loadeddata", () => restoreAudioPreference());
@@ -2608,11 +2665,7 @@
         byId("rate").value = String(speed);
       }, {checked: Math.abs(media.playbackRate - speed) < 0.01});
     }
-    const chapters = availableTracks().filter(track => track.kind === "chapters");
-    const cues = chapters.flatMap(track => {
-      try { return Array.from(track.cues || []); }
-      catch (_) { return []; }
-    });
+    const cues = getChapterEntries();
     if (cues.length) {
       addMenuHeading("Chapters");
       for (const cue of cues) addMenuItem(
@@ -2824,7 +2877,7 @@
   document.addEventListener("keydown", event => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === "Escape") {
-      if (!chapterPicker.hidden) { event.preventDefault(); chapterPicker.hidden = true; }
+      if (!standaloneChapters&&!chapterPicker.hidden) { event.preventDefault(); chapterPicker.hidden = true; }
       else if (menuOpen) { event.preventDefault(); closeContextMenu(); }
       else if (!infoPanel.hidden) { infoPanel.hidden = true; revealControls(); }
       else if (desktopFullscreen && screen.classList.contains("desktop-fullscreen")) {

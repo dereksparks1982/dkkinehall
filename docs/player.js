@@ -620,6 +620,9 @@
     media.pause();
     state.current = index;
     const item = current();
+    // Restore this file’s remembered subtitle offset immediately, including
+    // for non-MKV files before any subtitle track is loaded.
+    updateSubtitleDelayControls();
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
     // Reset stale conversion attempts when revisiting a file or selecting a

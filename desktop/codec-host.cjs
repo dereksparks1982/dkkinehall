@@ -65,6 +65,33 @@ async function resolvePlaybackSource(value){
   verifyDVD(source);
   return source;
 }
+// VIDEO_TS.IFO VMGI title-search table: sector pointer 0xC4,
+// eight-byte table header, twelve-byte entries. Read only bounded metadata.
+function dvdFolderTitles(source){
+  if(!source.folder)return [];
+  let fd;
+  try{
+    verifyDVD(source);
+    fd=fs.openSync(path.join(source.path,"VIDEO_TS.IFO"),fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+    const stat=fs.fstatSync(fd);
+    if(!stat.isFile()||stat.size<2048||stat.size>16*1024*1024)return [];
+    const header=Buffer.alloc(2048);
+    if(fs.readSync(fd,header,0,header.length,0)!==header.length||header.toString("ascii",0,12)!=="DVDVIDEO-VMG")return [];
+    const offset=header.readUInt32BE(0xc4)*2048;
+    if(offset<2048||offset+8>stat.size)return [];
+    const table=Buffer.alloc(8);
+    if(fs.readSync(fd,table,0,8,offset)!==8)return [];
+    const count=table.readUInt16BE(0),length=table.readUInt32BE(4)+1;
+    if(count<1||count>99||length<8+count*12||offset+length>stat.size)return [];
+    const entries=Buffer.alloc(count*12);
+    if(fs.readSync(fd,entries,0,entries.length,offset+8)!==entries.length)return [];
+    return Array.from({length:count},(_,i)=>{
+      const p=i*12,angles=entries[p+1],chapters=entries.readUInt16BE(p+2);
+      return {title:i+1,chapters:chapters>=1&&chapters<=999?chapters:null,angles:angles>=1&&angles<=9?angles:null};
+    });
+  }catch(_){return [];}
+  finally{if(fd!==undefined)fs.closeSync(fd);}
+}
 async function selectDVD(win,kind,title,chapter,angle,language){
   if(dvdPicking)throw Error("DVD selection already open");
   if(!["drive","iso","folder"].includes(kind)||!Number.isInteger(title)||title<1||title>99||
@@ -100,7 +127,7 @@ async function selectDVD(win,kind,title,chapter,angle,language){
     if(win.isDestroyed())return null;
     dvdGrants.set(id,source);
     if(dvdGrants.size>64)dvdGrants.delete(dvdGrants.keys().next().value);
-    return {id,name:kind==="folder"?path.basename(path.dirname(target)):path.basename(target),title,chapter,angle};
+    return {id,name:kind==="folder"?path.basename(path.dirname(target)):path.basename(target),title,chapter,angle,titles:dvdFolderTitles(source)};
   }finally{dvdPicking=false;}
 }
 // Change titles on the already-authorized disc without a second file picker.
@@ -120,7 +147,7 @@ async function changeDVD(win,id,title,chapter,angle){
     if(!win||win.isDestroyed())return null;
     dvdGrants.set(source.id,source);
     if(dvdGrants.size>64)dvdGrants.delete(dvdGrants.keys().next().value);
-    return {id:source.id,name:source.folder?path.basename(path.dirname(source.path)):path.basename(source.path),title,chapter,angle};
+    return {id:source.id,name:source.folder?path.basename(path.dirname(source.path)):path.basename(source.path),title,chapter,angle,titles:dvdFolderTitles(source)};
   }finally{dvdPicking=false;}
 }
 function frameRate(value){

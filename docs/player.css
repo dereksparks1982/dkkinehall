@@ -882,3 +882,27 @@ html.dk-standalone #playerScanLibrary.btn:is(:hover,:active,:focus-visible){
 html.dk-standalone .screen .controls #volume{
   accent-color:#df4147;
 }
+
+/* Approved standalone folder group: two equal columns, gold lettering on
+   brown folder actions, white Scan Library. No change to Library Home. */
+html.dk-standalone .folder-actions{
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;align-items:stretch;
+}
+html.dk-standalone .folder-actions :is(#selectFolder,#reopenFolder,#forgetFolder,#playerScanLibrary){
+  box-sizing:border-box;width:100%;min-width:0;max-width:100%;
+  height:auto;min-height:46px;padding:8px 6px;
+  font-size:.78rem;font-weight:600;line-height:1.25;
+  white-space:normal;overflow-wrap:anywhere;text-align:center;
+  border-radius:8px;
+}
+html.dk-standalone .folder-actions :is(#selectFolder,#reopenFolder,#forgetFolder){
+  background:#462a25;border-color:#a58039;color:#e2b956;
+}
+html.dk-standalone .folder-actions :is(#selectFolder,#reopenFolder,#forgetFolder):hover:not(:disabled){
+  background:#53322b;border-color:#e2b956;color:#e2b956;
+}
+html.dk-standalone .folder-actions #playerScanLibrary{
+  grid-column:2;grid-row:2;
+}
+html.dk-standalone .folder-actions #forgetFolder{grid-column:1;grid-row:2}

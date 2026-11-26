@@ -488,6 +488,26 @@ async function openFile(row,{requestPermission=false}={}){
   const file=await handle.getFile();
   return {file,handle};
 }
+// Recover the catalog identity of a manually opened or restored local file.
+async function resolvePlaybackEntry(file,preferredId=null){
+  if(!file||typeof file.name!=="string"||!Number.isFinite(file.size)||
+     !Number.isFinite(file.lastModified))return null;
+  const rows=await entries();
+  const exact=rows.find(row=>row.id===preferredId||row.id===file.nativeId);
+  if(exact)return exact;
+  if(file.nativePath){
+    const paths=rows.filter(row=>row.source==="native"&&row.nativePath===file.nativePath);
+    if(paths.length===1)return paths[0];
+    // Do not associate a known path with a different copy of the same file.
+    return null;
+  }
+  const relative=String(file.webkitRelativePath||"").replace(/\\/g,"/");
+  const matches=rows.filter(row=>row.filename===file.name&&row.size===file.size&&
+    Number.isFinite(row.modified)&&Math.abs(row.modified-file.lastModified)<=1&&
+    (!relative||row.relative===relative||row.nativePath?.endsWith("/"+relative)));
+  const live=matches.filter(row=>row.source==="native"&&!row.missing);
+  return live.length===1?live[0]:matches.length===1?matches[0]:null;
+}
 async function updateProgress(id,position,duration,completed=false){
   // One read/write transaction prevents overlapping updates from separate
   // library/player windows clobbering a newer playback position.
@@ -518,6 +538,7 @@ async function updateProgress(id,position,duration,completed=false){
     tx.onabort=()=>reject(tx.error||new Error("Playback history could not be saved"));
   });
   if(saved)changed({progress:true,id});
+  return saved;
 }
 async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails,movieProvider}={}){
   // Only verified metadata (from an actual provider result) is written.
@@ -566,7 +587,7 @@ async function saveArtwork(id,blob,credit=""){
 return Object.freeze({
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,reconcileNative,emptyTrash,removeEntry,
-  checkReadPermission,openFile,updateProgress,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

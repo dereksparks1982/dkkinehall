@@ -41,7 +41,7 @@ const artworkFinder=window.DKMediaMetadata?.create({
     window.DKJellyfinArtwork?.choose(item,opts)||null
 });
 const lang=()=>document.documentElement.lang==="ru"?"ru":"en";
-const say=(english,russian)=>lang()==="ru"?russian:english;
+const say=(english,russian)=>window.DKLocale?.pair(english,russian)??(lang()==="ru"?russian:english);
 const status=(en,ru=null,error=false)=>{
   const node=$("libraryStatus");
   node.textContent=ru?say(en,ru):en;
@@ -587,8 +587,7 @@ async function render(){
     $("collectionTitle").textContent=
       say("Your Entire Movie Collection","Вся коллекция фильмов");
   }
-  $("collectionCount").textContent=cards.length+" "+
-    say(cards.length===1?"title":"titles","наименований");
+  $("collectionCount").textContent=say(cards.length+" "+(cards.length===1?"title":"titles"),cards.length+" наименований");
   $("emptyLibrary").hidden=all.length>0;
   if(nativeBridge){
     $("addLibraryFolder").hidden=true;
@@ -812,7 +811,7 @@ function connect(){
       footer.append(brand,link);
       document.querySelector(".library-shell>main")?.after(footer);
     }
-    const labels=()=>{$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
+    const labels=()=>{$("scanLibrary").textContent=say(scanning?"Stop Scan":"Scan Library",scanning?"Остановить":"Проверить медиатеку");$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
     labels();$("languageSelect").addEventListener("change",()=>queueMicrotask(labels));
     $("scanLibrary").classList.remove("primary","ghost");
     $("scanLibrary").classList.add("dk-scan");

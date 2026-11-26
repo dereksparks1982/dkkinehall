@@ -351,3 +351,7 @@ Standalone playback-history writes and legacy-resume storage notifications now u
 ### Synchronized Voiceover and resize color correction
 
 Second-stage standalone Voiceover source streams generated timed speech from a restricted loopback WAV endpoint. Optional speech playback follows the video clock and speed, with independent original and voiceover levels, master volume/mute and original fallback. It requires pre-generated original-text-subtitle-derived speech and a separately provisioned offline runtime and voice models; it is not instant speech recognition or true dialogue separation. No model downloads, compilation or runtime testing performed. Removed legacy CSS specificity conflict so Resize is gold and Reset remains red. See current roadmap for acceptance requirements.
+
+### Shared interface language
+
+Native standalone language preference is persisted in the existing user profile and broadcast to both views, using revisioned updates. Localized UI pairs and source strings allow dynamic labels, explicit-value options and shared settings snapshots to be restored when switching back to English. Library and Player do not reload or clear history on a language switch. Russian Scan Library text wraps within the existing button. Source-only change; verify both directions, active playback, scans, menus and relaunch. Literal media data is not modified.

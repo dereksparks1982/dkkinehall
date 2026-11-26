@@ -93,6 +93,41 @@ let externalSelections=[],externalWork=Promise.resolve();
 let installed=false,home=null,player=null,playerFile=null,playerLoading=null,activePage="library",scanActive=false;
 let scanController=null,scanPromise=null;
 let metadataBusy=0;
+let libraryView={mode:"movie",series:null,season:null};
+let navHistory=[],navIndex=-1;
+function recordNavigation(page){
+  const entry={page,view:{...libraryView}};
+  if(JSON.stringify(navHistory[navIndex])===JSON.stringify(entry))return;
+  navHistory=navHistory.slice(0,navIndex+1);
+  navHistory.push(entry);
+  if(navHistory.length>150)navHistory.shift();
+  navIndex=navHistory.length-1;
+}
+function recordLibraryView(value){
+  if(!value||!["movie","tv"].includes(value.mode))return false;
+  libraryView={mode:value.mode,series:value.mode==="tv"&&typeof value.series==="string"?value.series.slice(0,300):null,
+    season:Number.isInteger(value.season)&&value.season>=0?value.season:null};
+  if(activePage==="library")recordNavigation("library");
+  return true;
+}
+async function navigateHistory(direction){
+  if(![-1,1].includes(direction)||navIndex+direction<0||navIndex+direction>=navHistory.length)return false;
+  const next=navHistory[navIndex+direction];
+  if(next.page==="player"&&!installedWindow())return false;
+  navIndex+=direction;
+  libraryView={...next.view};
+  if(next.page==="library"){
+    if(home.isFullScreen())home.setFullScreen(false);
+    home.webContents.send("dk-library:restore-navigation",libraryView);
+  }
+  return showPage(next.page,false);
+}
+let maintenanceBusy=false;
+let metadataRefreshing=false;
+function maintenanceStatus(value){
+  if(installedWindow())player.webContents.send("dk-library:maintenance-status",value);
+}
+
 // Only explicitly selected files receive a restore grant. Keep live grants
 // for the session, but persist only the most recently selected file.
 // These grants never authorize Library deletion or directory enumeration.
@@ -215,10 +250,11 @@ function focusWindow(win){
   if(win.isMinimized())win.restore();
   win.show();win.focus();
 }
-function showPage(page){
+function showPage(page,remember=true){
   if(!home||home.isDestroyed())return false;
   if(page==="player"&&!installedWindow())return false;
   activePage=page;
+  if(remember)recordNavigation(page);
   if(installedWindow()){
     resizePlayer();
     player.setVisible(page==="player");
@@ -272,6 +308,7 @@ async function openPlayer(id,external=false){
     if(home.isDestroyed())return false;
     showPage("player");
     view.webContents.send("dk-library:scan-state",scanActive);
+    view.webContents.send("dk-library:maintenance-status",{action:"refresh",busy:metadataRefreshing});
     return true;
   }finally{playerLoading=null;}
 }
@@ -317,6 +354,49 @@ function install(originalWindow,originalPlayer){
   });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
+  ipcMain.handle("dk-library:record-navigation",(event,value)=>{
+    if(!allowed(event))throw Error("Navigation rejected");
+    return recordLibraryView(value);
+  });
+  ipcMain.handle("dk-library:navigate-history",(event,direction)=>{
+    if(!onlyPlayer(event)&&!allowed(event))throw Error("Navigation rejected");
+    return navigateHistory(direction);
+  });
+  ipcMain.handle("dk-library:maintenance-request",async(event,action,language)=>{
+    if(!onlyPlayer(event)&&!allowed(event))throw Error("Library maintenance rejected");
+    if(!["trash","refresh"].includes(action))throw Error("Invalid library maintenance command");
+    if(action==="refresh"&&metadataRefreshing){
+      home.webContents.send("dk-library:maintenance-request","refresh");return true;
+    }
+    if(scanActive||maintenanceBusy)return false;
+    if(action==="trash"){
+      maintenanceBusy=true;
+      try{
+        const ru=language==="ru";
+        const result=await dialog.showMessageBox(home,{type:"warning",
+          title:ru?"Очистить корзину":"Empty Trash",
+          message:ru?"Удалить недоступные записи из медиатеки?":"Remove unavailable library records?",
+          detail:ru?"Видеофайлы не удаляются. История просмотра недоступных файлов может быть потеряна. Подключите отключённые накопители и сначала выполните проверку.":"No video files are deleted. Viewing history for removed records may be lost. Reconnect any disconnected drives and scan first.",
+          buttons:ru?["Отмена","Очистить корзину"]:["Cancel","Empty Trash"],
+          defaultId:0,cancelId:0,noLink:true});
+        if(result.response!==1){maintenanceBusy=false;return false;}
+      }catch(error){maintenanceBusy=false;throw error;}
+    }else{maintenanceBusy=true;metadataRefreshing=true;}
+    maintenanceStatus({action,busy:true});
+    home.webContents.send("dk-library:maintenance-request",action);
+    return true;
+  });
+  ipcMain.handle("dk-library:maintenance-status",(event,value)=>{
+    if(!allowed(event))throw Error("Library maintenance status rejected");
+    if(!value||!["trash","refresh"].includes(value.action))return false;
+    maintenanceBusy=Boolean(value.busy);
+    if(value.action==="refresh")metadataRefreshing=maintenanceBusy;
+    maintenanceStatus({action:value.action,busy:maintenanceBusy,
+      done:Number(value.done)||0,total:Number(value.total)||0,
+      removed:Number(value.removed)||0,merged:Number(value.merged)||0,
+      failed:Boolean(value.failed),cancelled:Boolean(value.cancelled)});
+    return true;
+  });
   ipcMain.handle("dk-library:translation-status",(event,pair)=>{
     if(!onlyPlayer(event))throw Error("Translation command rejected");
     return translationPaths(pair).ready;

@@ -273,9 +273,9 @@ async function probe(localPath) {
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
     })),
-    subtitleTracks:streams.filter(s=>s.codec_type==="subtitle"&&!dvd)
+    subtitleTracks:streams.filter(s=>s.codec_type==="subtitle")
       .map((s,index)=>({
-        index,codec:String(s.codec_name||"").slice(0,60),
+        index,streamIndex:s.index,codec:String(s.codec_name||"").slice(0,60),
         language:String(s.tags?.language||"").slice(0,20),
         title:String(s.tags?.title||"").slice(0,100)
       })),
@@ -390,14 +390,20 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     ...(active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
-    ...(active.hasVideo?["-map","0:"+active.videoStreamIndex]:[]),
+    ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=[];
   if(active.deinterlace)filters.push("bwdif=mode=send_frame:parity=auto:deint="+(active.deinterlace==="on"?"all":"interlaced"));
   // Motion-compensated interpolation generates intermediate frames; no
   // fps-only duplication. Deinterlace before interpolation when enabled.
   if(active.smoothing)filters.push("minterpolate=fps="+active.smoothing+":mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1");
-  if(filters.length)args.push("-vf",filters.join(","),"-fps_mode","passthrough");
+  if(active.bitmapSubtitle!==null){
+    // FFmpeg's bitmap subtitle input is converted to video by sub2video.
+    // Composite before the normal picture filters, using validated indices.
+    const graph="[0:"+active.videoStreamIndex+"][0:"+active.bitmapSubtitle+"]overlay=eof_action=pass"+(filters.length?","+filters.join(","):"")+"[dkvideo]";
+    args.push("-filter_complex",graph);
+    if(filters.length)args.push("-fps_mode","passthrough");
+  }else if(filters.length)args.push("-vf",filters.join(","),"-fps_mode","passthrough");
   if(active.format==="webm") {
     if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
     if(active.hasAudio)args.push("-c:a","libopus","-b:a","160k","-ac","2");
@@ -467,11 +473,17 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off") {
+async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off",subtitleIndex=-1) {
   const info=await probe(localPath);
   const available=await status();
   const dvd=isDVD(localPath)?localPath:null;
   const target=dvd?(verifyDVD(dvd),dvd.path):selectedFile(localPath);
+  let bitmapSubtitle=null;
+  if(subtitleIndex!==-1){
+    const track=info.subtitleTracks[subtitleIndex];
+    if(!dvd||!info.hasVideo||!Number.isInteger(subtitleIndex)||!track||track.codec!=="dvd_subtitle"||!Number.isInteger(track.streamIndex)||track.streamIndex<0)throw Error("Unsupported DVD subtitle selection");
+    bitmapSubtitle=track.streamIndex;
+  }
   const chosen=Number(audioIndex);
   const audioOrdinal=Number.isInteger(chosen)&&chosen>=0 &&
     chosen<info.audioTracks.length ? chosen:0;
@@ -498,7 +510,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,dvd,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
-    copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,smoothing:smoothFps,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};
   return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",smoothing:smoothFps,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
@@ -656,11 +668,11 @@ function install(win,contents=win?.webContents) {
     if(!onlyWindow(event))throw new Error("Rejected subtitle request");
     return subtitleVtt(await resolveSource(localPath,checkVideo),index);
   });
-  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing)=>{
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing,subtitleIndex=-1)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return start(await resolvePlaybackSource(localPath),
       offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off",
-      ["auto","60","120"].includes(smoothing)?smoothing:"off");
+      ["auto","60","120"].includes(smoothing)?smoothing:"off",Number.isInteger(subtitleIndex)?subtitleIndex:-1);
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

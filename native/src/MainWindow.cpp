@@ -349,6 +349,12 @@ MainWindow::MainWindow(QWidget *parent)
   rightLayout->addWidget(queue_,1);
   openFolder_=new QPushButton(right);
   rightLayout->addWidget(openFolder_);
+  artworkAttribution_=new QLabel(right);
+  artworkAttribution_->setOpenExternalLinks(true);
+  artworkAttribution_->setTextFormat(Qt::RichText);
+  artworkAttribution_->setStyleSheet(
+    QStringLiteral("font-size:10px;color:#9aa8b8;"));
+  rightLayout->addWidget(artworkAttribution_);
   columns->addWidget(right);
   page->addLayout(columns,1);
   auto *footer=new QLabel(QStringLiteral("DK Kinehall · DK Softworks"),root);
@@ -476,6 +482,11 @@ void MainWindow::rebuildLanguage() {
   chapters_->setText(t("Chapters","Главы"));
   chapters_->setToolTip(t("Select chapters","Выбрать главы"));
   shuffle_->setText(t("Shuffle","Перемешать"));
+  if(artworkAttribution_) {
+    artworkAttribution_->setText(russian_
+      ? QStringLiteral("Изображения: <a href=\"https://www.tvmaze.com/api\">ТВмейз</a>")
+      : QStringLiteral("Artwork: <a href=\"https://www.tvmaze.com/api\">TVmaze</a>"));
+  }
   updateLoopButton();
   rewind_->setToolTip(t("Rewind 10 seconds","Назад на 10 секунд"));
   forward_->setToolTip(t("Forward 10 seconds","Вперёд на 10 секунд"));

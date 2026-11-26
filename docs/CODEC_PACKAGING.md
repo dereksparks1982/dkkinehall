@@ -22,6 +22,10 @@ The installed standalone Linux edition should ship its required video, audio, co
 
 The native Qt/libmpv prototype can probe uncommon explicitly selected formats and its packaging verifies presence of FFmpeg's avcodec, avformat, avutil, swresample and swscale libraries without a hardcoded SONAME. This does not put native decoding behind the approved Chromium interface, does not prove playback of a specific file, and does not yet satisfy the requested all-in-one standalone release.
 
+## Metadata/backend separation
+
+The Qt/libmpv prototype's TVmaze lookup code is a separate, optional metadata path and is not itself a codec, decoder or guarantee of playback. Media bytes stay local. The eventual approved standalone decoder must run inside the existing interface; it cannot be replaced by an alternative player window.
+
 ## Required implementation before claiming broad bundled codec coverage
 
 1. Select and embed a complete native decoding back end (FFmpeg/libavcodec or libmpv-backed) **under the existing UI**, retaining the same playlist, controls, fullscreen, artwork, subtitles, icons, and window.

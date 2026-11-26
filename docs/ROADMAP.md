@@ -13,6 +13,7 @@ The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved r
 - Resizable video, Float/Dock in the application, Chromium native Picture-in-Picture.
 - Episode show title on line one; SxxExx and episode name together on the wrapping second line.
 - Source-level native Qt/libmpv chapter menu, queue drag ordering, Shuffle/Loop and wider file selection.
+- Native prototype: TVmaze episode lookup from series and SxxExx only, cached verified names and stills, with original release filename kept for playback and local poster priority.
 - File selection no longer depends on a narrow filename suffix list; actual decoding remains required.
 - Native portable packaging now audits FFmpeg codec libraries and ships third-party notices.
 

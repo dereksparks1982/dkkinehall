@@ -18,6 +18,10 @@ browser wrapper, or a web interface.
 
 The libmpv prototype now exposes a visible chapter selector, drag-reorderable queue, Shuffle and Repeat Off/One/All. Explicit media selections are probed regardless of extension. Its portable packaging script requires FFmpeg decoder/demux libraries and preserves third-party notices and the original icon. These changes are not a replacement for the approved Chromium-based UI and still require actual playback validation.
 
+## Native TV episode metadata
+
+The native source now has a bounded, rate-limited TVmaze lookup service. Only the series name, season and episode number are requested over HTTPS, not video file bytes, paths or complete release filenames. Successful matches cache verified episode names in local settings and episode still images in the user's cache. Local folder artwork takes priority; a filename episode title is retained when offline or when TVmaze has no match. No network connection is necessary to play a movie. This source is not yet accepted in place of the Chromium UI.
+
 ## Embedded MKV subtitle fix
 
 The normal **Subtitles ▾** button opens an in-app menu, never a file picker.

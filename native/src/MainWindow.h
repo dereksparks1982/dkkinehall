@@ -68,6 +68,7 @@ private:
   QLabel *brand_ = nullptr;
   QLabel *title_ = nullptr;
   QLabel *source_ = nullptr;
+  QLabel *artworkAttribution_ = nullptr;
   QLabel *subtitleLabel_ = nullptr;
   QLabel *clock_ = nullptr;
   QLabel *duration_ = nullptr;

@@ -21,7 +21,7 @@ respective rights holders. DK Softworks does not grant any license to
 third-party images or claim their ownership. No artwork images are bundled
 or redistributed with the application. See the provider terms:
 
-- TVmaze: https://www.tvmaze.com/api
+- TVmaze: https://www.tvmaze.com/api (episode metadata and images, attribution under CC BY-SA as applicable)
 - Cinemeta: https://v3-cinemeta.strem.io/
 - Apple Search API: https://performance-partners.apple.com/search-api
 

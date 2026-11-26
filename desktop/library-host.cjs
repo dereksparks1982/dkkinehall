@@ -201,7 +201,7 @@ function translateLocal(event,pair,lines,ticket){
   if(!Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid translation job");
   const runtime=translationPaths(pair);
   if(!runtime.ready)throw Error("Offline translation runtime or language model is missing");
-  if(translationJob)throw Error("Translation already running");
+  if(translationJob||voiceoverJob)throw Error("Offline speech or translation job already running");
   if(!Array.isArray(lines)||!lines.length||lines.length>12000||
     lines.some(line=>typeof line!=="string"||!line.trim()||line.length>1000)||
     Buffer.byteLength(JSON.stringify(lines),"utf8")>2*1024*1024)
@@ -246,6 +246,146 @@ function translateLocal(event,pair,lines,ticket){
       else resolve(result);
     });
     child.stdin.end(JSON.stringify(lines));
+  });
+}
+
+
+// DK Voiceover stage 1: timed text -> local bilingual translation -> timed
+// mono WAV. No source file access, network API, downloads or arbitrary commands.
+// The separately provisioned TTS package/model must be explicitly installed.
+let voiceoverJob=null,voiceoverResult=null,voiceoverExporting=false;
+const voiceoverWorker=String.raw`
+import json, sys, wave
+from pathlib import Path
+import numpy as np
+import ctranslate2
+import sentencepiece as spm
+import sherpa_onnx
+translation=Path(sys.argv[1])
+voice=Path(sys.argv[2])
+output=sys.argv[3]
+rows=json.load(sys.stdin)
+source=spm.SentencePieceProcessor(model_file=str(translation/"source.model"))
+target=spm.SentencePieceProcessor(model_file=str(translation/"target.model"))
+engine=ctranslate2.Translator(str(translation/"model"),device="cpu",inter_threads=1,intra_threads=2)
+texts=[]
+for i in range(0,len(rows),32):
+    tokens=[source.encode(r["text"],out_type=str) for r in rows[i:i+32]]
+    if any(len(t)>512 for t in tokens):
+        raise ValueError("Input exceeds model token limit")
+    decoded=engine.translate_batch(tokens,beam_size=2,max_input_length=512,max_decoding_length=512)
+    texts.extend(target.decode(r.hypotheses[0]) for r in decoded)
+    print(json.dumps({"stage":"translation","done":len(texts),"total":len(rows)}),flush=True)
+del engine
+config=sherpa_onnx.OfflineTtsConfig(
+    model=sherpa_onnx.OfflineTtsModelConfig(
+        vits=sherpa_onnx.OfflineTtsVitsModelConfig(model=str(voice/"model.onnx"),tokens=str(voice/"tokens.txt"),data_dir=str(voice/"espeak-ng-data")),
+        num_threads=2,provider="cpu"))
+if not config.validate():
+    raise ValueError("Invalid voice model")
+tts=sherpa_onnx.OfflineTts(config)
+rate=int(tts.sample_rate)
+if not 8000<=rate<=32000:
+    raise ValueError("Unsupported sample rate")
+cursor=0
+skipped=0
+silence=b"\0"*(rate*2)
+def pad(wav,n):
+    while n>0:
+        chunk=min(n,rate)
+        wav.writeframesraw(silence[:chunk*2])
+        n-=chunk
+with wave.open(output,"wb") as wav:
+    wav.setnchannels(1)
+    wav.setsampwidth(2)
+    wav.setframerate(rate)
+    for i,(row,text) in enumerate(zip(rows,texts)):
+        start=max(cursor,round(row["start"]*rate))
+        end=round(row["end"]*rate)
+        if i+1<len(rows):
+            end=min(end,round(rows[i+1]["start"]*rate))
+        room=end-start
+        if room>rate/10 and text.strip():
+            audio=tts.generate(text=text,sid=0,speed=1.0)
+            if len(audio.samples)>room:
+                speed=min(1.45,max(1.05,len(audio.samples)/room*1.03))
+                audio=tts.generate(text=text,sid=0,speed=speed)
+            samples=np.asarray(audio.samples,dtype=np.float32)
+            if int(audio.sample_rate)==rate and 0<len(samples)<=room and np.isfinite(samples).all():
+                pad(wav,start-cursor)
+                wav.writeframesraw((np.clip(samples,-1,1)*32767).astype("<i2").tobytes())
+                cursor=start+len(samples)
+            else:
+                skipped+=1
+        else:
+            skipped+=1
+        print(json.dumps({"stage":"speech","done":i+1,"total":len(rows),"skipped":skipped}),flush=True)
+    last=round(max(r["end"] for r in rows)*rate)
+    pad(wav,max(0,last-cursor))
+if skipped==len(rows):
+    raise ValueError("No speech could fit the cue timing")
+print(json.dumps({"stage":"complete","done":len(rows),"total":len(rows),"skipped":skipped}),flush=True)
+`;
+function voiceoverPaths(pair){
+  const runtime=translationPaths(pair);
+  const root=path.dirname(path.dirname(runtime.model));
+  const voice=path.join(root,"voices",pair.split("-")[1]);
+  const ready=runtime.ready&&[path.join(voice,"READY.json"),path.join(voice,"model.onnx"),path.join(voice,"tokens.txt"),path.join(voice,"espeak-ng-data")].every(p=>fs.existsSync(p));
+  return {...runtime,voice,ready};
+}
+function discardVoiceover(){
+  if(voiceoverJob){voiceoverJob.cancelled=true;voiceoverJob.child?.kill("SIGKILL");}
+  if(voiceoverResult&&!voiceoverExporting){
+    fs.rmSync(voiceoverResult.dir,{recursive:true,force:true});voiceoverResult=null;
+  }
+}
+function generateVoiceover(event,pair,rows,ticket){
+  const runtime=voiceoverPaths(pair);
+  if(!runtime.ready)throw Error("Voiceover runtime is not installed");
+  if(voiceoverJob||translationJob||voiceoverExporting)throw Error("Offline speech or translation job already running");
+  if(!Number.isSafeInteger(ticket)||ticket<1||!Array.isArray(rows)||!rows.length||rows.length>6000||
+    Buffer.byteLength(JSON.stringify(rows),"utf8")>2*1024*1024||
+    rows.some((r,i)=>!r||!Number.isFinite(r.start)||!Number.isFinite(r.end)||r.start<0||r.end<=r.start||r.end>10800||
+      (i>0&&r.start<rows[i-1].start)||typeof r.text!=="string"||!r.text.trim()||r.text.length>1000))
+    throw Error("Invalid voiceover cues");
+  discardVoiceover();
+  const dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-voiceover-"));
+  const output=path.join(dir,"voiceover.wav");
+  return new Promise((resolve,reject)=>{
+    let child;
+    try{child=spawn(runtime.python,["-I","-c",voiceoverWorker,runtime.model,runtime.voice,output],{
+      shell:false,stdio:["pipe","pipe","pipe"],env:{...process.env,LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1",OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}
+    });}catch(error){fs.rmSync(dir,{recursive:true,force:true});reject(error);return;}
+    const job={child,cancelled:false};voiceoverJob=job;
+    let pending="",complete=null,failed=false;
+    const timer=setTimeout(()=>child.kill("SIGKILL"),90*60*1000);
+    child.stdout.setEncoding("utf8");child.stderr.resume();
+    child.stdout.on("data",chunk=>{
+      pending+=chunk;if(pending.length>65536){failed=true;child.kill("SIGKILL");return;}
+      let end;
+      while((end=pending.indexOf("\n"))>=0){
+        const line=pending.slice(0,end);pending=pending.slice(end+1);
+        try{
+          const value=JSON.parse(line);
+          if(!["translation","speech","complete"].includes(value.stage)||!Number.isInteger(value.done)||value.done<0||
+             value.done>rows.length||value.total!==rows.length)throw Error("Invalid worker progress");
+          const skipped=Number.isInteger(value.skipped)?Math.max(0,Math.min(rows.length,value.skipped)):0;
+          if(value.stage==="complete")complete={skipped};
+          if(!event.sender.isDestroyed())event.sender.send("dk-library:voiceover-progress",{ticket,stage:value.stage,done:value.done,total:rows.length,skipped});
+        }catch(_){failed=true;child.kill("SIGKILL");}
+      }
+    });
+    child.stdin.on("error",()=>{});child.on("error",()=>{failed=true;});
+    child.on("close",code=>{
+      clearTimeout(timer);if(voiceoverJob===job)voiceoverJob=null;
+      let stat;try{stat=fs.statSync(output);}catch(_){}
+      if(code!==0||failed||job.cancelled||!complete||!stat?.isFile()||stat.size<44||stat.size>700*1024*1024){
+        fs.rmSync(dir,{recursive:true,force:true});reject(Error("Voiceover generation failed or was cancelled"));return;
+      }
+      voiceoverResult={dir,output,ticket};
+      resolve({skipped:complete.skipped,total:rows.length});
+    });
+    child.stdin.end(JSON.stringify(rows));
   });
 }
 
@@ -625,7 +765,31 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Translation command rejected");
     cancelTranslation();return true;
   });
-  home.on("closed",cancelTranslation);
+  ipcMain.handle("dk-library:voiceover-status",(event,pair)=>{
+    if(!onlyPlayer(event))throw Error("Voiceover request rejected");
+    return voiceoverPaths(pair).ready;
+  });
+  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket)=>{
+    if(!onlyPlayer(event))throw Error("Voiceover request rejected");
+    return generateVoiceover(event,pair,rows,ticket);
+  });
+  ipcMain.handle("dk-library:voiceover-discard",event=>{
+    if(!onlyPlayer(event))throw Error("Voiceover request rejected");
+    discardVoiceover();return true;
+  });
+  ipcMain.handle("dk-library:voiceover-export",async(event,ticket,language)=>{
+    if(!onlyPlayer(event)||voiceoverExporting||voiceoverJob||!voiceoverResult||voiceoverResult.ticket!==ticket)throw Error("Voiceover export rejected");
+    const result=voiceoverResult;voiceoverExporting=true;
+    try{
+      const ru=language==="ru";
+      const chosen=await dialog.showSaveDialog(home,{title:ru?"Сохранить озвучивание":"Save voiceover",defaultPath:"voiceover.wav",filters:[{name:ru?"Звуковой файл ВАВ":"WAV audio",extensions:["wav"]}]});
+      if(chosen.canceled||!chosen.filePath)return false;
+      if(!/\.wav$/i.test(chosen.filePath))throw Error("WAV extension required");
+      await fs.promises.copyFile(result.output,chosen.filePath,fs.constants.COPYFILE_EXCL);
+      return true;
+    }finally{voiceoverExporting=false;}
+  });
+  home.on("closed",()=>{cancelTranslation();discardVoiceover();});
   ipcMain.handle("dk-library:remember-media",async(event,source,key)=>{
     if(!onlyPlayer(event))throw Error("Media restore request rejected");
     return rememberMedia(source,key);

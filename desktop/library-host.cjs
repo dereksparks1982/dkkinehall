@@ -963,10 +963,9 @@ with wave.open(sys.argv[2],"rb") as wav:
             if vector is None:
                 ids[speaker]=-1
                 continue
-            ranked=sorted(((float(np.dot(vector,c)),i) for i,c in enumerate(centroids)
-                           if i not in used),reverse=True)
+            ranked=sorted(((float(np.dot(vector,c)),i) for i,c in enumerate(centroids)),reverse=True)
             best=ranked[0] if ranked else None
-            if best and best[0]>=0.72 and (len(ranked)==1 or best[0]-ranked[1][0]>=0.08):
+            if best and best[1] not in used and best[0]>=0.72 and (len(ranked)==1 or best[0]-ranked[1][0]>=0.08):
                 idx=best[1]
                 updated=unit(centroids[idx]*min(weights[idx],4)+vector)
                 if updated is not None: centroids[idx]=updated

@@ -1177,10 +1177,10 @@ html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .dk-tr
 
 /* Approved standalone accessory colours. Preserve existing button geometry. */
 html.dk-standalone .screen .controls .extras #floatPlayer{
-  background-color:#fff;color:#23171a;border-color:#a58039;
+  background-color:#462a25;color:#e2b956;border-color:#a58039;
 }
 html.dk-standalone .screen .controls .extras #floatPlayer:is(:hover,:active):not(:disabled){
-  background-color:#f5eee5;color:#23171a;border-color:#a58039;
+  background-color:#53322b;color:#e2b956;border-color:#a58039;
 }
 html.dk-standalone .screen .controls .extras #floatPlayer:focus-visible{
   outline:2px solid currentColor;outline-offset:-4px;

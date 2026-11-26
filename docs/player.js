@@ -2632,6 +2632,18 @@
     const item=current();
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;
     if(codecPlayback?.isActive(item)){
+      if(item.activeSmoothing&&item.smoothingMode!=="off"){
+        const at=playbackSeconds();
+        item.smoothingMode="off";item.activeSmoothing=0;
+        const epoch=item.playbackEpoch;
+        void codecPlayback.start(item,at,Boolean(item.autoplayRequested),
+          ["mp4","webm"].includes(item.requestedFormat)?item.requestedFormat:"auto",
+          item.codecAudioIndex||0).then(ok=>{
+          if(!ok&&current()===item&&item.playbackEpoch===epoch)
+            status("Included decoder output could not be played.");
+        });
+        return;
+      }
       if(!item.nativeAlternateAttempted&&item.requestedFormat==="auto"){
         void codecPlayback.retryAlternate(item).then(ok=>{if(!ok&&current()===item)status("Included decoder output could not be played.");});
       }else status("Included decoder output could not be played.");

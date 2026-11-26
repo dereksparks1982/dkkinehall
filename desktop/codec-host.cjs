@@ -110,7 +110,7 @@ async function probe(localPath) {
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name:stream=index,codec_type,codec_name:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name:stream=index,codec_type,codec_name,pix_fmt:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
@@ -122,6 +122,7 @@ async function probe(localPath) {
   return {ready:true,duration:Number.isFinite(seconds)&&seconds>0?seconds:null,
     hasVideo,hasAudio,format:String(json.format?.format_name||"").slice(0,120),
     videoCodec:String(streams.find(s=>s.codec_type==="video")?.codec_name||""),
+    videoPixelFormat:String(streams.find(s=>s.codec_type==="video")?.pix_fmt||""),
     audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
     audioTracks:streams.filter(s=>s.codec_type==="audio").map((s,index)=>({
       index,codec:String(s.codec_name||""),
@@ -261,7 +262,6 @@ async function loopback() {
 async function start(localPath,offset=0,format="auto",audioIndex=0) {
   const info=await probe(localPath);
   const available=await status();
-  const selectedFormat=chooseOutput(available,format);
   const target=selectedFile(localPath);
   const chosen=Number(audioIndex);
   const audioOrdinal=Number.isInteger(chosen)&&chosen>=0 &&
@@ -269,12 +269,14 @@ async function start(localPath,offset=0,format="auto",audioIndex=0) {
   const position=Math.max(0,Math.min(
     Number.isFinite(Number(offset))?Number(offset):0,
     info.duration===null?24*60*60:Math.max(0,info.duration-0.5)));
+  const copyVideo=info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
+  const selectedFormat=chooseOutput(available,format,copyVideo);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,
-    copyVideo:selectedFormat==="mp4"&&info.videoCodec==="h264"&&position===0,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,
     process:null,response:null};
   return {...info,position,format:selectedFormat,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};

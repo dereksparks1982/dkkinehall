@@ -1368,3 +1368,9 @@ html.dk-standalone .dk-next-actions>[data-next-play]{background:#d52b1e;color:#f
 html.dk-standalone .dk-next-actions>[data-next-cancel]{background:#e2b956;color:#462a25;border-color:#a58039}
 html.dk-standalone .dk-voiceover progress{width:100%;accent-color:#e2b956}
 html.dk-standalone .dk-voiceover output{text-align:center;color:#e2b956}
+
+/* Keep Russian header commands within the existing approved button boxes. */
+html.dk-standalone[lang="ru"] :is(#scanLibrary,#playerScanLibrary){
+  white-space:normal;overflow-wrap:normal;line-height:1.15;font-size:.78rem;
+  text-align:center;padding-inline:5px;
+}

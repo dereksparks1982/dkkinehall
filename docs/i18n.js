@@ -56,6 +56,7 @@
     "Preparing video with included codecs…":"Подготовка видео встроенными кодеками…",
     "Playing with included codecs.":"Воспроизведение со встроенными кодеками.",
     "Decoding with included codecs…":"Декодирование встроенными кодеками…",
+    "200% volume isn\'t available with this audio output.":"Усиление до 200% недоступно для этого аудиовыхода.",
     "Included codec stream ready.":"Поток встроенного декодера готов.",
     "Included decoder output could not be played.":"Не удалось воспроизвести результат встроенного декодера.",
     "This media format could not be decoded.":"Не удалось декодировать этот формат медиа.",

@@ -626,13 +626,13 @@ function cancelASR(){
 function asrProgress(event,job,stage,percent){
   if(!job.cancelled&&!event.sender.isDestroyed())event.sender.send("dk-library:asr-progress",{ticket:job.ticket,stage,percent:Math.max(0,Math.min(100,Math.floor(percent)))});
 }
-function asrProcess(job,command,args,timeout,onLine=()=>{},capture=false){
+function asrProcess(job,command,args,timeout,onLine=()=>{},capture=false,extraEnv={}){
   if(job.cancelled)throw Error("Speech recognition cancelled");
   return new Promise((resolve,reject)=>{
     let child;
     try{child=spawn(command,args,{shell:false,stdio:["ignore","pipe","pipe"],env:{...process.env,
       LD_LIBRARY_PATH:path.join(app.getAppPath(),"lib")+path.delimiter+(process.env.LD_LIBRARY_PATH||""),
-      OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}});}
+      OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1",...extraEnv}});}
     catch(error){reject(error);return;}
     job.child=child;
     let output="",pending="",failed=false;
@@ -765,6 +765,111 @@ async function generateASR(event,source,language,audioIndex,ticket){
     if(job.cancelled||after.size!==stat.size||after.mtimeMs!==stat.mtimeMs||after.ino!==stat.ino)throw Error("Media changed during recognition");
     saveASRCache(file,srt);asrProgress(event,job,"complete",100);
     return {rows,srt,cached:false,language:detected};
+  }finally{
+    if(dir)fs.rmSync(dir,{recursive:true,force:true});
+    if(asrJob===job)asrJob=null;
+  }
+}
+
+
+// Optional local speaker clustering. The diarization engine returns anonymous
+// speaker numbers only; no identity, gender or biometric matching is inferred.
+const DIARIZATION_LIMIT=3600;
+const diarizationWorker=String.raw`
+import json, sys, wave
+from pathlib import Path
+import numpy as np
+import sherpa_onnx
+root=Path(sys.argv[1])
+with wave.open(sys.argv[2], "rb") as wav:
+    if wav.getnchannels()!=1 or wav.getsampwidth()!=2 or wav.getframerate()!=16000:
+        raise ValueError("Unsupported speaker audio")
+    n=wav.getnframes()
+    if not 0<n<=3600*16000:
+        raise ValueError("Speaker audio exceeds duration limit")
+    pcm=np.frombuffer(wav.readframes(n),dtype="<i2").astype(np.float32)/32768.0
+config=sherpa_onnx.OfflineSpeakerDiarizationConfig(
+    segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
+        pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
+            model=str(root/"segmentation.onnx"),window_shift_ratio=0.1),
+        num_threads=2,provider="cpu"),
+    embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(
+        model=str(root/"embedding.onnx"),num_threads=2,provider="cpu"),
+    clustering=sherpa_onnx.FastClusteringConfig(num_clusters=-1,threshold=0.5),
+    min_duration_on=0.3,min_duration_off=0.5)
+if not config.validate():
+    raise ValueError("Invalid speaker models")
+engine=sherpa_onnx.OfflineSpeakerDiarization(config)
+if engine.sample_rate!=16000:
+    raise ValueError("Unexpected speaker sample rate")
+def progress(done,total):
+    if total>0:
+        print("dk_speakers_progress="+str(int(100*done/total)),file=sys.stderr,flush=True)
+    return 0
+result=engine.process(pcm,callback=progress).sort_by_start_time()
+rows=[]
+for segment in result:
+    if len(rows)>=6000:
+        raise ValueError("Too many speaker segments")
+    rows.append([float(segment.start),float(segment.end),int(segment.speaker)])
+print(json.dumps(rows,separators=(",",":")),flush=True)
+`;
+function diarizationPaths(){
+  const base=path.join(process.env.XDG_DATA_HOME||path.join(app.getPath("home"),".local","share"),"dk-kinehall","translation-runtime");
+  const python=path.join(base,"bin","python3"),root=path.join(base,"diarization");
+  const ffmpeg=path.join(app.getAppPath(),"bin","ffmpeg"),ffprobe=path.join(app.getAppPath(),"bin","ffprobe");
+  let ready=false;
+  try{
+    for(const file of [python,ffmpeg,ffprobe])fs.accessSync(file,fs.constants.X_OK);
+    ready=["READY.json","segmentation.onnx","embedding.onnx"].every(name=>fs.statSync(path.join(root,name)).isFile());
+  }catch(_){}
+  return {python,root,ffmpeg,ffprobe,ready};
+}
+async function identifySpeakers(event,source,audioIndex,ticket){
+  if(asrJob||translationJob||voiceoverJob||voiceoverExporting||voiceCacheConfirming)throw Error("Another offline job is running");
+  if(!Number.isInteger(audioIndex)||audioIndex<0||audioIndex>31||!Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid speaker request");
+  const runtime=diarizationPaths();if(!runtime.ready)throw Error("Offline speaker models not installed");
+  const job={ticket,child:null,cancelled:false};asrJob=job;
+  let dir=null;
+  try{
+    const target=await require("./codec-source.cjs").resolveSource(source,checkPlayableSource);
+    const stat=await fs.promises.stat(target);
+    if(!stat.isFile())throw Error("A local media file is required");
+    const probe=JSON.parse(await asrProcess(job,runtime.ffprobe,["-v","error","-protocol_whitelist","file,pipe","-show_entries","format=duration:stream=codec_type","-of","json",target],30000,()=>{},true));
+    const duration=Number(probe.format?.duration),tracks=(probe.streams||[]).filter(s=>s.codec_type==="audio");
+    if(!Number.isFinite(duration)||duration<=0||duration>DIARIZATION_LIMIT||audioIndex>=tracks.length)
+      throw Error("Speaker analysis currently supports media up to 60 minutes");
+    dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-speakers-"));
+    const wav=path.join(dir,"audio.wav");
+    asrProgress(event,job,"speaker-extract",0);
+    await asrProcess(job,runtime.ffmpeg,["-nostdin","-hide_banner","-loglevel","error","-progress","pipe:1","-protocol_whitelist","file,pipe","-threads","2","-copyts","-start_at_zero","-i",target,
+      "-map","0:a:"+audioIndex,"-vn","-sn","-dn","-af","aresample=16000:async=1:first_pts=0","-ac","1","-ar","16000","-c:a","pcm_s16le","-t",String(duration),"-y",wav],
+      30*60*1000,chunk=>{
+        for(const match of String(chunk).matchAll(/out_time_us=(\d+)/g))asrProgress(event,job,"speaker-extract",Math.min(15,Number(match[1])/1000000/duration*15));
+      });
+    if(fs.statSync(wav).size>DIARIZATION_LIMIT*32000+1024*1024)throw Error("Speaker audio exceeds limit");
+    asrProgress(event,job,"speakers",15);
+    const raw=await asrProcess(job,runtime.python,["-I","-c",diarizationWorker,runtime.root,wav],90*60*1000,line=>{
+      const match=/dk_speakers_progress=(\d+)/.exec(line);
+      if(match)asrProgress(event,job,"speakers",15+Number(match[1])*.84);
+    },true,{LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1"});
+    const rows=JSON.parse(raw);
+    if(!Array.isArray(rows)||!rows.length||rows.length>6000||rows.some(r=>!Array.isArray(r)||r.length!==3||
+      !Number.isFinite(r[0])||!Number.isFinite(r[1])||r[0]<0||r[1]<=r[0]||r[1]>duration+2||
+      !Number.isSafeInteger(r[2])||r[2]<0||r[2]>10000))throw Error("Invalid speaker timeline");
+    const sorted=rows.sort((a,b)=>a[0]-b[0]),ids=new Map(),segments=[];
+    for(const [start,end,rawId] of sorted){
+      if(!ids.has(rawId)){
+        if(ids.size>=32)throw Error("Too many detected speakers");
+        ids.set(rawId,ids.size);
+      }
+      if(Math.min(end,duration)>start)segments.push({start,end:Math.min(end,duration),speaker:ids.get(rawId)});
+    }
+    if(!segments.length)throw Error("No speakers detected");
+    const after=await fs.promises.stat(target);
+    if(job.cancelled||after.size!==stat.size||after.mtimeMs!==stat.mtimeMs||after.ino!==stat.ino)throw Error("Media changed during speaker analysis");
+    asrProgress(event,job,"complete",100);
+    return {segments,count:ids.size};
   }finally{
     if(dir)fs.rmSync(dir,{recursive:true,force:true});
     if(asrJob===job)asrJob=null;
@@ -1178,6 +1283,14 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:cancel-translation",event=>{
     if(!onlyPlayer(event))throw Error("Translation command rejected");
     cancelTranslation();return true;
+  });
+  ipcMain.handle("dk-library:speaker-status",event=>{
+    if(!onlyPlayer(event))throw Error("Speaker request rejected");
+    return diarizationPaths().ready;
+  });
+  ipcMain.handle("dk-library:speaker-identify",(event,source,audioIndex,ticket)=>{
+    if(!onlyPlayer(event))throw Error("Speaker request rejected");
+    return identifySpeakers(event,source,audioIndex,ticket);
   });
   ipcMain.handle("dk-library:asr-status",event=>{
     if(!onlyPlayer(event))throw Error("Speech recognition request rejected");

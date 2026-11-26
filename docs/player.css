@@ -1220,6 +1220,25 @@ html.dk-standalone .language-select{
 }
 
 
+/* Approved standalone caption and speaker palette; retain existing geometry,
+   glyphs, enabled/disabled semantics and volume slider. */
+html.dk-standalone .screen .controls .extras #subtitleToggle,
+html.dk-standalone .screen .controls .extras #subtitleToggle:is(:hover,:active,:focus,:focus-visible),
+html.dk-standalone .screen .controls .extras #subtitleToggle[aria-pressed="true"]{
+  background-color:var(--dk-gold,#E2B956);color:#462A25;border-color:var(--dk-antique,#A58039);
+}
+html.dk-standalone .screen .controls .extras .volume #mute,
+html.dk-standalone .screen .controls .extras .volume #mute:is(:hover,:active,:focus,:focus-visible),
+html.dk-standalone .screen .controls .extras .volume #mute.is-muted,
+html.dk-standalone .screen .controls .extras .volume #mute[aria-pressed="true"]{
+  background-color:var(--dk-russian-red,#D52B1E);color:#fff;border-color:var(--dk-antique,#A58039);
+}
+html.dk-standalone .screen .controls .extras #subtitleToggle:focus-visible,
+html.dk-standalone .screen .controls .extras .volume #mute:focus-visible{
+  outline:2px solid currentColor;outline-offset:-4px;
+}
+
+
 /* Approved red picture-in-picture control with the existing white glyph. */
 html.dk-standalone .screen .controls .extras #pip,
 html.dk-standalone .screen .controls .extras #pip:is(:hover,:active,:focus,:focus-visible),

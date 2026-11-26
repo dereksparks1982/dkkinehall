@@ -202,7 +202,7 @@ function translateLocal(event,pair,lines,ticket){
   if(!Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid translation job");
   const runtime=translationPaths(pair);
   if(!runtime.ready)throw Error("Offline translation runtime or language model is missing");
-  if(translationJob||voiceoverJob)throw Error("Offline speech or translation job already running");
+  if(translationJob||voiceoverJob||asrJob)throw Error("Offline speech or translation job already running");
   if(!Array.isArray(lines)||!lines.length||lines.length>12000||
     lines.some(line=>typeof line!=="string"||!line.trim()||line.length>1000)||
     Buffer.byteLength(JSON.stringify(lines),"utf8")>2*1024*1024)
@@ -374,7 +374,7 @@ function discardVoiceover(){
 function generateVoiceover(event,pair,rows,ticket){
   const runtime=voiceoverPaths(pair);
   if(!runtime.ready)throw Error("Voiceover runtime is not installed");
-  if(voiceoverJob||translationJob||voiceoverExporting)throw Error("Offline speech or translation job already running");
+  if(voiceoverJob||translationJob||asrJob||voiceoverExporting)throw Error("Offline speech or translation job already running");
   if(!Number.isSafeInteger(ticket)||ticket<1||!Array.isArray(rows)||!rows.length||rows.length>6000||
     Buffer.byteLength(JSON.stringify(rows),"utf8")>2*1024*1024||
     rows.some((r,i)=>!r||!Number.isFinite(r.start)||!Number.isFinite(r.end)||r.start<0||r.end<=r.start||r.end>10800||
@@ -419,6 +419,155 @@ function generateVoiceover(event,pair,rows,ticket){
     });
     child.stdin.end(JSON.stringify(rows));
   });
+}
+
+
+/* Offline ASR: separately provisioned Whisper.cpp CLI and multilingual
+ * base model. No download, shell, remote audio, or renderer-provided binary. */
+let asrJob=null;
+const ASR_LIMIT=10800,ASR_BYTES=8*1024*1024;
+function asrPaths(){
+  const root=path.join(process.env.XDG_DATA_HOME||path.join(app.getPath("home"),".local","share"),"dk-kinehall","speech-runtime");
+  const cli=path.join(root,"bin","whisper-cli"),model=path.join(root,"models","ggml-base.bin");
+  const ffmpeg=path.join(app.getAppPath(),"bin","ffmpeg"),ffprobe=path.join(app.getAppPath(),"bin","ffprobe");
+  let ready=false;
+  try{
+    for(const file of [cli,ffmpeg,ffprobe])fs.accessSync(file,fs.constants.X_OK);
+    const stat=fs.statSync(model);ready=stat.isFile()&&stat.size>1024*1024&&stat.size<512*1024*1024&&fs.existsSync(path.join(root,"READY.json"));
+  }catch(_){}
+  return {cli,model,ffmpeg,ffprobe,ready};
+}
+function cancelASR(){
+  if(asrJob){asrJob.cancelled=true;asrJob.child?.kill("SIGKILL");}
+}
+function asrProgress(event,job,stage,percent){
+  if(!job.cancelled&&!event.sender.isDestroyed())event.sender.send("dk-library:asr-progress",{ticket:job.ticket,stage,percent:Math.max(0,Math.min(100,Math.floor(percent)))});
+}
+function asrProcess(job,command,args,timeout,onLine=()=>{},capture=false){
+  if(job.cancelled)throw Error("Speech recognition cancelled");
+  return new Promise((resolve,reject)=>{
+    let child;
+    try{child=spawn(command,args,{shell:false,stdio:["ignore","pipe","pipe"],env:{...process.env,
+      LD_LIBRARY_PATH:path.join(app.getAppPath(),"lib")+path.delimiter+(process.env.LD_LIBRARY_PATH||""),
+      OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}});}
+    catch(error){reject(error);return;}
+    job.child=child;
+    let output="",pending="",failed=false;
+    const timer=setTimeout(()=>{failed=true;child.kill("SIGKILL");},timeout);
+    child.stdout.setEncoding("utf8");child.stderr.setEncoding("utf8");
+    child.stdout.on("data",chunk=>{
+      if(capture){output+=chunk;if(output.length>512*1024){failed=true;child.kill("SIGKILL");}}
+      else onLine(chunk);
+    });
+    child.stderr.on("data",chunk=>{
+      pending+=chunk;
+      if(pending.length>65536)pending=pending.slice(-32768);
+      const lines=pending.split(/[\r\n]+/);pending=lines.pop()||"";
+      for(const line of lines)onLine(line);
+    });
+    child.on("error",()=>{failed=true;});
+    child.on("close",code=>{
+      clearTimeout(timer);job.child=null;
+      if(failed||job.cancelled||code!==0)reject(Error(job.cancelled?"Speech recognition cancelled":"Offline speech worker failed"));
+      else resolve(output);
+    });
+  });
+}
+function parseASRSrt(text,duration){
+  if(typeof text!=="string"||Buffer.byteLength(text,"utf8")>ASR_BYTES)throw Error("Subtitle output exceeds limit");
+  const rows=[];
+  const stamp=value=>{
+    const m=/^(\d{2}):([0-5]\d):([0-5]\d)[,.](\d{3})$/.exec(value);
+    return m?Number(m[1])*3600+Number(m[2])*60+Number(m[3])+Number(m[4])/1000:NaN;
+  };
+  for(const block of text.replace(/^\uFEFF/,"").replace(/\r\n/g,"\n").trim().split(/\n\s*\n/)){
+    const lines=block.split("\n"),index=lines.findIndex(line=>line.includes("-->"));
+    if(index<0)continue;
+    const [a,b]=lines[index].split("-->").map(v=>v.trim());
+    const start=stamp(a),end=stamp(b);
+    const line=lines.slice(index+1).join(" ").replace(/[\u0000-\u001f]+/g," ").trim();
+    if(!line)continue;
+    if(!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start||end>duration+2||line.length>1000||rows.length>=6000)
+      throw Error("Invalid or excessive generated subtitles");
+    rows.push({start,end:Math.min(duration,end),text:line});
+  }
+  const valid=rows.filter(r=>r.end>r.start).sort((a,b)=>a.start-b.start);
+  if(!valid.length)throw Error("No speech recognized");
+  return valid;
+}
+function asrCacheRoot(){return path.join(app.getPath("userData"),"generated-subtitles-v1");}
+function readASRCache(file,duration){
+  try{
+    const stat=fs.lstatSync(file);
+    if(!stat.isFile()||stat.size>ASR_BYTES)return null;
+    const srt=fs.readFileSync(file,"utf8"),rows=parseASRSrt(srt,duration);
+    return {rows,srt,cached:true};
+  }catch(_){return null;}
+}
+function saveASRCache(file,srt){
+  const root=asrCacheRoot();
+  fs.mkdirSync(root,{recursive:true,mode:0o700});
+  const tmp=file+"."+randomBytes(8).toString("hex")+".tmp";
+  try{
+    fs.writeFileSync(tmp,srt,{mode:0o600,flag:"wx"});
+    fs.renameSync(tmp,file);
+  }finally{try{fs.unlinkSync(tmp);}catch(_){}}
+  // Keep at most 128 transcripts or 64 MiB, oldest first. No media copies.
+  const files=fs.readdirSync(root).filter(n=>/^[a-f0-9]{64}\.srt$/.test(n)).flatMap(n=>{
+    try{const name=path.join(root,n),stat=fs.lstatSync(name);return stat.isFile()?[{name,stat}]:[];}catch(_){return [];}
+  }).sort((a,b)=>b.stat.mtimeMs-a.stat.mtimeMs);
+  let bytes=0;
+  files.forEach((entry,i)=>{bytes+=entry.stat.size;if((i>=128||bytes>64*1024*1024)&&entry.name!==file)try{fs.unlinkSync(entry.name);}catch(_){}});
+}
+async function generateASR(event,source,language,audioIndex,ticket){
+  if(asrJob||translationJob||voiceoverJob)throw Error("Another offline speech job is running");
+  if(!["en","ru"].includes(language)||!Number.isInteger(audioIndex)||audioIndex<0||audioIndex>31||
+     !Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid speech recognition request");
+  const runtime=asrPaths();if(!runtime.ready)throw Error("Offline speech runtime is not installed");
+  const job={ticket,child:null,cancelled:false};asrJob=job;
+  let dir=null;
+  try{
+    // Same selected-file path boundary as the existing codec bridge.
+    const target=await require("./codec-source.cjs").resolveSource(source,checkPlayableSource);
+    const stat=await fs.promises.stat(target);
+    if(!stat.isFile())throw Error("A local media file is required");
+    const probe=JSON.parse(await asrProcess(job,runtime.ffprobe,["-v","error","-protocol_whitelist","file,pipe","-show_entries","format=duration,start_time:stream=codec_type","-of","json",target],30000,()=>{},true));
+    const duration=Number(probe.format?.duration),tracks=(probe.streams||[]).filter(s=>s.codec_type==="audio");
+    if(!Number.isFinite(duration)||duration<=0||duration>ASR_LIMIT||audioIndex>=tracks.length)throw Error("Unsupported duration or audio track");
+    const modelStat=fs.statSync(runtime.model),cliStat=fs.statSync(runtime.cli);
+    const key=require("node:crypto").createHash("sha256").update(JSON.stringify(["asr-v1",target,stat.size,stat.mtimeMs,stat.ino,audioIndex,language,modelStat.size,modelStat.mtimeMs,cliStat.size,cliStat.mtimeMs])).digest("hex");
+    const file=path.join(asrCacheRoot(),key+".srt");
+    const cached=readASRCache(file,duration);
+    if(cached){asrProgress(event,job,"cached",100);return cached;}
+    dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-asr-"));
+    const wav=path.join(dir,"audio.wav"),output=path.join(dir,"transcript");
+    asrProgress(event,job,"extract",0);
+    // Rebase container start to source time zero; fill initial audio gaps
+    // instead of shifting the dialogue to the first audio sample.
+    await asrProcess(job,runtime.ffmpeg,["-nostdin","-hide_banner","-loglevel","error","-progress","pipe:1","-protocol_whitelist","file,pipe","-threads","2","-copyts","-start_at_zero","-i",target,
+      "-map","0:a:"+audioIndex,"-vn","-sn","-dn","-af","aresample=16000:async=1:first_pts=0","-ac","1","-ar","16000","-c:a","pcm_s16le","-t",String(duration),"-y",wav],
+      30*60*1000,chunk=>{
+        for(const match of String(chunk).matchAll(/out_time_us=(\d+)/g))asrProgress(event,job,"extract",Math.min(15,Number(match[1])/1000000/duration*15));
+      });
+    const wavStat=fs.statSync(wav);
+    if(wavStat.size<44||wavStat.size>ASR_LIMIT*32000+1024*1024)throw Error("Audio extraction exceeds limit");
+    asrProgress(event,job,"recognize",15);
+    await asrProcess(job,runtime.cli,["-m",runtime.model,"-f",wav,"-l",language,"-t","2","-osrt","-of",output,"-pp"],
+      4*60*60*1000,line=>{
+        const match=/progress\s*=\s*(\d+)%/i.exec(line);
+        if(match)asrProgress(event,job,"recognize",15+Number(match[1])*.84);
+      });
+    const srtFile=output+".srt";
+    if(fs.statSync(srtFile).size>ASR_BYTES)throw Error("Subtitle output exceeds limit");
+    const srt=fs.readFileSync(srtFile,"utf8"),rows=parseASRSrt(srt,duration);
+    const after=await fs.promises.stat(target);
+    if(job.cancelled||after.size!==stat.size||after.mtimeMs!==stat.mtimeMs||after.ino!==stat.ino)throw Error("Media changed during recognition");
+    saveASRCache(file,srt);asrProgress(event,job,"complete",100);
+    return {rows,srt,cached:false};
+  }finally{
+    if(dir)fs.rmSync(dir,{recursive:true,force:true});
+    if(asrJob===job)asrJob=null;
+  }
 }
 
 let externalSelections=[],externalWork=Promise.resolve();
@@ -809,14 +958,14 @@ function install(originalWindow,originalPlayer){
     return translateLocal(event,pair,lines,ticket);
   });
   let exportingSubtitles=false;
-  ipcMain.handle("dk-library:export-translated-srt",async(event,content,language)=>{
+  ipcMain.handle("dk-library:export-translated-srt",async(event,content,language,generated)=>{
     if(!onlyPlayer(event)||exportingSubtitles||typeof content!=="string"||!content.trim()||
        Buffer.byteLength(content,"utf8")>8*1024*1024)throw Error("Subtitle export rejected");
     exportingSubtitles=true;
     try{
       const ru=language==="ru";
-      const chosen=await dialog.showSaveDialog(home,{title:ru?"Сохранить переведённые субтитры":"Save translated subtitles",
-        defaultPath:"translated-subtitles.srt",filters:[{name:ru?"Субтитры СРТ":"SRT subtitles",extensions:["srt"]}]});
+      const chosen=await dialog.showSaveDialog(home,{title:generated?(ru?"Сохранить созданные субтитры":"Save generated subtitles"):(ru?"Сохранить переведённые субтитры":"Save translated subtitles"),
+        defaultPath:generated?"generated-subtitles.srt":"translated-subtitles.srt",filters:[{name:ru?"Субтитры СРТ":"SRT subtitles",extensions:["srt"]}]});
       if(chosen.canceled||!chosen.filePath)return false;
       if(!/\.srt$/i.test(chosen.filePath))throw Error("SRT extension required");
       // Never overwrite an existing original subtitle, even after dialog confirmation.
@@ -827,6 +976,18 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:cancel-translation",event=>{
     if(!onlyPlayer(event))throw Error("Translation command rejected");
     cancelTranslation();return true;
+  });
+  ipcMain.handle("dk-library:asr-status",event=>{
+    if(!onlyPlayer(event))throw Error("Speech recognition request rejected");
+    return asrPaths().ready;
+  });
+  ipcMain.handle("dk-library:asr-generate",(event,source,language,audioIndex,ticket)=>{
+    if(!onlyPlayer(event))throw Error("Speech recognition request rejected");
+    return generateASR(event,source,language,audioIndex,ticket);
+  });
+  ipcMain.handle("dk-library:asr-cancel",event=>{
+    if(!onlyPlayer(event))throw Error("Speech recognition request rejected");
+    cancelASR();return true;
   });
   ipcMain.handle("dk-library:voiceover-status",(event,pair)=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
@@ -858,7 +1019,7 @@ function install(originalWindow,originalPlayer){
       return true;
     }finally{voiceoverExporting=false;result.exporting=false;if(result.discarded)removeVoiceoverResult(result);}
   });
-  home.on("closed",()=>{cancelTranslation();discardVoiceover();});
+  home.on("closed",()=>{cancelASR();cancelTranslation();discardVoiceover();});
   ipcMain.handle("dk-library:remember-media",async(event,source,key)=>{
     if(!onlyPlayer(event))throw Error("Media restore request rejected");
     return rememberMedia(source,key);

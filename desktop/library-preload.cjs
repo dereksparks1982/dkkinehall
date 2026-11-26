@@ -14,6 +14,7 @@ const nativeLibrary=Object.freeze({
   },
   openPlayer:id=>libIpc.invoke("dk-library:open-player",String(id)),
   showLibrary:()=>libIpc.invoke("dk-library:show-home"),
+  showPlayer:()=>libIpc.invoke("dk-library:show-player"),
   discover:manual=>libIpc.invoke("dk-library:discover",Boolean(manual)),
   cancelScan:()=>libIpc.invoke("dk-library:cancel-scan"),
   nativeOpen:(id,filePath)=>libIpc.invoke("dk-library:native-open",

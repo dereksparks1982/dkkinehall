@@ -58,7 +58,8 @@ const metadataFilename=row=>row.kind==="tv"&&
   row.series+".S"+String(row.season).padStart(2,"0")+
     "E"+String(row.episode).padStart(2,"0")+
     row.filename.slice(row.filename.lastIndexOf(".")):
-  row.kind==="movie"&&row.title&&row.year?row.title+" ("+row.year+").mkv":row.filename;
+  row.kind==="movie"&&row.title&&row.year?
+    row.title.replace(/^(?:James\s+Bond\s+007|007\s+James\s+Bond)\s*[:\-–—]?\s+/i,"")+" ("+row.year+").mkv":row.filename;
 const mediaName=row=>row.kind==="tv"?
   row.series+" · "+formatCode(row)+
   (row.episodeTitle?" · "+row.episodeTitle:""):
@@ -316,6 +317,29 @@ async function findArtwork(row,id,series=false,force=false){
     return cache?.blob||null;
   }catch(_){return cache?.blob||null;}
 }
+// Fetch missing descriptive data independently of cached image display.
+// Do not repeatedly request a failed match during the same Home session.
+function displayArtwork(view,blob){
+  if(view.epoch!==renderEpoch||!view.box.isConnected||view.box.querySelector("img"))return;
+  const url=URL.createObjectURL(blob);imageUrls.add(url);
+  const image=create("img");image.src=url;image.alt="";image.loading="lazy";image.decoding="async";
+  view.box.prepend(image);
+}
+async function fillCachedDetails(row,series){
+  if(!nativeBridge||!artworkFinder||!navigator.onLine||titleAttempted.has(row.id)||networkTitleCount>=TITLE_LOOKUP_LIMIT)return;
+  const latest=all.find(item=>item.id===row.id)||row;
+  if(latest.kind==="movie"?!!latest.movieDetails:series||!!latest.metadataVerified)return;
+  titleAttempted.add(row.id);networkTitleCount++;
+  try{
+    if(latest.kind==="movie"){
+      const result=await artworkFinder.find(metadataFilename(latest),{details:true});
+      await saveMovieResult(latest,result);
+    }else if(artworkFinder.episodeTitle){
+      const title=await artworkFinder.episodeTitle(metadataFilename(latest));
+      if(title)await store.updateMetadata(latest.id,{episodeTitle:title});
+    }
+  }catch(_){}
+}
 async function pumpArtwork(){
   while(imageQueue.length){
     const task=imageQueue[0];
@@ -324,29 +348,24 @@ async function pumpArtwork(){
     }
     const ongoing=activeArtwork.get(task.id);
     if(ongoing){
-      ongoing.views.push(imageQueue.shift());
+      const view=imageQueue.shift();
+      if(ongoing.blob)displayArtwork(view,ongoing.blob);
+      else ongoing.views.push(view);
       continue;
     }
     if(artworkBusy>=MAX_LOOKUPS)break;
     imageQueue.shift();
-    const request={views:[task]};
+    const request={views:[task],blob:null};
     activeArtwork.set(task.id,request);
     artworkBusy++;
     (async()=>{
       try{
         const blob=await findArtwork(task.row,task.id,task.series);
         if(!blob)return;
-        for(const view of request.views){
-          if(view.epoch!==renderEpoch||!view.box.isConnected)continue;
-          const url=URL.createObjectURL(blob);
-          imageUrls.add(url);
-          const image=create("img");
-          image.src=url;
-          image.alt="";
-          image.loading="lazy";
-          image.decoding="async";
-          view.box.prepend(image);
-        }
+        request.blob=blob;
+        for(const view of request.views)displayArtwork(view,blob);
+        request.views.length=0;
+        await fillCachedDetails(task.row,task.series);
       }catch(_){}
       finally{
         activeArtwork.delete(task.id);

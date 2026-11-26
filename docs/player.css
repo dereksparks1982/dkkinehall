@@ -1279,3 +1279,9 @@ html.dk-standalone .dk-resizable-panel>.info-status{
 html.dk-standalone .dk-resizable-panel>.info-status.dk-notice-visible{opacity:1}
 html.dk-standalone .dk-resizable-panel>.info-status.good{color:#fff}
 html.dk-standalone .dk-player-detached>.info-status{position:fixed;z-index:2001}
+
+/* Standalone DVD chooser uses the existing settings section and palette. */
+html.dk-standalone .dk-dvd-dialog{width:min(360px,calc(100vw - 32px));max-height:85vh;overflow:auto;color:var(--text);background:var(--panel);border:1px solid var(--dk-antique);border-radius:12px;padding:16px}
+html.dk-standalone .dk-dvd-dialog::backdrop{background:#0008}
+html.dk-standalone .dk-dvd-dialog .player-settings-section{display:grid;gap:8px;margin-bottom:12px}
+html.dk-standalone .dk-dvd-dialog select{background:var(--dk-button-bg);color:#fff;border:1px solid var(--dk-antique);border-radius:8px;padding:8px}

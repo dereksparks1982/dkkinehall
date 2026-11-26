@@ -15,6 +15,7 @@ const nativeLibrary=Object.freeze({
   setInterfaceLanguage:value=>libIpc.invoke("dk-library:language-set",value==="ru"?"ru":"en"),
   onInterfaceLanguage:callback=>subscribe("dk-library:language-changed",callback),
   networkDiscover:()=>libIpc.invoke("dk-network:discover"),
+  networkRegister:value=>libIpc.invoke("dk-network:register",String(value)),
   networkDescription:id=>libIpc.invoke("dk-network:description",String(id)),
   networkBrowse:(id,control,type,objectId,start)=>libIpc.invoke("dk-network:browse",
     String(id),String(control),String(type),String(objectId),Number(start)),

@@ -28,12 +28,17 @@
  }
  function parseFilename(name){
    const text=cleanTitle(name);
-   const tv=/(?:^|[\s-])(?:s(\d{1,2})[\s-]*e(\d{1,3})|(\d{1,2})[\s-]*x[\s-]*(\d{1,3}))(?=$|[\s-])/i.exec(text);
+   // A technical tag or release year before an apparent episode code is not a TV identifier.
+   const technical=/(?:^|\s)(?:19\d{2}|20\d{2}|2160p|1080p|720p|480p|4k|uhd|bluray|web[ -]?dl|webrip|x26[45]|h26[45])(?=\s|$)/i;
+   let tv=/(?:^|[\s-])(?:s(\d{1,2})[\s-]*e(\d{1,3})|(\d{1,2})[\s-]*x[\s-]*(\d{1,3}))(?=$|[\s-])/i.exec(text);
+   if(tv&&tv[3]&&technical.test(text.slice(0,tv.index)))tv=null;
+   if(/^in the grey(?:\s|$)/i.test(text))tv=null;
    if(tv){
      let series=text.slice(0,tv.index).replace(/[\s:-]+$/,"").trim();
      const yearMatch=/\s+((?:19|20)\d{2})$/.exec(series);
      const year=yearMatch?Number(yearMatch[1]):null;
      series=series.replace(/\s+(?:19|20)\d{2}$/,"").trim();
+     if(normalize(series)==="south park")series="South Park";
      const season=Number(tv[1]||tv[3]),episode=Number(tv[2]||tv[4]);
      // A release filename may already provide the episode name. Use it only
      // as a display fallback, never as a substitute for verified metadata.
@@ -156,7 +161,7 @@
      candidates[0];
    if(!chosen)return null;
    return {type:"movie",still:applePoster(chosen.artworkUrl100),series:null,
-     title:chosen.trackName||info.title,provider:"Apple",
+     title:chosen.trackName||info.title,year:Number(String(chosen.releaseDate||"").slice(0,4))||info.year,provider:"Apple",
      credit:allowedCredit(chosen.trackViewUrl,"Apple")||"https://itunes.apple.com"};
  }
  function pickCinemetaMovie(info,metas){
@@ -171,7 +176,7 @@
    if(!chosen)return null;
    const id=/^tt\d{6,11}$/.test(String(chosen.id||""))?chosen.id:null;
    return {type:"movie",still:allowedImage(chosen.poster,"Cinemeta"),
-     series:null,title:chosen.name||info.title,provider:"Cinemeta",
+     series:null,title:chosen.name||info.title,year:Number(String(chosen.year||"").slice(0,4))||info.year,provider:"Cinemeta",
      credit:id?"https://www.imdb.com/title/"+id+"/":null};
  }
  function create({fetchJSON=typeof fetch==="function"?fetch.bind(globalThis):null,
@@ -343,7 +348,7 @@
      // Prefer a movie poster over a landscape backdrop.
      const art=tmdbImage(found.poster_path,"w342")||tmdbImage(found.backdrop_path,"w300");
      if(!art)return null;
-     return {type:"movie",still:art,series:null,title:found.title||info.title,
+     return {type:"movie",still:art,series:null,title:found.title||info.title,year:Number(String(found.release_date||"").slice(0,4))||info.year,
        provider:"TMDb",credit:"https://www.themoviedb.org/movie/"+found.id};
    }
    function choose(data){
@@ -358,7 +363,7 @@
        data.still?{url:data.still,kind:"Thumb"}:
        data.series?{url:data.series,kind:"Thumb"}:null;
      return picked?{url:picked.url,kind:picked.kind,provider:data.provider,
-       credit:data.credit,title:data.title,
+       credit:data.credit,title:data.title,year:data.year||null,
        fallbackUrl:data.series&&data.series!==picked.url?data.series:null}:null;
    }
    async function find(filename,options={}){

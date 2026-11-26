@@ -53,10 +53,8 @@ for resource in index.html player.js player.css mkv-tracks.js \
     exit 1
   fi
 done
-if [[ ! -f "$WORK/repo/maintenance/sync_original_runtime.py" ||
-      ! -f "$WORK/repo/maintenance/install_linux_icon.py" ||
-      ! -f "$WORK/repo/maintenance/make_icons_transparent.py" ]]; then
-  echo "ERROR: Chromium synchronizer, desktop icon installer or transparency fixer is missing." >&2
+if [[ ! -f "$WORK/repo/maintenance/sync_original_runtime.py" ]]; then
+  echo "ERROR: Chromium synchronizer is missing." >&2
   exit 1
 fi
 
@@ -65,21 +63,29 @@ mkdir -p -- "$BACKUP"
 cp -a -- "$APP/docs" "$APP/_internal" "$APP/DK Kinehall" "$BACKUP/"
 backup_ready=1
 
-echo "Updating existing web resources and Chromium runtime..."
-cp -a -- "$WORK/repo/docs/." "$APP/docs/"
-
-# The repository still contains the original approved, opaque emblem masters.
-# Restore the transparent outer corners EVERY update, BEFORE Chromium bundles
-# the icon, and BEFORE Ubuntu registers it for the executable and GNOME dock.
-echo "Restoring transparent corners on the approved DK emblem..."
-python3 "$WORK/repo/maintenance/make_icons_transparent.py" "$APP"
+echo "Updating player resources while preserving approved icons..."
+# Never overwrite approved transparent icons from repository master artwork.
+# Do not regenerate dock launchers, GIO icon metadata, or GNOME favorites.
+python3 - "$WORK/repo/docs" "$APP/docs" <<'PYTHON'
+from pathlib import Path
+from shutil import copy2
+import sys
+source, target = map(Path, sys.argv[1:])
+for item in source.rglob("*"):
+    relative = item.relative_to(source)
+    if relative.parts[0] == "icons":
+        continue
+    dest = target / relative
+    if item.is_dir():
+        dest.mkdir(parents=True, exist_ok=True)
+    elif item.is_file():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        copy2(item, dest)
+PYTHON
 
 python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP"
 
-echo "Registering the approved DK Kinehall icon for Ubuntu and the executable..."
-python3 "$WORK/repo/maintenance/install_linux_icon.py" "$APP"
-
-echo "SUCCESS: Existing DK Kinehall updated from GitHub main, with approved icon."
+echo "SUCCESS: Existing DK Kinehall updated; approved icons untouched."
 echo "Backup: $BACKUP"
 
 # Open the original desktop player once the update and icon registration

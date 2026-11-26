@@ -1620,6 +1620,18 @@
     button.classList.remove("ghost");button.classList.add("primary","dk-window-nav");
     button.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5v15M9 5v15M14 5v15M18 5l3 14"/></svg><span>Library</span>';
   }
+  if(window.DKLibraryBridge?.internalPages){
+    document.documentElement.classList.add("dk-standalone");
+    const button=document.createElement("button");
+    button.id="playerScanLibrary";button.type="button";button.className="btn primary dk-scan";
+    let scanning=false;
+    const label=()=>{button.textContent=window.DKLocale?.t(scanning?"Stop Scan":"Scan Library")||(scanning?"Stop Scan":"Scan Library");};
+    label();
+    byId("returnToLibrary").after(button);
+    button.addEventListener("click",()=>void window.DKLibraryBridge.requestScan().catch(()=>status("Library scan failed.")));
+    window.DKLibraryBridge.onScanState(value=>{scanning=Boolean(value);button.setAttribute("aria-pressed",String(scanning));label();});
+    byId("languageSelect").addEventListener("change",()=>queueMicrotask(label));
+  }
   byId("returnToLibrary").addEventListener("click",()=>{
     if(window.DKLibraryBridge?.showLibrary) {
       void window.DKLibraryBridge.showLibrary();
@@ -2024,8 +2036,8 @@
   });
   // The website uses the browser Fullscreen API. The standalone app must also
   // fullscreen its NATIVE window, not merely resize a video within that window.
-  const desktopFullscreen = window.DKStandalone &&
-    typeof window.DKStandalone.setFullscreen === "function" ? window.DKStandalone : null;
+  const desktopFullscreen = window.DKLibraryBridge?.internalPages ? window.DKLibraryBridge :
+    (window.DKStandalone && typeof window.DKStandalone.setFullscreen === "function" ? window.DKStandalone : null);
   const isFullscreen = () => document.fullscreenElement === screen ||
     screen.classList.contains("desktop-fullscreen");
   const updateFullscreenButton = () => {
@@ -2818,13 +2830,13 @@
     return externalChain;
   };
   window.DKLibraryBridge?.onExternalReady?.(()=>{void acceptExternal();});
-  const openFromLibrary = async () => {
+  const openFromLibrary = async (selectionId=null) => {
     const params=new URLSearchParams(window.location.search);
     const external=params.get("externalItem");
-    if(external&&window.DKLibraryBridge?.externalSelection){
+    if(!selectionId&&external&&window.DKLibraryBridge?.externalSelection){
       await acceptExternal();return true;
     }
-    const id=params.get("libraryItem");
+    const id=selectionId||params.get("libraryItem");
     if(!id)return false;
     if(!window.DKLibraryStore){
       status("The local library is unavailable.");return true;
@@ -2854,6 +2866,10 @@
       return true;
     }
   };
+  let librarySelectionChain=Promise.resolve();
+  window.DKLibraryBridge?.onLibrarySelection?.(id=>{
+    librarySelectionChain=librarySelectionChain.catch(()=>{}).then(()=>openFromLibrary(id));
+  });
   // Restore plain file selection only when this is not a library launch.
   void (async()=>{
     const selected=await openFromLibrary();

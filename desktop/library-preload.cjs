@@ -5,7 +5,13 @@
 const {contextBridge:libContextBridge,ipcRenderer:libIpc}=require("electron");
 const nativeLibrary=Object.freeze({
   nativeLibrary:true,
-  externalSelection:token=>libIpc.invoke("dk-library:external-selection",String(token)),
+  externalSelection:()=>libIpc.invoke("dk-library:external-selection"),
+  onExternalReady:callback=>{
+    if(typeof callback!=="function")return ()=>{};
+    const listener=()=>callback();
+    libIpc.on("dk-library:external-ready",listener);
+    return ()=>libIpc.removeListener("dk-library:external-ready",listener);
+  },
   openPlayer:id=>libIpc.invoke("dk-library:open-player",String(id)),
   showLibrary:()=>libIpc.invoke("dk-library:show-home"),
   discover:manual=>libIpc.invoke("dk-library:discover",Boolean(manual)),

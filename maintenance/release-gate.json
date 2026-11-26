@@ -28,5 +28,5 @@
   "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player.",
   "codec_bundle_asset_url": null,
   "codec_bundle_asset_sha256": null,
-  "development_version": "0.9.2"
+  "development_version": "0.9.3"
 }

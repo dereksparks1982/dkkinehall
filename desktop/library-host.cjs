@@ -371,6 +371,104 @@ function discardVoiceover(){
   if(voiceoverJob){voiceoverJob.cancelled=true;voiceoverJob.child?.kill("SIGKILL");}
   const previous=voiceoverResult;voiceoverResult=null;removeVoiceoverResult(previous);
 }
+// Content-addressed local voiceover cache. Explicit generation is the only
+// producer. A per-session hard link keeps playback/export independent of
+// eviction; failure to cache must never prevent normal generation.
+const VOICE_CACHE_LIMIT=1024*1024*1024,VOICE_CACHE_COUNT=8,VOICE_MAX_BYTES=700*1024*1024;
+function voiceCacheRoot(){
+  return path.join(app.getPath("userData"),"generated-voiceover-v1");
+}
+function voiceCacheKey(runtime,pair,rows){
+  try{
+    const inventory=[];
+    const visit=(file,depth=0)=>{
+      if(depth>12||inventory.length>=8192)throw Error("Runtime inventory exceeds limit");
+      const stat=fs.statSync(file);
+      if(stat.isDirectory()){
+        for(const name of fs.readdirSync(file).sort())visit(path.join(file,name),depth+1);
+      }else if(stat.isFile()){
+        inventory.push([file,stat.size,stat.mtimeMs,stat.ctimeMs,stat.ino]);
+      }else throw Error("Unsupported runtime file");
+    };
+    visit(runtime.python);visit(runtime.model);visit(runtime.voice);
+    visit(path.join(path.dirname(path.dirname(runtime.model)),"READY.json"));
+    // The identical timed source text produces identical output regardless of
+    // which media file supplied it. A changed track/cue or model invalidates it.
+    return require("node:crypto").createHash("sha256")
+      .update(JSON.stringify(["voice-cache-v1",voiceoverWorker,pair,rows,inventory])).digest("hex");
+  }catch(_){return null;}
+}
+function voiceCacheWav(file,rows){
+  const stat=fs.lstatSync(file);
+  if(!stat.isFile()||stat.size<44||stat.size>VOICE_MAX_BYTES)throw Error("Invalid cached WAV");
+  const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
+  try{
+    const header=Buffer.alloc(44);
+    if(fs.readSync(fd,header,0,44,0)!==44||
+       header.toString("ascii",0,4)!=="RIFF"||header.toString("ascii",8,16)!=="WAVEfmt "||
+       header.readUInt32LE(16)!==16||header.readUInt16LE(20)!==1||
+       header.readUInt16LE(22)!==1||header.readUInt16LE(34)!==16||
+       header.toString("ascii",36,40)!=="data")throw Error("Invalid WAV header");
+    const rate=header.readUInt32LE(24),bytes=header.readUInt32LE(40);
+    if(rate<8000||rate>32000||header.readUInt32LE(28)!==rate*2||
+       header.readUInt16LE(32)!==2||bytes!==stat.size-44||
+       header.readUInt32LE(4)!==stat.size-8||
+       Math.abs(bytes/2-Math.round(rows.reduce((end,r)=>Math.max(end,r.end),0)*rate))>1)
+      throw Error("Invalid cached WAV duration");
+    return stat.size;
+  }finally{fs.closeSync(fd);}
+}
+function voiceCachePrune(){
+  try{
+    const root=voiceCacheRoot(),entries=[];
+    for(const key of fs.readdirSync(root)){
+      if(!/^[a-f0-9]{64}$/.test(key))continue;
+      const dir=path.join(root,key);
+      try{
+        const d=fs.lstatSync(dir),wav=fs.lstatSync(path.join(dir,"voiceover.wav"));
+        if(d.isDirectory()&&wav.isFile())entries.push({dir,bytes:wav.size,mtime:d.mtimeMs});
+      }catch(_){}
+    }
+    entries.sort((a,b)=>b.mtime-a.mtime);
+    let bytes=0,kept=0;
+    for(const entry of entries){
+      if(kept>=VOICE_CACHE_COUNT||bytes+entry.bytes>VOICE_CACHE_LIMIT)
+        fs.rmSync(entry.dir,{recursive:true,force:true});
+      else{bytes+=entry.bytes;kept++;}
+    }
+  }catch(_){}
+}
+function voiceCacheLoad(key,rows,output){
+  if(!key)return null;
+  try{
+    const dir=path.join(voiceCacheRoot(),key);
+    if(!fs.lstatSync(dir).isDirectory())return null;
+    const manifest=path.join(dir,"result.json"),info=fs.lstatSync(manifest);
+    if(!info.isFile()||info.size>4096)return null;
+    const data=JSON.parse(fs.readFileSync(manifest,"utf8"));
+    if(data.schema!==1||data.key!==key||data.total!==rows.length||
+       !Number.isInteger(data.skipped)||data.skipped<0||data.skipped>=rows.length)return null;
+    const wav=path.join(dir,"voiceover.wav"),size=voiceCacheWav(wav,rows);
+    if(data.size!==size)return null;
+    fs.linkSync(wav,output);
+    try{const now=new Date();fs.utimesSync(dir,now,now);}catch(_){}
+    return {size,skipped:data.skipped};
+  }catch(_){return null;}
+}
+function voiceCacheSave(key,rows,output,skipped){
+  if(!key)return;
+  let temp=null;
+  try{
+    const size=voiceCacheWav(output,rows),root=voiceCacheRoot(),dest=path.join(root,key);
+    temp=fs.mkdtempSync(path.join(root,".stage-"));
+    fs.linkSync(output,path.join(temp,"voiceover.wav"));
+    fs.writeFileSync(path.join(temp,"result.json"),JSON.stringify({schema:1,key,total:rows.length,skipped,size}),{mode:0o600,flag:"wx"});
+    // A stale/corrupt entry is replaced only after a valid result is ready.
+    if(fs.existsSync(dest))fs.rmSync(dest,{recursive:true,force:true});
+    fs.renameSync(temp,dest);temp=null;
+    voiceCachePrune();
+  }catch(_){}finally{if(temp)try{fs.rmSync(temp,{recursive:true,force:true});}catch(_){}}
+}
 function generateVoiceover(event,pair,rows,ticket){
   const runtime=voiceoverPaths(pair);
   if(!runtime.ready)throw Error("Voiceover runtime is not installed");
@@ -381,8 +479,20 @@ function generateVoiceover(event,pair,rows,ticket){
       (i>0&&r.start<rows[i-1].start)||typeof r.text!=="string"||!r.text.trim()||r.text.length>1000))
     throw Error("Invalid voiceover cues");
   discardVoiceover();
-  const dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-voiceover-"));
+  const key=voiceCacheKey(runtime,pair,rows);
+  let dir;
+  try{
+    const root=voiceCacheRoot();
+    fs.mkdirSync(root,{recursive:true,mode:0o700});
+    if(!fs.lstatSync(root).isDirectory())throw Error("Invalid cache directory");
+    dir=fs.mkdtempSync(path.join(root,".session-"));
+  }catch(_){dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-voiceover-"));}
   const output=path.join(dir,"voiceover.wav");
+  const cached=voiceCacheLoad(key,rows,output);
+  if(cached){
+    voiceoverResult={dir,output,ticket,size:cached.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false};
+    return Promise.resolve({skipped:cached.skipped,total:rows.length,cached:true});
+  }
   return new Promise((resolve,reject)=>{
     let child;
     try{child=spawn(runtime.python,["-I","-c",voiceoverWorker,runtime.model,runtime.voice,output],{
@@ -414,8 +524,9 @@ function generateVoiceover(event,pair,rows,ticket){
       if(code!==0||failed||job.cancelled||!complete||!stat?.isFile()||stat.size<44||stat.size>700*1024*1024){
         fs.rmSync(dir,{recursive:true,force:true});reject(Error("Voiceover generation failed or was cancelled"));return;
       }
+      if(key&&key===voiceCacheKey(runtime,pair,rows))voiceCacheSave(key,rows,output,complete.skipped);
       voiceoverResult={dir,output,ticket,size:stat.size,token:randomBytes(24).toString("hex"),streams:new Set(),exporting:false,discarded:false};
-      resolve({skipped:complete.skipped,total:rows.length});
+      resolve({skipped:complete.skipped,total:rows.length,cached:false});
     });
     child.stdin.end(JSON.stringify(rows));
   });

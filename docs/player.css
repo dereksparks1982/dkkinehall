@@ -1108,7 +1108,10 @@ html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-se
 html.dk-standalone .player-context-menu>.dk-menu-information{
   --dk-menu-fill:#fff;--dk-menu-ink:#23171a;--dk-menu-border:#e7e2e2;
 }
-html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information){
+html.dk-standalone .player-context-menu>.dk-menu-picture-adjustments{
+  --dk-menu-fill:#e2b956;--dk-menu-ink:#462a25;--dk-menu-border:#a58039;
+}
+html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information,.dk-menu-picture-adjustments){
   box-sizing:border-box;width:100%;min-height:42px;
   border:1px solid var(--dk-menu-border,#a58039);
   background:var(--dk-menu-fill,#462a25);
@@ -1117,7 +1120,7 @@ html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-inf
   border-radius:var(--dk-button-radius);
   outline:none;box-shadow:none;
 }
-html.dk-standalone .player-context-menu>button:is(.context-section-toggle,.dk-menu-information):is(:hover,:active,:focus-visible,[aria-expanded="true"]){
+html.dk-standalone .player-context-menu>button:is(.context-section-toggle,.dk-menu-information,.dk-menu-picture-adjustments):is(:hover,:active,:focus-visible,[aria-expanded="true"]){
   background:var(--dk-menu-fill,#462a25);color:var(--dk-menu-ink,#e2b956);
   border-color:var(--dk-menu-border,#a58039);box-shadow:none;
 }

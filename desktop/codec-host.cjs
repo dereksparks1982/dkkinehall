@@ -15,7 +15,7 @@ const {spawn}=require("node:child_process");
 const {app,ipcMain,dialog,BrowserWindow}=require("electron");
 const {capabilityFromEncoders,chooseOutput}=require("./codec-policy.cjs");
 const {resolveSource}=require("./codec-source.cjs");
-const {checkVideo}=require("./library-indexer.cjs");
+const checkVideo=(id,filePath)=>require("./library-host.cjs").checkPlayableSource(id,filePath);
 
 const BIND_ADDRESS="127.0.0.1";
 const MAX_PROBE_OUTPUT=512*1024;

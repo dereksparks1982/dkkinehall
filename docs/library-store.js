@@ -188,7 +188,7 @@ function goldenGunIdentity(row){
   const parsed=typeof window!=="undefined"?window.DKMediaMetadata?.parseFilename?.(row.filename):null;
   const norm=value=>String(value||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
   return parsed?.type==="movie"&&parsed.year===1974&&norm(parsed.title)==="the man with the golden gun"||
-    Number(row.year)===1974&&norm(row.title)==="the with the golden gun";
+    Number(row.year)===1974&&["the with the golden gun","the man with the golden gun"].includes(norm(row.title));
 }
 async function repairGoldenGun(){
   if(goldenGunRepair)return goldenGunRepair;

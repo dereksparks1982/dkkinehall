@@ -4,7 +4,8 @@ const {ipcMain,WebContentsView,app,dialog,shell}=require("electron");
 const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
-const {fileURLToPath}=require("node:url");
+const {fileURLToPath,pathToFileURL}=require("node:url");
+const {randomBytes}=require("node:crypto");
 const VERSION="0.9.3";
 // Local-only CTranslate2/SentencePiece worker. No model fetcher, shell or
 // caller-controlled executable/path. Only a trusted separately provisioned
@@ -92,6 +93,75 @@ let externalSelections=[],externalWork=Promise.resolve();
 let installed=false,home=null,player=null,playerFile=null,playerLoading=null,activePage="library",scanActive=false;
 let scanController=null,scanPromise=null;
 let metadataBusy=0;
+// Only explicitly selected files receive a restore grant. Keep live grants
+// for the session, but persist only the most recently selected file.
+// These grants never authorize Library deletion or directory enumeration.
+const restoreGrants=new Map();
+const rememberedPath=()=>path.join(app.getPath("userData"),"last-selected-media.json");
+function verifiedRecord(record){
+  if(!record||typeof record.path!=="string"||record.path.length>4096||
+    !path.isAbsolute(record.path)||record.path.includes("\0")||
+    !/^restore:[a-f0-9]{64}$/.test(record.id||"")||
+    typeof record.key!=="string"||record.key.length>8192)
+    throw Error("Invalid saved file");
+  const stat=fs.statSync(record.path);
+  if(!stat.isFile()||stat.size!==record.size||Math.abs(stat.mtimeMs-record.modified)>1||
+     path.basename(record.path)!==record.name||
+     record.key!=="file:"+record.name+":"+record.size+":"+record.modified)
+    throw Error("Saved file is missing or has changed");
+  return {target:record.path,stat};
+}
+async function checkPlayableSource(id,filePath){
+  if(!String(id).startsWith("restore:"))return native.checkVideo(id,filePath);
+  const record=restoreGrants.get(id);
+  if(!record||record.path!==filePath)throw Error("File restore grant rejected");
+  return verifiedRecord(record);
+}
+async function rememberMedia(source,key){
+  if(!source||typeof source!=="object"||typeof source.path!=="string"||
+    !path.isAbsolute(source.path)||source.path.length>4096||source.path.includes("\0"))
+    return false;
+  if(source.kind==="native")await checkPlayableSource(source.id,source.path);
+  else if(source.kind!=="picked")return false;
+  const record={id:"restore:"+randomBytes(32).toString("hex"),path:source.path,
+    name:source.name,size:source.size,modified:source.modified,key};
+  verifiedRecord(record);
+  const dest=rememberedPath(),temp=dest+".tmp";
+  fs.mkdirSync(path.dirname(dest),{recursive:true});
+  fs.writeFileSync(temp,JSON.stringify(record),{mode:0o600});
+  fs.renameSync(temp,dest);
+  return true;
+}
+function restoreMedia(key){
+  let record;
+  try{record=JSON.parse(fs.readFileSync(rememberedPath(),"utf8"));}
+  catch(_){return null;}
+  if(record.key!==key)return null;
+  verifiedRecord(record);
+  restoreGrants.set(record.id,record);
+  return {row:{id:record.id,nativePath:record.path,filename:record.name,
+    size:record.size,modified:record.modified},opened:{
+    url:pathToFileURL(record.path).href,name:record.name,nativePath:record.path,
+    size:record.size,modified:record.modified}};
+}
+async function readPlayableRange(id,filePath,start,end){
+  if(!String(id).startsWith("restore:"))return native.readRange(id,filePath,start,end);
+  const {target,stat}=await checkPlayableSource(id,filePath);
+  if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||
+     end<start||end>stat.size||end-start>8*1024*1024)throw Error("Invalid media byte range");
+  const handle=await fs.promises.open(target,"r");
+  try{
+    const bytes=Buffer.alloc(end-start);
+    let used=0;
+    while(used<bytes.length){
+      const {bytesRead}=await handle.read(bytes,used,bytes.length-used,start+used);
+      if(!bytesRead)break;
+      used+=bytesRead;
+    }
+    return new Uint8Array(bytes.subarray(0,used));
+  }finally{await handle.close();}
+}
+
 async function metadataRequest(raw,kind){
   if(typeof raw!=="string"||raw.length>1500||!["json","image"].includes(kind))throw Error("Invalid metadata request");
   const url=new URL(raw);
@@ -259,6 +329,19 @@ function install(originalWindow,originalPlayer){
     cancelTranslation();return true;
   });
   home.on("closed",cancelTranslation);
+  ipcMain.handle("dk-library:remember-media",async(event,source,key)=>{
+    if(!onlyPlayer(event))throw Error("Media restore request rejected");
+    return rememberMedia(source,key);
+  });
+  ipcMain.handle("dk-library:restore-media",(event,key)=>{
+    if(!onlyPlayer(event))throw Error("Media restore request rejected");
+    return restoreMedia(key);
+  });
+  ipcMain.handle("dk-library:forget-media",event=>{
+    if(!onlyPlayer(event))throw Error("Media restore request rejected");
+    try{fs.unlinkSync(rememberedPath());}catch(error){if(error.code!=="ENOENT")throw error;}
+    return true;
+  });
   ipcMain.handle("dk-library:external-selection",event=>{
     if(!onlyPlayer(event))throw Error("External selection rejected");
     return externalSelections.splice(0);
@@ -317,7 +400,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-library:read-range",(event,id,filePath,start,end)=>{
     if(!onlyPlayer(event))throw Error("Native media access rejected");
-    return native.readRange(id,filePath,start,end);
+    return readPlayableRange(id,filePath,start,end);
   });
   ipcMain.handle("dk-library:local-cover",(event,id,filePath,series,kind)=>{
     if(!allowed(event))throw Error("Local artwork request rejected");
@@ -341,4 +424,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install};
+module.exports={install,checkPlayableSource};

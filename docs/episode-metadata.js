@@ -52,12 +52,18 @@
      return null;
    }
    const withoutTags=text.replace(/\s+(?:2160p|1080p|720p|480p|4k|uhd|hdr10?|dv|bluray|blu ray|brrip|bdrip|dvdrip|webrip|web dl|web rip|h26[45]|x26[45]|hevc|av1|ddp|dts|aac|ac3)(?:\b.*)?$/i,"").trim();
-   const movie=/^(.+?)\s+((?:19|20)\d{2})(?:\s|$)/.exec(withoutTags);
-   let title=movie?movie[1].trim():withoutTags;
-   // Collection labels are not part of the canonical film title.
-   title=title.replace(/^(?:007\s+James\s+Bond|James\s+Bond\s+007)\s*[:\-–—]?\s+/i,"").trim();
+   // Strip collection labels before identifying the release year.
+   // Bond collections sometimes put the year BEFORE the actual movie title.
+   const bond=/^(?:007\s+James\s+Bond|James\s+Bond\s+007|James\s+Bond|007)(?:\s*[:\-–—]\s*|\s+)/i;
+   const collection=bond.test(withoutTags);
+   let canonical=withoutTags.replace(bond,"").trim();
+   if(collection)canonical=canonical.replace(/^\d{1,2}\s*[-:]\s*/,"");
+   const leading=/^((?:19|20)\d{2})\s*[-:–—]?\s+(.+)$/.exec(canonical);
+   const trailing=/^(.+?)\s+((?:19|20)\d{2})(?:\s|$)/.exec(canonical);
+   let title=leading?leading[2]:trailing?trailing[1]:canonical;
+   title=title.replace(/^[\s:–—-]+|[\s:–—-]+$/g,"").trim();
    if(title.length<2)return null;
-   return {type:"movie",title:title.slice(0,120),year:movie?Number(movie[2]):null};
+   return {type:"movie",title:title.slice(0,120),year:leading?Number(leading[1]):trailing?Number(trailing[2]):null};
  }
  function findExact(query,values,getName){
    const norm=normalize(query);

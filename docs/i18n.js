@@ -24,7 +24,7 @@
     "Playback settings":"Настройки воспроизведения",
     "Original mode skips conversion and keeps the local source unchanged.":"Оригинальный режим не изменяет файл.",
     "Supported MKV files can be remuxed without re-encoding. Full transcoding and GPU switching are not installed.":"Совместимые файлы МКВ можно перепаковать без перекодирования. Полное перекодирование и переключение видеоускорения не установлены.",
-    "Chromium cannot play this WebM codec combination.":"Хромиум не поддерживает эту комбинацию кодеков ВебМ.",
+    "This video format is not supported by the current playback engine.":"Текущий проигрыватель не поддерживает этот формат видео.",
     "Requested playback format":"Выбранный формат воспроизведения",
     "Actual playback method":"Применённый способ воспроизведения",
     "MP4 included audio track":"Аудиодорожка в МП4",
@@ -70,6 +70,21 @@
     "Size":"Размер", "Format":"Формат", "Direct stream URL":"Прямая ссылка на поток",
     "Remote media":"Удалённый медиафайл",
     "Remove from queue":"Удалить из очереди",
+    "Drag to reorder":"Перетащите для изменения порядка",
+    "Move queued video":"Переместить видео в очереди",
+    "Shuffle":"Перемешать", "Loop: Off":"Повтор: выкл.", "Loop: One":"Повтор: один", "Loop: All":"Повтор: все",
+    "Shuffle upcoming videos":"Перемешать следующие видео", "Queue playback order":"Порядок воспроизведения",
+    "Shuffle enabled.":"Перемешивание включено.", "Shuffle disabled.":"Перемешивание выключено.",
+    "Repeat mode: Off":"Режим повтора: выкл.", "Repeat mode: One":"Режим повтора: один",
+    "Repeat mode: All":"Режим повтора: все",
+    "Chapters":"Главы", "Select chapters":"Выбрать главы", "Close chapters":"Закрыть главы",
+    "No chapters available":"Главы не найдены", "Float":"Отделить", "Dock":"Закрепить",
+    "Float player":"Отделить окно", "Drag to move":"Перетащите для перемещения",
+    "Drag floating player to move it":"Перетащите плавающее окно",
+    "Drag to resize player":"Перетащите для изменения размера",
+    "Float or dock the video":"Отделить или закрепить видео",
+    "Move player into floating mode":"Отделить окно проигрывателя",
+    "Dock player back into page":"Вернуть проигрыватель на страницу",
     "Chapter":"Глава", "Subtitle":"Субтитры",
     "Audio track":"Аудиодорожка",
     "Subtitle track":"Дорожка субтитров",
@@ -161,7 +176,7 @@
     "MKV embedded subtitles":"Встроенные субтитры МКВ",
     "Reading embedded MKV subtitles…":"Чтение встроенных субтитров МКВ…",
     "Reading embedded PGS graphics…":"Чтение встроенных графических субтитров ПГС…",
-    "PGS subtitles loaded locally. Video still needs a supported browser codec.":"Графические субтитры ПГС загружены. Для видео по-прежнему нужен поддерживаемый браузером кодек.",
+    "PGS subtitles loaded.":"Графические субтитры ПГС загружены.",
     "Couldn't display PGS subtitles.":"Не удалось показать субтитры ПГС.",
     "Reading embedded VobSub graphics…":"Чтение встроенных графических субтитров ВобСаб…",
     "Embedded VobSub subtitles loaded locally.":"Встроенные субтитры ВобСаб загружены с устройства.",
@@ -180,8 +195,8 @@
     "This subtitle codec still requires a decoder (for example VobSub).":"Для этого формата субтитров по-прежнему необходим декодер.",
     "Codec unsupported":"Неподдерживаемый кодек",
     "This subtitle codec requires a decoder (for example PGS/VobSub).":"Для этого формата субтитров необходим декодер.",
-    "The browser couldn't display this subtitle track.":"Браузер не смог показать эту дорожку субтитров.",
-    "Embedded MKV text subtitles loaded. Video playback still depends on browser codecs.":"Встроенные текстовые субтитры МКВ загружены. Воспроизведение видео по-прежнему зависит от кодеков браузера.",
+    "This subtitle track could not be displayed.":"Не удалось показать эту дорожку субтитров.",
+    "Embedded MKV text subtitles loaded.":"Встроенные текстовые субтитры МКВ загружены.",
     "Unknown format":"Неизвестный формат",
     "Couldn't read PGS subtitles":"Не удалось прочитать субтитры ПГС",
     "Checking MKV subtitle tracks…":"Поиск субтитров МКВ…",
@@ -326,8 +341,8 @@
       translated = "Не удалось использовать контейнер МП4 для Эйч.264/ААС: " + m[1];
     if (translated === null && (m = /^MKV container fallback failed: (.+)$/.exec(plain)))
       translated = "Не удалось применить совместимый контейнер МКВ: " + m[1];
-    if (translated === null && (m = /^Chromium cannot play this MKV video codec: (.+)\.$/.exec(plain)))
-      translated = "Хромиум не может воспроизвести этот видеокодек МКВ: " + m[1] + ".";
+    if (translated === null && (m = /^This MKV video codec is not supported: (.+)\.$/.exec(plain)))
+      translated = "Этот видеокодек МКВ не поддерживается: " + m[1] + ".";
     if (translated === null && (m = /^Couldn't decode VobSub subtitles: (.+)$/.exec(plain)))
       translated = "Не удалось декодировать субтитры ВобСаб: " + m[1];
     if (translated === null && (m = /^Couldn't read PGS subtitles: (.+)$/.exec(plain)))

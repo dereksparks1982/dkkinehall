@@ -16,7 +16,8 @@
     audioPreferences: "dkmedia.web.audio-preferences.v1",
     embeddedSubtitlePreferences: "dkmedia.web.mkv-subtitle-preferences.v1",
     folderName: "dkmedia.web.folder-name.v1",
-    playbackSettings: "dkmedia.web.playback-settings.v1"
+    playbackSettings: "dkmedia.web.playback-settings.v1",
+    queueOrder: "dk-kinehall.queue-order.v1"
   };
   const read = (key, fallback) => {
     try {
@@ -89,6 +90,47 @@
   for (const control of [playbackFormatInput,hardwareInput,rememberInput,removeWatchedInput])
     control.addEventListener("change",updatePlaybackSettings);
   const current = () => state.queue[state.current] || null;
+  const savedOrder = read(store.queueOrder, {});
+  const playbackOrder = {
+    shuffle: savedOrder?.shuffle === true,
+    loop: ["off","one","all"].includes(savedOrder?.loop) ? savedOrder.loop : "off"
+  };
+  const rememberOrder = () => write(store.queueOrder, playbackOrder);
+  const shuffleUpcoming = () => {
+    // Never disturb a video currently playing or previous entries.
+    const start = Math.max(0, state.current + 1);
+    for (let i = state.queue.length - 1; i > start; i--) {
+      const other = start + Math.floor(Math.random() * (i - start + 1));
+      [state.queue[i],state.queue[other]] = [state.queue[other],state.queue[i]];
+    }
+  };
+  const updateOrderButtons = () => {
+    const shuffle = byId("shuffleQueue"), loop = byId("loopQueue");
+    shuffle.setAttribute("aria-pressed", String(playbackOrder.shuffle));
+    shuffle.classList.toggle("order-active", playbackOrder.shuffle);
+    const labels = {off:"Off",one:"One",all:"All"};
+    loop.textContent = "Loop: " + labels[playbackOrder.loop];
+    loop.setAttribute("aria-label", loop.textContent);
+    loop.title = "Repeat mode: " + labels[playbackOrder.loop];
+    loop.classList.toggle("order-active", playbackOrder.loop !== "off");
+  };
+  byId("shuffleQueue").addEventListener("click", () => {
+    playbackOrder.shuffle = !playbackOrder.shuffle;
+    if (playbackOrder.shuffle) shuffleUpcoming();
+    rememberOrder();
+    updateOrderButtons();
+    renderQueue();
+    status(playbackOrder.shuffle ? "Shuffle enabled." : "Shuffle disabled.", true);
+  });
+  byId("loopQueue").addEventListener("click", () => {
+    const modes = ["off","one","all"];
+    playbackOrder.loop = modes[(modes.indexOf(playbackOrder.loop) + 1) % modes.length];
+    rememberOrder();
+    updateOrderButtons();
+    updateButtons();
+    status("Repeat mode: " + ({off:"Off",one:"One",all:"All"}[playbackOrder.loop]), true);
+  });
+  updateOrderButtons();
 
   // FileSystemFileHandle objects can be structured-cloned into IndexedDB.
   // Only a reference to the user's chosen file is stored, never its contents.
@@ -349,7 +391,7 @@
     state.activeEmbeddedTrack = embeddedNumber;
     chooseSubtitleTrack({label, language: node.srclang});
     node.addEventListener("load", applySubtitlePreference, {once: true});
-    node.addEventListener("error", () => status("The browser couldn't display this subtitle track."), {once: true});
+    node.addEventListener("error", () => status("This subtitle track could not be displayed."), {once: true});
     applySubtitlePreference();
   };
   const rememberEmbeddedSubtitle = track => {
@@ -381,7 +423,7 @@
       const label = (track.name || track.language || "Subtitle " + track.number) + " · MKV";
       installSubtitleVTT(result.vtt, label, track.language, track.number);
       rememberEmbeddedSubtitle(track);
-      status("Embedded MKV text subtitles loaded. Video playback still depends on browser codecs.", true);
+      status("Embedded MKV text subtitles loaded.", true);
     } catch (error) {
       if (controller.signal.aborted || epoch !== state.subtitleEpoch ||
           current() !== item) return;
@@ -420,7 +462,7 @@
       rememberEmbeddedSubtitle(track);
       updateSubtitleStatus();
       syncPgsOverlay();
-      status("PGS subtitles loaded locally. Video still needs a supported browser codec.",true);
+      status("PGS subtitles loaded.",true);
     } catch (error) {
       if (controller.signal.aborted || epoch !== state.subtitleEpoch ||
           current() !== item) return;
@@ -489,14 +531,18 @@
     byId("playPause").setAttribute("aria-label", isPlaying ? "Pause" : "Play");
     byId("playPause").title = isPlaying ? "Pause" : "Play";
     ["playPause", "stop"].forEach(id => { byId(id).disabled = !item; });
-    byId("previous").disabled = state.current <= 0;
-    byId("next").disabled = state.current < 0 || state.current >= state.queue.length - 1;
+    byId("previous").disabled = state.current < 0 ||
+      (state.current === 0 && !(playbackOrder.loop === "all" && state.queue.length > 1));
+    byId("next").disabled = state.current < 0 ||
+      (state.current >= state.queue.length - 1 &&
+       !(playbackOrder.loop === "all" && state.queue.length > 1));
     byId("clearQueue").disabled = state.current >= 0 ? state.current >= state.queue.length - 1 : state.queue.length === 0;
     byId("addSubtitles").disabled = !item;
     const muted = userMuted || volumePercent === 0;
     byId("mute").classList.toggle("is-muted", muted);
     byId("mute").setAttribute("aria-label", muted ? "Unmute" : "Mute");
     byId("mute").title = muted ? "Unmute" : "Mute";
+    updateOrderButtons();
   };
   const updateTime = () => {
     const length = media.duration;
@@ -511,6 +557,77 @@
   const queueHover = window.DKQueueHover && window.DKQueueHover.create({
     makeVideo: () => document.createElement("video")
   });
+  // Real chapter metadata only. Native chapter cues and MKV chapter atoms
+  // are combined without assuming timestamps or episode runtimes.
+  const chapterPicker = byId("chapterPicker");
+  const chapterEntries = byId("chapterEntries");
+  const getChapterEntries = () => {
+    const item = current();
+    if (!item) return [];
+    const entries = [...(Array.isArray(item.chapters) ? item.chapters : [])];
+    try {
+      for (const track of Array.from(media.textTracks || [])) {
+        if (track.kind !== "chapters") continue;
+        if (track.mode === "disabled") {
+          try { track.mode = "hidden"; } catch (_) {}
+        }
+        for (const cue of Array.from(track.cues || []))
+          entries.push({startTime:cue.startTime,text:cue.text || "Chapter"});
+      }
+    } catch (_) {}
+    return entries.filter(ch=>Number.isFinite(ch.startTime) && ch.startTime >= 0)
+      .sort((a,b)=>a.startTime-b.startTime)
+      .filter((ch,i,list)=>i===0 || Math.abs(ch.startTime-list[i-1].startTime)>.01)
+      .slice(0,500);
+  };
+  const updateChapterButton = () => {
+    const available = getChapterEntries().length > 0 && !state.stopped;
+    const button = byId("chapters");
+    button.disabled = !available;
+    button.title = available ? "Select chapters" : "No chapters available";
+    if (!available) chapterPicker.hidden = true;
+  };
+  const showChapterPicker = () => {
+    const chapters = getChapterEntries();
+    if (!chapters.length) return;
+    chapterEntries.replaceChildren();
+    for (const chapter of chapters) {
+      const button = document.createElement("button");
+      button.type = "button";
+      const timestamp = document.createElement("time");
+      timestamp.textContent = time(chapter.startTime);
+      const title = document.createElement("span");
+      title.textContent = String(chapter.text || "Chapter").slice(0,200);
+      button.append(timestamp,title);
+      button.addEventListener("click",()=>{
+        media.currentTime = chapter.startTime;
+        chapterPicker.hidden = true;
+        updateTime();
+      });
+      chapterEntries.append(button);
+    }
+    chapterPicker.hidden = !chapterPicker.hidden;
+    if (!chapterPicker.hidden) chapterEntries.querySelector("button")?.focus();
+  };
+  byId("chapters").addEventListener("click",showChapterPicker);
+  byId("closeChapters").addEventListener("click",()=>{chapterPicker.hidden=true;});
+  let dragItem = null;
+  const clearDropMarkers = () => {
+    for (const li of queueView.children)
+      li.classList.remove("queue-dragging","queue-drop-before","queue-drop-after");
+  };
+  const moveQueueItem = (source,target,after=false) => {
+    const from=state.queue.indexOf(source);
+    if (from<0 || !target || source===target) return false;
+    const nowPlaying=current();
+    state.queue.splice(from,1);
+    const targetIndex=state.queue.indexOf(target);
+    if (targetIndex<0) {state.queue.splice(from,0,source); return false;}
+    state.queue.splice(targetIndex+(after?1:0),0,source);
+    state.current=state.queue.indexOf(nowPlaying);
+    renderQueue(); // Only queue DOM changes; media.src and playback remain intact.
+    return true;
+  };
   const renderQueue = () => {
     if (queueHover) queueHover.stop();
     queueView.replaceChildren();
@@ -576,10 +693,92 @@
       remove.title = "Remove from queue";
       remove.setAttribute("aria-label", "Remove " + item.name);
       remove.addEventListener("click", () => removeItem(index));
-      li.append(play, remove);
+      const grip = document.createElement("button");
+      grip.type = "button";
+      grip.className = "queue-grip";
+      grip.textContent = "⋮⋮";
+      grip.title = "Drag to reorder";
+      grip.setAttribute("aria-label","Move queued video");
+      grip.draggable = true;
+      grip.addEventListener("keydown",event=>{
+        if (!["ArrowUp","ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const direction=event.key==="ArrowUp"?-1:1;
+        const neighbour=state.queue[index+direction];
+        if (!neighbour) return;
+        if (moveQueueItem(item,neighbour,direction>0))
+          queueView.children[index+direction]?.querySelector(".queue-grip")?.focus();
+      });
+      grip.addEventListener("dragstart",event=>{
+        dragItem=item;
+        event.dataTransfer.effectAllowed="move";
+        event.dataTransfer.setData("text/plain","dk-kinehall-queue");
+        li.classList.add("queue-dragging");
+      });
+      grip.addEventListener("dragend",()=>{
+        dragItem=null;
+        clearDropMarkers();
+      });
+      li.addEventListener("dragover",event=>{
+        if (!dragItem || dragItem===item) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect="move";
+        clearDropMarkers();
+        const after=event.clientY>li.getBoundingClientRect().top+li.offsetHeight/2;
+        li.classList.add(after?"queue-drop-after":"queue-drop-before");
+      });
+      li.addEventListener("drop",event=>{
+        if (!dragItem) return;
+        event.preventDefault();
+        const source=dragItem;
+        const after=event.clientY>li.getBoundingClientRect().top+li.offsetHeight/2;
+        dragItem=null;
+        clearDropMarkers();
+        moveQueueItem(source,item,after);
+      });
+      // Touchscreen reordering uses pointer capture; native HTML5 dragging
+      // is reserved for mouse users, keeping click-to-play independent.
+      grip.addEventListener("pointerdown",event=>{
+        if (event.pointerType==="mouse" || event.button!==0) return;
+        event.preventDefault();
+        const id=event.pointerId,fromY=event.clientY;
+        let target=null,after=false,moved=false;
+        grip.setPointerCapture(id);
+        const move=e=>{
+          if(e.pointerId!==id)return;
+          e.preventDefault();
+          if(Math.abs(e.clientY-fromY)>7)moved=true;
+          if(!moved)return;
+          const node=document.elementFromPoint(e.clientX,e.clientY)?.closest("li");
+          clearDropMarkers();
+          li.classList.add("queue-dragging");
+          if(node?.dkQueueItem && node.dkQueueItem!==item){
+            target=node.dkQueueItem;
+            after=e.clientY>node.getBoundingClientRect().top+node.offsetHeight/2;
+            node.classList.add(after?"queue-drop-after":"queue-drop-before");
+          }
+          const area=queueView.getBoundingClientRect();
+          if(e.clientY<area.top+22)queueView.scrollTop-=12;
+          else if(e.clientY>area.bottom-22)queueView.scrollTop+=12;
+        };
+        const end=e=>{
+          if(e.pointerId!==id)return;
+          grip.removeEventListener("pointermove",move);
+          grip.removeEventListener("pointerup",end);
+          grip.removeEventListener("pointercancel",end);
+          if(grip.hasPointerCapture(id))grip.releasePointerCapture(id);
+          clearDropMarkers();
+          if(e.type==="pointerup"&&target)moveQueueItem(item,target,after);
+        };
+        grip.addEventListener("pointermove",move);
+        grip.addEventListener("pointerup",end);
+        grip.addEventListener("pointercancel",end);
+      });
+      li.append(grip,play,remove);
       queueView.append(li);
     });
     updateButtons();
+    updateChapterButton();
   };
   const idle = () => {
     if (seekPreview) seekPreview.reset();
@@ -671,6 +870,7 @@
     screen.classList.toggle("audio", item.audio);
     applySubtitlePreference();
     screen.classList.remove("ui-hidden", "cursor-hidden");
+    chapterPicker.hidden = true;
     const titleInfo = window.DKMediaMetadata?.parseFilename(item.name);
     const episode = titleInfo?.type === "episode";
     const displayName = episode ? titleInfo.series :
@@ -721,7 +921,7 @@
     const compatible=window.DKMkvWebM.eligible(info,item.file);
     if(!compatible || !media.canPlayType(compatible.mime)){
       if(item.requestedFormat==="webm" && current()===item)
-        status("Chromium cannot play this WebM codec combination.");
+        status("This video format is not supported by the current playback engine.");
       return false;
     }
     const epoch=item.playbackEpoch;
@@ -869,13 +1069,20 @@
     const plan = window.DKQueueAutoplay.plan(mode, state.current, state.queue.length, playing);
     const newItems = [];
     for (const {file, handle, path} of accepted) {
-      const item = {kind: "file", name: file.name, audio: fileIsAudio(file),
+      const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:[],
         file, src: URL.createObjectURL(file), handle,
         path, folderArtwork: posterMap.get(path) || null,
         size: file.size, mime: file.type || "",
         key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
         embeddedSubtitles: [], embeddedAudio: [], embeddedVideo: [], mkvInspection: "not-mkv"};
       newItems.push(item);
+      if (/\.mkv$/i.test(file.name) && window.DKMkvChapters) {
+        void window.DKMkvChapters.inspectFile(file).then(chapters=>{
+          if (!state.queue.includes(item)) return;
+          item.chapters = Array.isArray(chapters) ? chapters : [];
+          if (current()===item) updateChapterButton();
+        }).catch(()=>{});
+      }
       if (/\.mkv$/i.test(file.name) && window.DKMatroska) {
         item.mkvInspection = "pending";
         void window.DKMatroska.inspectFile(file).then(result => {
@@ -909,6 +1116,17 @@
     // Put an explicitly opened movie ahead of pending entries, retaining
     // existing queue order. Multi-selection starts only the first new file.
     state.queue.splice(plan.insertAt, 0, ...newItems);
+    if (playbackOrder.shuffle) {
+      if (plan.activate) {
+        // Keep the newly opened selection first, shuffle only its successors.
+        const active=state.queue[plan.insertAt];
+        state.current=plan.insertAt;
+        shuffleUpcoming();
+        state.current=-1;
+        if (state.queue[plan.insertAt]!==active)
+          throw new Error("Shuffle changed the activated item");
+      } else shuffleUpcoming();
+    }
     if (plan.activate) load(plan.insertAt, plan.autoplay);
     else renderQueue();
     status("Added " + accepted.length + (accepted.length === 1 ? " file" : " files") + " to the queue.", true);
@@ -1315,8 +1533,18 @@
     updateTime();
   };
   byId("stop").addEventListener("click", stopCurrent);
-  byId("previous").addEventListener("click", () => load(state.current - 1));
-  byId("next").addEventListener("click", () => load(state.current + 1));
+  byId("previous").addEventListener("click", () => {
+    if (state.current<0) return;
+    const previous = state.current===0 && playbackOrder.loop==="all"
+      ? state.queue.length-1 : state.current-1;
+    load(previous);
+  });
+  byId("next").addEventListener("click", () => {
+    if (state.current<0) return;
+    const next = state.current===state.queue.length-1 && playbackOrder.loop==="all"
+      ? 0 : state.current+1;
+    load(next);
+  });
   const skipTen = delta => {
     if (!current() || state.stopped || !Number.isFinite(media.duration) ||
         media.duration <= 0) return;
@@ -1339,6 +1567,7 @@
       try { media.currentTime = position; } catch (_) {}
     }
     updateTime();
+    updateChapterButton();
   });
   media.addEventListener("timeupdate", () => {
     updateTime();
@@ -1351,6 +1580,9 @@
   });
   for (const eventName of ["play", "pause", "ended", "emptied"]) media.addEventListener(eventName, updateButtons);
   media.addEventListener("durationchange", updateTime);
+  media.addEventListener("loadeddata", updateChapterButton);
+  if(media.textTracks && typeof media.textTracks.addEventListener==="function")
+    media.textTracks.addEventListener("addtrack",()=>setTimeout(updateChapterButton,0));
   media.addEventListener("loadeddata", applySubtitlePreference);
   // Register lazily: restoreAudioPreference is defined later in this module.
   media.addEventListener("loadeddata", () => restoreAudioPreference());
@@ -1367,6 +1599,10 @@
   for (const event of ["seeked","loadedmetadata","resize"])
     media.addEventListener(event,syncPgsOverlay);
   window.addEventListener("resize",syncPgsOverlay);
+  // Same media element and controls in both docked and movable modes.
+  const playerWindow = window.DKPlayerWindow?.attach({
+    screen,button:byId("floatPlayer"),onResize:syncPgsOverlay
+  });
   if (media.textTracks && typeof media.textTracks.addEventListener === "function") {
     media.textTracks.addEventListener("addtrack", () => setTimeout(applySubtitlePreference, 0));
     media.textTracks.addEventListener("removetrack", () => setTimeout(applySubtitlePreference, 0));
@@ -1378,7 +1614,14 @@
     // A completed movie has no unfinished position to resume.
     delete state.resume[completed.key];
     write(store.resume, state.resume);
-    if (playbackSettings.removeWatched) {
+    if (playbackOrder.loop === "one") {
+      try { media.currentTime = 0; } catch (_) {}
+      state.stopped = false;
+      const restarted = media.play();
+      if (restarted?.catch) restarted.catch(()=>status("Couldn't restart video."));
+    } else if (playbackOrder.loop === "all") {
+      load((state.current + 1) % state.queue.length,true);
+    } else if (playbackSettings.removeWatched) {
       const previousIndex = state.current;
       state.queue.splice(previousIndex, 1);
       // Detach the completed source before revoking the old object URL.
@@ -1417,7 +1660,7 @@
     }
     const mkvVideo = current().embeddedVideo?.[0]?.codec || null;
     const message = code === 4 && mkvVideo ?
-      "Chromium cannot play this MKV video codec: " + mkvVideo + "." :
+      "This MKV video codec is not supported: " + mkvVideo + "." :
       code === 4 ? "This file format isn't supported by your browser." :
       code === 2 ? "The media file couldn't be read." :
       code === 3 ? "The browser couldn't decode this media format." :
@@ -1515,7 +1758,10 @@
     showVolumeOverlay();
   });
   byId("rate").addEventListener("change", event => { media.playbackRate = Number(event.target.value); });
-  if (!document.pictureInPictureEnabled || typeof media.requestPictureInPicture !== "function") byId("pip").hidden = true;
+  if (!document.pictureInPictureEnabled || typeof media.requestPictureInPicture !== "function") {
+    byId("pip").disabled = true;
+    byId("pip").title = "Picture in picture isn't available for this video or browser.";
+  }
   byId("pip").addEventListener("click", async () => {
     try {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
@@ -2062,7 +2308,8 @@
   document.addEventListener("keydown", event => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === "Escape") {
-      if (menuOpen) { event.preventDefault(); closeContextMenu(); }
+      if (!chapterPicker.hidden) { event.preventDefault(); chapterPicker.hidden = true; }
+      else if (menuOpen) { event.preventDefault(); closeContextMenu(); }
       else if (!infoPanel.hidden) { infoPanel.hidden = true; revealControls(); }
       else if (desktopFullscreen && screen.classList.contains("desktop-fullscreen")) {
         event.preventDefault();

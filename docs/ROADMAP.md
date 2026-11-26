@@ -75,7 +75,7 @@ All classic Windows Media Player features below are in scope. Network playback i
 | 1 | Brightness, contrast, saturation and hue | Source added: live sliders, persisted values, reset to neutral; runtime acceptance pending |
 | 2 | Gamma correction and sharpness | Source added: local SVG gamma transfer/convolution, neutral bypass; verify rendering, subtitle compatibility and Surface Pro performance |
 | 3 | Single-frame forward and reverse | Source added: bounded FFprobe presentation timestamp lookup, paused Previous/Next frame and Shift+Left/Right, native stream restart at chosen timestamp. Verify direct, remuxed and transcoded presentation accuracy, unusual start times, variable frame rate, sparse keyframes and final frames; further decoder work if exact stepping fails. No fixed-FPS approximation. |
-| 4 | Video zoom, crop, aspect ratio | Partial: existing fit/fill; add 50/100/150/200%, custom zoom and pan/crop, aspect presets and reset; keep subtitle alignment and control geometry |
+| 4 | Video zoom, crop, aspect ratio | Source added: fit/fill, 50/100/150/200% presets, custom 50–300%, horizontal/vertical pan, original/4:3/16:9/1:1/21:9/2.35:1 aspect options, reset and saved preferences. Overrides may stretch picture; verify bitmap/text subtitle alignment, clipping, fullscreen, float/dock and PiP. |
 | 5 | Ten-band graphic equalizer | Planned: 31/62/125/250/500 Hz, 1/2/4/8/16 kHz, presets, custom saved settings, bass/treble and stereo balance; share the audio graph with 200% boost |
 | 6 | Automatic volume leveling and dialogue enhancement | Planned: opt-in normalization/dynamics with sensible defaults, avoid clipping and preserve user volume; stereo/surround-aware dialogue enhancement |
 | 7 | Deinterlacing | Planned: automatic detection or manual off/auto/on using actual decoder filters, preserve timestamps and avoid unnecessary transcoding |
@@ -104,10 +104,11 @@ Picture adjustments apply only to the visible player video, not original files, 
 
 ## Permanent design and workflow requirements
 
+- Approved standalone footer: gold DK Kinehall ☭ DK Softworks on the left and gold text-only ACP link to https://acp.us/ on the right. Localized Russian footer. Open the fixed URL in the default browser only on explicit link activation; no icon, embedded page or automatic network request.
 - Approved crimson background and original application icons must not change without explicit approval. Existing standalone remains the exact Chromium-based player; no hosted web development for now.
 - Preserve red Library/Player navigation, Play, Add files, Clear queue, red volume slider and removal X; gold headings, seek bar and selected Library tabs; brown/gold secondary controls; white Shuffle/Loop with inset active/focus indicators. Sidebar rows: brown Choose folder/Reopen folder; white Forget folder/Scan Library; gold Empty Trash/Refresh Metadata. Scan Library white on both pages. White chapter ticks.
 - Preserve the two-line series and episode text, original control sizes, 200% actual volume, existing preferences and saved library history.
 - One branch only: main. One build at a time. Build on explicit instruction, stop on request. No compile, tests, large downloads or GitHub Actions during the current source-only period. No terminal commands or downloads until the user requests them again.
 - Keep README and this master roadmap current. Version changes at meaningful milestones rather than every commit. Never claim runtime acceptance based on source commits alone. Keep the application free; comply with third-party redistribution obligations.
 
-**Current status: v0.9.3 source development; not fully verified. Next implementation priority: video zoom, cropping and aspect ratio controls.**
+**Current status: v0.9.3 source development; not fully verified. Next implementation priority: ten-band graphic equalizer, presets, bass/treble and stereo balance.**

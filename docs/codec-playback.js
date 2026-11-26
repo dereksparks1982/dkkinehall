@@ -9,6 +9,12 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
                  onChaptersChanged=()=>{}}) {
   if(!bridge||typeof bridge.start!=="function"||!media)return null;
   let generation=0,active=null,chain=Promise.resolve();
+  // Only the browser's real playing event proves the native output is
+  // decoding and rendering. A returned stream URL is not playback success.
+  media.addEventListener("playing",()=>{
+    if(active?.item && current()===active.item)
+      onStatus("Playing with included codecs.",true);
+  });
   const enqueue=work=>{
     const task=chain.catch(()=>{}).then(work);
     chain=task.catch(()=>{});
@@ -65,6 +71,9 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         media.src=result.url;
         media.load();
         onClockChanged();
+        // This is still a startup attempt. Only "playing" confirms success.
+        onStatus(autoplay?"Decoding with included codecs…":
+          "Included codec stream ready.",false);
         if(autoplay) {
           try {
             const request=media.play();
@@ -74,8 +83,6 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
             });
           }catch(error){onStatus("Playback could not start.");}
         }
-        if(token===generation&&current()===item)
-          onStatus("Playing with included codecs.",true);
         return true;
       } catch(error) {
         if(token===generation&&current()===item) {

@@ -2345,6 +2345,7 @@
     const titleNumber=numberField("dvdTitleNumber","DVD title",99);
     const chapterNumber=numberField("dvdChapterNumber","Start chapter",999);
     const angleNumber=numberField("dvdAngleNumber","DVD angle",9);
+    const dvdDialog=document.createElement("dialog");dvdDialog.className="dk-dvd-dialog";
     const buttons=[];let choosing=false;
     for(const [kind,text] of [["drive","Open DVD drive…"],["iso","Open DVD image…"],["folder","Open DVD folder…"]]){
       const button=document.createElement("button");button.type="button";button.className="btn small";button.textContent=text;
@@ -2366,14 +2367,28 @@
           addFiles([file],[],"open",{nativeSrc:"about:blank"});
           const index=state.queue.findIndex(item=>item.key===result.id);
           if(index>=0&&index!==state.current)load(index,true);
-          settingsDetails.open=false;
+          settingsDetails.open=false;if(dvdDialog.open)dvdDialog.close();
         }catch(_){status("Cannot open this DVD title. Check the disc, title, chapter and angle.");}
         finally{choosing=false;buttons.forEach(b=>b.disabled=false);}
       });
     }
     const note=document.createElement("p");note.className="helper";
     note.textContent="DVD titles use automatic native decoding. A compatible decoder is required. Menus and disc subtitles are not supported yet. Disc selections are session-only.";
-    section.append(note);byId("playerSettingsPanel").append(section);window.DKLocale?.apply();
+    section.append(note);byId("playerSettingsPanel").append(section);
+    // The playback bar is hidden when idle, so make DVD opening reachable
+    // without first playing an unrelated file. Reuse the same controls.
+    const closeDVD=document.createElement("button");closeDVD.type="button";closeDVD.className="btn";closeDVD.textContent="Cancel";
+    const openDVD=document.createElement("button");openDVD.type="button";openDVD.className="btn ghost";openDVD.textContent="Open DVD…";
+    dvdDialog.append(closeDVD);document.body.append(dvdDialog);
+    byId("openEmpty").after(openDVD);
+    openDVD.addEventListener("click",()=>{
+      if(dvdDialog.open)return;
+      dvdDialog.prepend(section);dvdDialog.showModal();
+    });
+    closeDVD.addEventListener("click",()=>{if(!choosing)dvdDialog.close();});
+    dvdDialog.addEventListener("cancel",event=>{if(choosing)event.preventDefault();});
+    dvdDialog.addEventListener("close",()=>byId("playerSettingsPanel").append(section));
+    window.DKLocale?.apply();
   }
   // Frame stepping uses actual source presentation timestamps. Pause before
   // seeking; do not substitute guessed 24/30-fps offsets when unavailable.

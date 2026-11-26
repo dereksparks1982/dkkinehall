@@ -34,10 +34,10 @@ print(json.dumps({"lines":output},ensure_ascii=False),flush=True)
 `;
 function translationPaths(pair){
   if(!["en-ru","ru-en"].includes(pair))throw Error("Unsupported translation direction");
-  const root=path.join(app.getPath("userData"),"translation-runtime");
+  const root=path.join(process.env.XDG_DATA_HOME||path.join(app.getPath("home"),".local","share"),"dk-kinehall","translation-runtime");
   const python=path.join(root,"bin","python3");
   const model=path.join(root,"models",pair);
-  const ready=[python,path.join(model,"model","model.bin"),path.join(model,"source.model"),path.join(model,"target.model")].every(p=>fs.existsSync(p));
+  const ready=[path.join(root,"READY.json"),python,path.join(model,"model","model.bin"),path.join(model,"source.model"),path.join(model,"target.model")].every(p=>fs.existsSync(p));
   return {python,model,ready};
 }
 function cancelTranslation(){

@@ -19,6 +19,18 @@ let scanning=false,controller=null,repaintTimer=null;
 let maintaining=false,refreshCancelled=false;
 let bottomObserver=null;
 let contextRow=null;
+let libraryZoom=100;
+const libraryZoomKey="dk-kinehall.library.zoom.v1";
+const applyLibraryZoom=(value,persist=true)=>{
+  if(!nativeBridge?.internalPages)return;
+  libraryZoom=Math.max(50,Math.min(200,Math.round(value/10)*10));
+  // A page-local CSS zoom avoids Electron's shared-origin zoom preference
+  // affecting the independent player WebContentsView.
+  document.body.style.zoom=String(libraryZoom/100);
+  if(persist)try{localStorage.setItem(libraryZoomKey,String(libraryZoom));}catch(_){}
+  hideContextMenu();
+  requestAnimationFrame(()=>window.dispatchEvent(new Event("resize")));
+};
 let deferredProgress=false,historyTimer=null,historyRevision=0;
 const artAttempted=new Set(),titleAttempted=new Set();
 const imageUrls=new Set();
@@ -391,10 +403,11 @@ function showContextMenu(row,x,y,fromContinue=false){
   $("showInFolder").hidden=!nativeBridge.showInFolder;
   $("showInFolder").disabled=!!row.missing;
   menu.hidden=false;
-  menu.style.left=Math.max(4,Math.min(x,
-    window.innerWidth-menu.offsetWidth-8))+"px";
-  menu.style.top=Math.max(4,Math.min(y,
-    window.innerHeight-menu.offsetHeight-8))+"px";
+  const scale=nativeBridge?.internalPages?libraryZoom/100:1;
+  menu.style.left=Math.max(4,Math.min(x/scale,
+    window.innerWidth/scale-menu.offsetWidth-8))+"px";
+  menu.style.top=Math.max(4,Math.min(y/scale,
+    window.innerHeight/scale-menu.offsetHeight-8))+"px";
   (row.kind==="movie"?$("movieDetailsAction"):!$("showInFolder").hidden&&!$("showInFolder").disabled?$("showInFolder"):$("deleteFromDisk")).focus();
 }
 let detailMovieId=null;
@@ -655,6 +668,36 @@ async function render(){
       "Добавьте локальную папку.");
   pumpArtwork();
 }
+function showScanIssues(errors){
+  let details=$("nativeScanIssues");
+  if(!details){
+    details=create("details","library-scan-issues");
+    details.id="nativeScanIssues";
+    const summary=create("summary",null,"");
+    const list=create("ul");
+    details.append(summary,list);
+    $("libraryStatus").after(details);
+  }
+  const rows=Array.isArray(errors)?errors:[];
+  details.hidden=rows.length===0;
+  details.open=false;
+  details.querySelector("summary").textContent=say("Scan issues ("+rows.length+")","Ошибки проверки ("+rows.length+")");
+  const list=details.querySelector("ul");
+  // Report all actual paths on demand, keeping the main collection clean.
+  list.replaceChildren();
+  details.ontoggle=()=>{
+    if(!details.open||list.childNodes.length)return;
+    const fragment=document.createDocumentFragment();
+    for(const issue of rows){
+      const operation=issue.operation==="open-directory"?say("Open folder","Открытие папки"):
+        issue.operation==="read-directory"?say("Read folder","Чтение папки"):say("Inspect video","Проверка видео");
+      const code=issue.code==="UNVERIFIED_VIDEO"?say("Video format could not be verified","Не удалось проверить формат видео"):
+        String(issue.code||"UNKNOWN");
+      fragment.append(create("li",null,operation+": "+String(issue.path||"")+" ("+code+")"));
+    }
+    list.append(fragment);
+  };
+}
 async function scan(manual=false){
   if(maintaining)return;
   if(scanning){
@@ -663,6 +706,7 @@ async function scan(manual=false){
     return;
   }
   scanning=true;controller=new AbortController();
+  if(nativeBridge)showScanIssues([]);
   if(nativeBridge?.internalPages)void nativeBridge.setScanState(true).catch(()=>{});
   $("scanLibrary").textContent=say("Stop Scan","Остановить");
   $("scanLibrary").setAttribute("aria-pressed","true");
@@ -674,22 +718,25 @@ async function scan(manual=false){
           "Поиск на устройстве: найдено видео "+progress.found+"…");
       });
       const discovered=await nativeBridge.discover(manual);
-      if(controller.signal.aborted)return;
-      const counts=await store.ingestNative(discovered);
-      const merged=await store.reconcileNative();
+      // Cancellation retains successfully discovered records. Never mark
+      // unseen records missing after an interrupted or errored scan.
+      const cancelled=!!discovered.cancelled||controller.signal.aborted;
+      const counts=await store.ingestNative(cancelled?{...discovered,complete:false}:discovered);
+      const merged=cancelled?0:await store.reconcileNative();
       if(manual||counts.added||counts.updated||counts.missing||merged)await render();
       else scheduleHistoryRefresh();
-      status((discovered.partial?"Scan incomplete. ":"Scan complete. ")+
-        counts.found+" videos found. "+
-        counts.added+" added, "+counts.updated+" updated, "+
+      const errors=Array.isArray(discovered.errors)?discovered.errors:[];
+      showScanIssues(errors);
+      status((cancelled?"Scan stopped. ":discovered.partial?"Scan finished with errors. ":"Scan complete. ")+
+        counts.found+" videos found. "+counts.added+" added, "+counts.updated+" updated, "+
         counts.missing+" unavailable. "+merged+" duplicate records merged."+
-        (discovered.partial?" Some folders could not be searched or scan limits were reached.":""),
-        (discovered.partial?"Проверка не завершена. ":"Проверка завершена. ")+
-        "Найдено видео: "+counts.found+
-        ". Добавлено: "+counts.added+
-        ". Обновлено: "+counts.updated+
-        ". Недоступно: "+counts.missing+". Объединено записей: "+merged+".",
-        discovered.partial);
+        (errors.length?" "+errors.length+" filesystem or video verification issue(s). See scan issues below.":"")+
+        (cancelled?" Discovered videos retained.":""),
+        (cancelled?"Проверка остановлена. ":discovered.partial?"Проверка завершена с ошибками. ":"Проверка завершена. ")+
+        "Найдено видео: "+counts.found+". Добавлено: "+counts.added+". Обновлено: "+counts.updated+
+        ". Недоступно: "+counts.missing+". Объединено записей: "+merged+"."+
+        (errors.length?" Ошибок проверки: "+errors.length+". Подробности ниже.":"")+
+        (cancelled?" Найденные видео сохранены.":""),errors.length>0);
       return;
     }
     const results=await store.scanAll({
@@ -818,6 +865,28 @@ function connect(){
   // Standalone navigation only; leave the hosted library unchanged.
   if(nativeBridge?.internalPages){
     document.documentElement.classList.add("dk-standalone");
+    let savedZoom=100;
+    try{const value=Number(localStorage.getItem(libraryZoomKey)||100);if(Number.isFinite(value))savedZoom=value;}catch(_){}
+    applyLibraryZoom(savedZoom,false);
+    let lastZoomWheel=0;
+    window.addEventListener("wheel",event=>{
+      if(!event.ctrlKey)return;
+      event.preventDefault();event.stopImmediatePropagation();
+      if(!event.deltaY)return;
+      const now=performance.now();
+      // Coalesce high-frequency trackpad events without affecting wheel notches.
+      if(now-lastZoomWheel<65)return;
+      lastZoomWheel=now;
+      applyLibraryZoom(libraryZoom+(event.deltaY<0?10:-10));
+    },{capture:true,passive:false});
+    window.addEventListener("mousedown",event=>{
+      if(event.ctrlKey&&event.button===1){
+        event.preventDefault();event.stopImmediatePropagation();applyLibraryZoom(100);
+      }
+    },true);
+    window.addEventListener("auxclick",event=>{
+      if(event.ctrlKey&&event.button===1){event.preventDefault();event.stopImmediatePropagation();}
+    },true);
     if(nativeBridge.openACP){
       const footer=create("footer","footer dk-branded-footer");
       const brand=create("span",null,"DK Kinehall ☭ DK Softworks");

@@ -11,6 +11,7 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  openACP:()=>libIpc.invoke("dk-library:open-acp"),
   recordNavigation:value=>libIpc.invoke("dk-library:record-navigation",value),
   navigateHistory:direction=>libIpc.invoke("dk-library:navigate-history",Number(direction)),
   onRestoreNavigation:callback=>subscribe("dk-library:restore-navigation",callback),

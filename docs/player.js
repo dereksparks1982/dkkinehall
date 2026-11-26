@@ -4536,13 +4536,16 @@
     };
     const sourceLang=()=>direction.value.split("-")[0];
     const validGenerated=()=>generated&&generated.item===current()&&generated.language===sourceLang()&&generated.audio===audioOrdinal();
-    const textRows=()=>{
-      if(validGenerated())return generated.rows;
+    const compatibleTrack=()=>{
       const source=track();
       if(!source?.cues?.length||state.activePgsTrack||translationOriginals||translationBusy||
-         (codecPlayback?.isActive(current())&&codecPlayback.offset(current())>0))return [];
+         (codecPlayback?.isActive(current())&&codecPlayback.offset(current())>0))return null;
       const language=normalizeSubtitleLanguage(source.language);
-      if(language&&language!=="und"&&language!==sourceLang())return [];
+      return !language||language==="und"||language===sourceLang()?source:null;
+    };
+    const textRows=()=>{
+      if(validGenerated())return generated.rows;
+      const source=compatibleTrack();if(!source)return [];
       return Array.from(source.cues).flatMap(cue=>{
         let plain=cue.text;
         try{plain=cue.getCueAsHTML().textContent;}catch(_){}
@@ -4554,7 +4557,7 @@
       const currentAudio=audioOrdinal();
       if(jobAudio!==null&&jobAudio!==currentAudio&&(busy||result||generated)){resetVoiceover();return;}
       const candidate=localMovie(),speech=!!(speechReady&&localCodecBridge?.recognizeSpeech);
-      generate.disabled=!ready||busy||exporting||!candidate||(!speech&&!textRows().length);
+      generate.disabled=!ready||busy||exporting||!candidate||(!speech&&!validGenerated()&&!compatibleTrack());
       speechButton.disabled=!speech||busy||exporting||!candidate;
       speechExport.disabled=!validGenerated()||busy||exporting;
       cancel.disabled=!busy;

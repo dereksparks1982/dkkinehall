@@ -355,3 +355,7 @@ Second-stage standalone Voiceover source streams generated timed speech from a r
 ### Shared interface language
 
 Native standalone language preference is persisted in the existing user profile and broadcast to both views, using revisioned updates. Localized UI pairs and source strings allow dynamic labels, explicit-value options and shared settings snapshots to be restored when switching back to English. Library and Player do not reload or clear history on a language switch. Russian Scan Library text wraps within the existing button. Source-only change; verify both directions, active playback, scans, menus and relaunch. Literal media data is not modified.
+
+### Show in folder
+
+Standalone library context menu opens the selected movie or individual episode in the system file manager via native file identity and root validation. Local files are not modified. Missing entries cannot be revealed; reconnect or rescan. The menu is bilingual. Source only; verify native file-manager selection on Ubuntu.

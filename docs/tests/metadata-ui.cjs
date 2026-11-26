@@ -31,7 +31,7 @@ class El{
  closest(q){return q==="li"?this.parent:null;}
 }
 function item(name){
- const li=new El();li.name=name;li.dataset={queueKind:"file",queueAudio:"0"};
+ const li=new El();li.name=name;li.dkQueueItem={name};li.dataset={queueKind:"file",queueAudio:"0"};
  li.box=new El("queue-artwork");li.box.parent=li;
  return li;
 }

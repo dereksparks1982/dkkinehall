@@ -101,8 +101,8 @@ function selectedFile(localPath) {
   return localPath;
 }
 async function probe(localPath) {
-  const ready=await status();
-  if(!ready.ready)throw new Error(ready.reason);
+  // Probing chapters and streams does not require a usable output encoder.
+  if(!executable(binary("ffprobe")))throw new Error("Bundled FFprobe is missing");
   const file=selectedFile(localPath);
   const stat=fs.statSync(file);
   const key=JSON.stringify([file,stat.size,stat.mtimeMs]);

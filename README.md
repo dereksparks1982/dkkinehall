@@ -81,6 +81,8 @@ The existing Chromium-based player has source code for a guarded desktop decodin
 
 ## Additional decoding source progress
 
+The standalone playback transcoder now reports FFmpeg encoded-time progress through the native Electron window/taskbar progress API, with indeterminate progress for unknown duration and clearing on stop or process exit. Linux desktop support for this indicator is environment-dependent. This is a source-level streaming conversion indicator, not an in-player percentage display or permanent file export; those remain outstanding. No hosted web files changed.
+
 The bundled-codec adapter now also has source-level selection of alternate audio streams and actual chapter markers discovered by FFprobe, including for source formats beyond Matroska. Repeat One explicitly restarts a transcoded file at the beginning. Both still require real standalone runtime verification and do not make the release complete.
 
 ## Final acceptance gate

@@ -295,6 +295,7 @@
   const localCodecBridge=rawCodecBridge?{
     ...rawCodecBridge,
     probe:(file)=>codecCall("probe",file),
+    adjacentFrame:typeof rawCodecBridge.adjacentFrame==="function"?(file,...args)=>codecCall("adjacentFrame",file,...args):null,
     start:(file,...args)=>codecCall("start",file,...args),
     subtitleVtt:(file,...args)=>codecCall("subtitleVtt",file,...args)
   }:null;
@@ -2053,6 +2054,68 @@
     applyPicture();
     window.DKLocale?.apply();
   }
+  // Frame stepping uses actual source presentation timestamps. Pause before
+  // seeking; do not substitute guessed 24/30-fps offsets when unavailable.
+  let stepFrame=null;
+  if(window.DKLibraryBridge?.internalPages&&settingsDetails){
+    const section=document.createElement("section");
+    section.className="player-settings-section dk-frame-settings";
+    const title=document.createElement("strong");title.textContent="Frame navigation";
+    const row=document.createElement("div");row.className="dk-frame-buttons";
+    const previous=document.createElement("button"),next=document.createElement("button");
+    previous.type=next.type="button";
+    previous.className=next.className="btn small";
+    previous.textContent="Previous frame";next.textContent="Next frame";
+    row.append(previous,next);
+    const note=document.createElement("p");note.className="helper";
+    note.textContent="Frame navigation pauses playback and uses source frame timestamps. Decoder support is required.";
+    section.append(title,row,note);
+    const picture=byId("pictureEnhancements");
+    if(picture)picture.after(section);else byId("playerSettingsPanel").append(section);
+    let busy=false;
+    const refresh=()=>{
+      const item=current();
+      previous.disabled=next.disabled=busy||!localCodecBridge?.adjacentFrame||!item?.file||item.audio||
+        state.stopped||!Number.isFinite(playbackDuration())||playbackDuration()<=0||!media.videoWidth;
+    };
+    stepFrame=async direction=>{
+      refresh();
+      if(previous.disabled||busy)return;
+      const item=current(),epoch=item.playbackEpoch;
+      media.pause();
+      keepControlsVisible();
+      const at=playbackSeconds(),source=media.currentSrc;
+      busy=true;refresh();
+      try{
+        const result=await localCodecBridge.adjacentFrame(item.file,at,direction);
+        if(current()!==item||item.playbackEpoch!==epoch||state.stopped||
+           !media.paused||media.currentSrc!==source||Math.abs(playbackSeconds()-at)>0.001)return;
+        if(!result||!Number.isFinite(result.target)||!Number.isFinite(result.sample)){
+          status("No adjacent frame found.");return;
+        }
+        const target=Math.max(0,result.target);
+        if(codecPlayback?.isActive(item)){
+          const started=await codecPlayback.seek(item,target,{frameStep:true});
+          if(!started||current()!==item||state.stopped)return;
+        }else{
+          // Land just inside the chosen presentation interval rather than
+          // on a rounding-sensitive boundary.
+          media.currentTime=Math.min(result.sample,Math.max(0,playbackDuration()-0.000001));
+        }
+        if(current()===item&&!state.stopped){updateTime();keepControlsVisible();}
+      }catch(_){
+        if(current()===item&&!state.stopped)status("Frame navigation unavailable for this video.");
+      }finally{busy=false;refresh();}
+    };
+    previous.addEventListener("click",()=>void stepFrame(-1));
+    next.addEventListener("click",()=>void stepFrame(1));
+    for(const event of ["loadedmetadata","loadeddata","emptied","durationchange","seeked","playing","pause","error"])
+      media.addEventListener(event,refresh);
+    settingsDetails.addEventListener("toggle",refresh);
+    byId("stop").addEventListener("click",()=>queueMicrotask(refresh));
+    refresh();
+    window.DKLocale?.apply();
+  }
   let hideControlsTimer = null;
   let menuOpen = false;
   const revealControls = () => {
@@ -3180,6 +3243,10 @@
     const tag = event.target && event.target.tagName;
     const key = event.key.toLowerCase();
     const arrowSeek=key==="arrowleft"||key==="arrowright";
+    if(stepFrame&&event.shiftKey&&arrowSeek&&!menuOpen&&!settingsDetails?.open&&infoPanel.hidden&&
+       !["INPUT","TEXTAREA","SELECT"].includes(tag)&&!event.target?.isContentEditable&&current()){
+      event.preventDefault();void stepFrame(key==="arrowleft"?-1:1);return;
+    }
     if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)||event.target?.isContentEditable) return;
     // Keep native form/menu navigation intact, but a focused queue or
     // transport button must not swallow the standalone seek shortcut.

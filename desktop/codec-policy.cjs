@@ -11,22 +11,24 @@ function capabilityFromEncoders(encoders) {
   const text=String(encoders||"");
   const h264Encoder=has(text,"V","libopenh264")?"libopenh264":
     has(text,"V","libx264")?"libx264":null;
-  const mp4=Boolean(h264Encoder&&has(text,"A","aac"));
+  const mp4Copy=has(text,"A","aac");
+  const mp4=Boolean(h264Encoder&&mp4Copy);
   const webm=has(text,"V","libvpx-vp9")&&has(text,"A","libopus");
   return {
     ready:mp4||webm,engine:"bundled FFmpeg",
     output:mp4?"fragmented MP4":"WebM",
-    mp4,webm,h264Encoder,
+    mp4,mp4Copy,webm,h264Encoder,
     ...(!mp4&&!webm?{reason:"Bundled decoder has no usable video/audio streaming output"}:{})
   };
 }
-function chooseOutput(caps,requested="auto") {
+function chooseOutput(caps,requested="auto",copyVideo=false) {
   if(!["auto","mp4","webm"].includes(requested))
     throw new Error("Unsupported streaming output format");
   if(!caps?.ready)
     throw new Error(caps?.reason||"Bundled decoder is unavailable");
-  const selected=requested==="auto"?(caps.mp4?"mp4":"webm"):requested;
-  if(selected==="mp4"&&!caps.mp4)
+  const canMP4=caps.mp4||(copyVideo&&caps.mp4Copy);
+  const selected=requested==="auto"?(canMP4?"mp4":"webm"):requested;
+  if(selected==="mp4"&&!canMP4)
     throw new Error("Bundled decoder cannot create the selected MP4 output");
   if(selected==="webm"&&!caps.webm)
     throw new Error("Bundled decoder cannot create the selected WebM output");

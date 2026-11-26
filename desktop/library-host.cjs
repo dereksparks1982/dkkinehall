@@ -694,7 +694,7 @@ function saveASRCache(file,srt){
     fs.renameSync(tmp,file);
   }finally{try{fs.unlinkSync(tmp);}catch(_){}}
   // Keep at most 128 transcripts or 64 MiB, oldest first. No media copies.
-  const files=fs.readdirSync(root).filter(n=>/^[a-f0-9]{64}\.srt$/.test(n)).flatMap(n=>{
+  const files=fs.readdirSync(root).filter(n=>/^[a-f0-9]{64}(?:\.[a-z]{2,3})?\.srt$/.test(n)).flatMap(n=>{
     try{const name=path.join(root,n),stat=fs.lstatSync(name);return stat.isFile()?[{name,stat}]:[];}catch(_){return [];}
   }).sort((a,b)=>b.stat.mtimeMs-a.stat.mtimeMs);
   let bytes=0;
@@ -702,7 +702,7 @@ function saveASRCache(file,srt){
 }
 async function generateASR(event,source,language,audioIndex,ticket){
   if(asrJob||translationJob||voiceoverJob)throw Error("Another offline speech job is running");
-  if(!["en","ru"].includes(language)||!Number.isInteger(audioIndex)||audioIndex<0||audioIndex>31||
+  if(!["en","ru","auto"].includes(language)||!Number.isInteger(audioIndex)||audioIndex<0||audioIndex>31||
      !Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid speech recognition request");
   const runtime=asrPaths();if(!runtime.ready)throw Error("Offline speech runtime is not installed");
   const job={ticket,child:null,cancelled:false};asrJob=job;
@@ -717,9 +717,15 @@ async function generateASR(event,source,language,audioIndex,ticket){
     if(!Number.isFinite(duration)||duration<=0||duration>ASR_LIMIT||audioIndex>=tracks.length)throw Error("Unsupported duration or audio track");
     const modelStat=fs.statSync(runtime.model),cliStat=fs.statSync(runtime.cli);
     const key=require("node:crypto").createHash("sha256").update(JSON.stringify(["asr-v1",target,stat.size,stat.mtimeMs,stat.ino,audioIndex,language,modelStat.size,modelStat.mtimeMs,cliStat.size,cliStat.mtimeMs])).digest("hex");
-    const file=path.join(asrCacheRoot(),key+".srt");
-    const cached=readASRCache(file,duration);
-    if(cached){asrProgress(event,job,"cached",100);return cached;}
+    const cacheRoot=asrCacheRoot();
+    // A detected-language suffix preserves the actual language across restarts.
+    // Do not treat manually forced transcripts as automatically detected.
+    const cacheFiles=language==="auto"?["en","ru"].map(code=>({code,file:path.join(cacheRoot,key+"."+code+".srt")})):
+      [{code:language,file:path.join(cacheRoot,key+".srt")}];
+    for(const entry of cacheFiles){
+      const cached=readASRCache(entry.file,duration);
+      if(cached){asrProgress(event,job,"cached",100);return {...cached,language:entry.code};}
+    }
     dir=fs.mkdtempSync(path.join(app.getPath("temp"),"dk-asr-"));
     const wav=path.join(dir,"audio.wav"),output=path.join(dir,"transcript");
     asrProgress(event,job,"extract",0);
@@ -732,19 +738,31 @@ async function generateASR(event,source,language,audioIndex,ticket){
       });
     const wavStat=fs.statSync(wav);
     if(wavStat.size<44||wavStat.size>ASR_LIMIT*32000+1024*1024)throw Error("Audio extraction exceeds limit");
-    asrProgress(event,job,"recognize",15);
+    let detected=language==="auto"?null:language;
+    asrProgress(event,job,language==="auto"?"detect":"recognize",15);
     await asrProcess(job,runtime.cli,["-m",runtime.model,"-f",wav,"-l",language,"-t","2","-ng","-osrt","-of",output,"-pp"],
       4*60*60*1000,line=>{
+        if(language==="auto"){
+          const found=/auto-detected language:\s*([a-z]{2,3})\s*\(p\s*=\s*([0-9.]+)\)/i.exec(line);
+          if(found){
+            const confidence=Number(found[2]);
+            if(Number.isFinite(confidence)&&confidence>=0.5&&confidence<=1)
+              detected=found[1].toLowerCase();
+          }
+        }
         const match=/progress\s*=\s*(\d+)%/i.exec(line);
         if(match)asrProgress(event,job,"recognize",15+Number(match[1])*.84);
       });
+    if(language==="auto"&&!["en","ru"].includes(detected))
+      throw Error("Speech language uncertain or unsupported; choose the original language manually");
+    const file=path.join(cacheRoot,key+(language==="auto"?"."+detected:"")+".srt");
     const srtFile=output+".srt";
     if(fs.statSync(srtFile).size>ASR_BYTES)throw Error("Subtitle output exceeds limit");
     const srt=fs.readFileSync(srtFile,"utf8"),rows=parseASRSrt(srt,duration);
     const after=await fs.promises.stat(target);
     if(job.cancelled||after.size!==stat.size||after.mtimeMs!==stat.mtimeMs||after.ino!==stat.ino)throw Error("Media changed during recognition");
     saveASRCache(file,srt);asrProgress(event,job,"complete",100);
-    return {rows,srt,cached:false};
+    return {rows,srt,cached:false,language:detected};
   }finally{
     if(dir)fs.rmSync(dir,{recursive:true,force:true});
     if(asrJob===job)asrJob=null;

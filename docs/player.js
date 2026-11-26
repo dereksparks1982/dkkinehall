@@ -1009,6 +1009,7 @@
     const needsRemux = forcingContainer && !directFormat &&
       /\.mkv$/i.test(item.name) && !!item.file && !item.file.nativeVirtual;
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
+    media.removeAttribute("crossorigin");
     if (needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");

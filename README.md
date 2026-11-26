@@ -14,14 +14,14 @@ Play local media directly in your web browser, with the familiar DK Kinehall int
 
 DK Kinehall also has a standalone Linux edition that uses the **same web player interface** in its own bundled Chromium window. It does not require you to install a separate browser. Keep the included `_internal` runtime alongside the **DK Kinehall** executable. Media and subtitle support still depends on the codecs available to that bundled player.
 
-The updater removes the black outer corners from the **approved DK cinema emblem** on every update, registers the transparent icon for the Linux app and dock, and places a **DK Kinehall.desktop** launcher beside the original executable. After a successful update, it opens the **installed standalone Chromium player**, not the hosted Web App. The original Chromium player is preserved.
+The updater preserves the existing **approved DK cinema emblem, launcher and dock icon** without changing or re-registering them. After a successful update, it opens the **installed standalone Chromium player**, not the hosted Web App. The original Chromium player is preserved.
 
 The two editions are separate. The Web App remains available regardless of changes to the standalone version.
 
 ## Features
 
 - **Local playback:** Open video and music stored on your device.
-- **Up Next:** Build a playlist and move between movies or episodes.
+- **Up Next:** Build a playlist and move between movies or episodes. TV episodes show the **series name**, **complete SxxExx number**, and **actual episode title** on separate lines. Artwork and playback still use the original filenames.
 - **Playback controls:** Play, pause, stop, seek, previous, next, and 10-second rewind or fast-forward.
 - **Fullscreen:** Watch videos in fullscreen using the player controls.
 - **Playback settings:** The preferences panel stays above the video and Up Next queue while open.

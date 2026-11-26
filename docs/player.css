@@ -565,6 +565,9 @@ html.dk-desktop-fullscreen body {
 
 /* Build 7: shared playback format preferences */
 .header-tools{display:flex;align-items:center;gap:12px}
+/* backdrop-filter creates a stacking context on .topbar. Raise the whole
+   header so its settings popup clears the video and Up Next sidebar. */
+.shell > .topbar{position:relative;z-index:40}
 .playback-settings{position:relative;z-index:30}
 .playback-settings summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:9px;background:var(--panel2);padding:8px 11px;font-size:.82rem}
 .playback-settings summary::-webkit-details-marker{display:none}

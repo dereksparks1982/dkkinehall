@@ -28,6 +28,10 @@ assert.doesNotMatch(html, /id="mute"[^>]*>🔊/);
 assert.match(css, /\[hidden\]\s*\{\s*display:none\s*!important/);
 assert.match(css, /\.screen video\s*\{[^}]*max-height:none/);
 assert.match(css, /\.volume-icon-button\s*\{\s*color:var\(--accent\)/);
+assert.match(css, /\.shell\s*>\s*\.topbar\s*\{\s*position:\s*relative;\s*z-index:\s*40\s*\}/,
+  "The whole header must be above video/queue; backdrop-filter isolates the menu z-index");
+assert.match(css, /\.playback-settings\s*\{\s*position:\s*relative;\s*z-index:\s*30\s*\}/);
+assert.match(html, /player\.css\?v=20261126-playback-popup-layer1/);
 console.log("PASS: web player source checks");
 
 assert.match(html, /id="screenControls"/);

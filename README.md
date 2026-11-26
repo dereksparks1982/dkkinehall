@@ -24,6 +24,7 @@ The two editions are separate. The Web App remains available regardless of chang
 - **Up Next:** Build a playlist and move between movies or episodes.
 - **Playback controls:** Play, pause, stop, seek, previous, next, and 10-second rewind or fast-forward.
 - **Fullscreen:** Watch videos in fullscreen using the player controls.
+- **Playback settings:** Change playback format and preferences from a header menu that stays above the video and Up Next panel.
 - **Subtitles and audio:** The **On/Off** button beside **+ Subtitles** shows whether embedded MKV subtitles are currently enabled. Click it to toggle playback, or use **+ Subtitles** to choose a different track or load external SRT/VTT subtitles. **Subtitle delay** controls shift captions earlier (−) or later (+) in 0.25-second steps, with Reset to restore the original timing; the adjustment is remembered separately for each file and works with loaded text, PGS, and VobSub tracks. The standalone Chromium edition supports up to **200% volume** via a user-selected audio gain boost; the Web App remains limited to 100%.
 - **Playback resume:** Return to where you stopped in a movie when the edition can restore access to that file.
 - **Artwork:** Display movie posters, episode stills, and local cover images when available, with automatic recovery when an online artwork source fails.

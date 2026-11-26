@@ -363,6 +363,11 @@ function install(originalWindow,originalPlayer){
   });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
+  ipcMain.handle("dk-library:open-acp",async event=>{
+    if(!allowed(event)&&!onlyPlayer(event))throw Error("External link rejected");
+    await shell.openExternal("https://acp.us/");
+    return true;
+  });
   ipcMain.handle("dk-library:record-navigation",(event,value)=>{
     if(!allowed(event))throw Error("Navigation rejected");
     return recordLibraryView(value);

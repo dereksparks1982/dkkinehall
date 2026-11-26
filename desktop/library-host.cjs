@@ -30,8 +30,33 @@ function openPlayer(id) {
   if(!installedWindow()){
     // Inherit the approved original Electron runtime preferences and preload
     // so DKStandalone and the optional native codec bridge still work.
-    const webPreferences={...home.webContents.getLastWebPreferences()};
-    const icon=path.join(app.getAppPath(),"docs","icons","dk-media-player-512.png");
+    // getLastWebPreferences is an internal Electron API and is not always
+    // exported. Resolve the actual approved DKStandalone preload instead
+    // of risking a second player window with no native bridges.
+    const originalPrefs=typeof home.webContents.getLastWebPreferences==="function"?
+      home.webContents.getLastWebPreferences():null;
+    const appRoot=app.getAppPath();
+    const candidates=[
+      originalPrefs?.preload,
+      path.join(appRoot,"preload.cjs"),
+      path.join(appRoot,"preload.js")
+    ].filter(Boolean);
+    const preload=candidates.find(candidate=>{
+      try{
+        return fs.statSync(candidate).isFile()&&
+          fs.readFileSync(candidate,"utf8").includes("DKStandalone");
+      }catch(_){return false;}
+    });
+    if(!preload)
+      throw Error("Original DKStandalone preload missing; player window refused");
+    const webPreferences={
+      ...(originalPrefs||{}),
+      preload,
+      contextIsolation:originalPrefs?.contextIsolation!==false,
+      nodeIntegration:originalPrefs?.nodeIntegration===true,
+      sandbox:originalPrefs?.sandbox===true
+    };
+    const icon=path.join(appRoot,"docs","icons","dk-media-player-512.png");
     player=new BrowserWindow({
       width:1250,height:790,minWidth:720,minHeight:480,
       backgroundColor:"#110407",icon,

@@ -34,6 +34,17 @@ def read(path):
     if not path.is_file():raise RuntimeError("Missing codec inventory: "+str(path))
     return path.read_text(encoding="utf-8",errors="replace")
 
+def demuxer_lines(text):
+    """FFmpeg lists demuxer aliases as a comma-separated group, e.g.
+    ' D  mov,mp4,m4a,3gp,3g2,mj2'; all names must be preserved."""
+    result=set()
+    for line in text.splitlines():
+        match=re.match(r"^\s*D\s+([^\s]+)",line)
+        if match:
+            result.update(part.strip().lower()
+                          for part in match.group(1).split(",") if part.strip())
+    return result
+
 def verify(source):
     for name in ("ffmpeg","ffprobe"):
         path=source/"bin"/name
@@ -52,12 +63,15 @@ def verify(source):
     missed+=["encoder:"+x for x in REQUIRED_ENCODERS if x not in encoders]
     if missed:
         raise RuntimeError("Codec build lacks required capabilities: "+", ".join(missed))
-    demux=read(source/"CONTAINERS_INCLUDED.txt").lower()
-    missed=[name for name in REQUIRED_DEMUXERS
-            if not re.search(r"(?m)^\s*d\s+\S*\b"+name+r"\b",demux)]
+    demux=demuxer_lines(read(source/"CONTAINERS_INCLUDED.txt"))
+    missed=[name for name in REQUIRED_DEMUXERS if name not in demux]
     if missed:
         raise RuntimeError("Codec build lacks required demuxers: "+", ".join(missed))
-    read(source/"FFMPEG_CONFIGURATION.txt")
+    config=read(source/"FFMPEG_CONFIGURATION.txt")
+    # Nonfree/GPL builds may not be redistributed under the expected
+    # LGPL-only portable codec terms. Audit licensing separately if needed.
+    if re.search(r"(?<!\S)--enable-(?:gpl|nonfree)(?!\S)",config):
+        raise RuntimeError("Codec build enables GPL/nonfree components; LGPL bundle rejected")
 
 def stage(root,source):
     root=root.resolve()

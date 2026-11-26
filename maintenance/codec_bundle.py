@@ -37,6 +37,7 @@ class CodecBundle:
             self.bundle/"bin/ffprobe",
             self.bundle/"CODECS_INCLUDED.txt",
             self.bundle/"CONTAINERS_INCLUDED.txt",
+            self.bundle/"ENCODERS_INCLUDED.txt",
             self.bundle/"FFMPEG_CONFIGURATION.txt",
         ]
         missing=[str(p) for p in required if not p.is_file()]

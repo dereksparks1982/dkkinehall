@@ -14,6 +14,8 @@ const crypto=require("node:crypto");
 const {spawn}=require("node:child_process");
 const {app,ipcMain}=require("electron");
 const {capabilityFromEncoders,chooseOutput}=require("./codec-policy.cjs");
+const {resolveSource}=require("./codec-source.cjs");
+const {checkVideo}=require("./library-indexer.cjs");
 
 const BIND_ADDRESS="127.0.0.1";
 const MAX_PROBE_OUTPUT=512*1024;
@@ -272,15 +274,16 @@ function install(win) {
     onlyWindow(event)?status():{ready:false});
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
-    return probe(localPath);
+    return probe(await resolveSource(localPath,checkVideo));
   });
   ipcMain.handle("dk-codec:subtitle-vtt",async(event,localPath,index)=>{
     if(!onlyWindow(event))throw new Error("Rejected subtitle request");
-    return subtitleVtt(localPath,index);
+    return subtitleVtt(await resolveSource(localPath,checkVideo),index);
   });
   ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
-    return start(localPath,offset,format,audioIndex);
+    return start(await resolveSource(localPath,checkVideo),
+      offset,format,audioIndex);
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

@@ -60,6 +60,8 @@ class LibraryRuntimeTest(unittest.TestCase):
     def test_patched_window_contains_no_server_dependency(self):
         code=(ROOT/"desktop"/"library-host.cjs").read_text()
         self.assertIn("new BrowserWindow",code)
+        self.assertIn("Original DKStandalone preload missing",code)
+        self.assertIn('path.join(appRoot,"preload.cjs")',code)
         self.assertIn("player.loadFile(playerFile",code)
         self.assertIn('dk-library:discover',code)
         self.assertIn('dk-library:delete-video',code)

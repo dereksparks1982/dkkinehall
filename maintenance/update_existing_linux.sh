@@ -64,7 +64,7 @@ PYTHON
 # GitHub release asset, not from a half-populated source checkout. The
 # verifier refuses to run unless the release gate is fully approved.
 for resource in desktop/codec-host.cjs desktop/codec-preload.cjs \
-                desktop/codec-policy.cjs \
+                desktop/codec-policy.cjs desktop/codec-source.cjs \
                 desktop/library-host.cjs desktop/library-preload.cjs \
                 desktop/library-indexer.cjs \
                 maintenance/library_bundle.py maintenance/fetch_release_codecs.py \

@@ -5,10 +5,9 @@
  */
 const {contextBridge,ipcRenderer,webUtils}=require("electron");
 const localPath=file=>{
-  if(file?.nativeVirtual===true &&
-     /^native:[a-f0-9]{64}$/.test(String(file.nativeId||"")) &&
-     typeof file.nativePath==="string"&&file.nativePath.startsWith("/"))
-    return file.nativePath;
+  // Main verifies this discovered file's ID, path and library scope.
+  if(file?.nativeVirtual===true)
+    return {kind:"native",id:file.nativeId,path:file.nativePath};
   try {return typeof webUtils?.getPathForFile==="function"?
     webUtils.getPathForFile(file)||"":"";}
   catch(_){return "";}

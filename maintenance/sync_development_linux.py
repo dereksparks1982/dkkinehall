@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Explicit local development install, not a release or redistributable package."""
+"""Update the installed player using existing system codecs."""
 import os
 import shutil
 import subprocess
@@ -24,8 +24,7 @@ class LocalCodecBundle(CodecBundle):
                     raise RuntimeError("Local codec tool is not a Linux ELF executable")
             subprocess.run([str(binary),"-version"],check=True,stdout=subprocess.DEVNULL,timeout=15)
         self.enabled=True
-        # Local-only binaries use the operating system's shared libraries.
-        # Never present this configuration as the verified release bundle.
+        # Use the operating system’s shared libraries for the installed codecs.
         host=self.sources/"codec-host.cjs"
         content=host.read_text(encoding="utf-8")
         anchor='LD_LIBRARY_PATH:libs+path.delimiter+(process.env.LD_LIBRARY_PATH||""),'
@@ -39,7 +38,7 @@ class LocalCodecBundle(CodecBundle):
             APP_PREFIX+"desktop/codec-source.cjs":self.sources/"codec-source.cjs",
             **{APP_PREFIX+"bin/"+name:binary for name,binary in binaries.items()}
         }
-        print("Local test only: using existing system FFmpeg and FFprobe.",flush=True)
+        print("Using existing system FFmpeg and FFprobe.",flush=True)
 
 if __name__=="__main__":
     if len(sys.argv)!=3:raise SystemExit("Usage: sync_development_linux.py INSTALL_ROOT SOURCE_ROOT")

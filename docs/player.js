@@ -1626,7 +1626,7 @@
   if(window.DKLibraryBridge?.internalPages){
     document.documentElement.classList.add("dk-standalone");
     const button=document.createElement("button");
-    button.id="playerScanLibrary";button.type="button";button.className="btn primary dk-scan";
+    button.id="playerScanLibrary";button.type="button";button.className="btn dk-scan";
     let scanning=false;
     const label=()=>{button.textContent=window.DKLocale?.t(scanning?"Stop Scan":"Scan Library")||(scanning?"Stop Scan":"Scan Library");};
     label();

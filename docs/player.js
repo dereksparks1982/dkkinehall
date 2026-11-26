@@ -2120,6 +2120,7 @@
   const contextMenu = byId("playerContextMenu");
   const infoPanel = byId("mediaInfo");
   const settingsDetails = document.querySelector(".player-bar-settings");
+  let openPictureAdjustments=null;
   if(window.DKLibraryBridge?.internalPages && settingsDetails){
     const close=document.createElement("button");
     close.type="button";close.id="closePlayerSettings";close.className="dk-settings-close";
@@ -3829,8 +3830,12 @@
     addMenuItem("Picture in picture", () => byId("pip").click(),
       {disabled: byId("pip").hidden});
 
-    // Direct action, not a deeply nested row.
+    // Direct actions, not deeply nested rows. Reuse the actual settings
+    // category so picture presets, scopes and slider values stay in sync.
     activeMenuSection = contextMenu;
+    if(openPictureAdjustments){
+      addMenuItem("Picture adjustments",()=>openPictureAdjustments(),{disabled:!current()||current().audio||state.stopped}).classList.add("dk-menu-picture-adjustments");
+    }
     addMenuItem("Media information", openMediaInfo).classList.add("dk-menu-information");
   };
   // If Matroska inspection finishes while the Subtitles section is open,
@@ -4022,6 +4027,7 @@
       if (!standaloneChapters&&!chapterPicker.hidden) { event.preventDefault(); chapterPicker.hidden = true; }
       else if (menuOpen) { event.preventDefault(); closeContextMenu(); }
       else if (!infoPanel.hidden) { infoPanel.hidden = true; revealControls(); }
+      else if (settingsDetails?.open) { event.preventDefault(); settingsDetails.open=false; settingsDetails.querySelector("summary")?.focus(); }
       else if (desktopFullscreen && screen.classList.contains("desktop-fullscreen")) {
         event.preventDefault();
         void desktopFullscreen.setFullscreen(false);
@@ -4324,6 +4330,15 @@
       for(const button of nav.querySelectorAll("button[data-category]"))button.hidden=!!category;
       back.hidden=!category;heading.textContent=categories.find(([id])=>id===category)?.[1]||"Settings";
       panel.scrollTop=0;window.DKLocale?.apply();
+      panel.dispatchEvent(new Event("dk-settings-layout"));
+    };
+    openPictureAdjustments=()=>{
+      if(!current()||current().audio||state.stopped)return;
+      chooseCategory("picture");
+      settingsDetails.open=true;
+      keepControlsVisible();
+      // Wait until the existing popover has entered the top layer.
+      requestAnimationFrame(()=>{if(settingsDetails.open)byId("picturePreset")?.focus({preventScroll:true});});
     };
     const back=document.createElement("button");back.type="button";back.className="btn small";back.textContent="Back to settings";back.addEventListener("click",()=>chooseCategory(null));nav.append(back);
     for(const [id,label] of categories){if(!sections.some(section=>categoryFor(section)===id))continue;const button=document.createElement("button");button.type="button";button.className="btn";button.dataset.category=id;button.textContent=label;button.addEventListener("click",()=>chooseCategory(id));nav.append(button);}

@@ -607,13 +607,55 @@
   const texts = new WeakMap();
   const attrs = new WeakMap();
   const attrNames = ["aria-label", "title", "placeholder", "alt"];
+  // The observer must not mistake already-localized dynamic UI for an
+  // English source. Keep reversible pairs for authored labels and messages.
+  const reverse=new Map();
+  for(const [en,ru] of Object.entries(translations)){
+    if(typeof ru==="string"&&!reverse.has(ru))reverse.set(ru,en);
+  }
+  const dynamicReverse=new Map();
+  function rememberPair(en,ru){
+    en=String(en);ru=String(ru);
+    if(en!==ru&&/[A-Za-z]/.test(en)&&ru.length<=2000){
+      if(dynamicReverse.size>=4096)dynamicReverse.delete(dynamicReverse.keys().next().value);
+      dynamicReverse.set(ru,en);
+    }
+    return language==="ru"?ru:en;
+  }
+  function sourceText(value){
+    const text=String(value),plain=text.trim();
+    const original=dynamicReverse.get(plain)||reverse.get(plain);
+    return original?text.replace(plain,original):text;
+  }
+  function localized(value){
+    const original=sourceText(value);
+    return rememberPair(original,translate(original));
+  }
+  // Shared settings copies must carry the source strings, not a snapshot
+  // of the other view's translated text.
+  function restoreClone(source,clone){
+    if(source.nodeType===3){
+      const saved=texts.get(source);
+      clone.nodeValue=saved?.rendered===source.nodeValue?saved.original:sourceText(source.nodeValue);
+      return;
+    }
+    if(source.nodeType!==1)return;
+    const saved=attrs.get(source);
+    for(const attr of attrNames){
+      const current=source.getAttribute(attr);
+      if(current!==null)clone.setAttribute(attr,saved?.[attr]?.rendered===current?saved[attr].original:sourceText(current));
+    }
+    const children=Array.from(source.childNodes);
+    Array.from(clone.childNodes).forEach((child,i)=>{if(children[i])restoreClone(children[i],child);});
+  }
   function renderText(node) {
     if (!node || node.nodeType !== 3 || !node.parentElement ||
-        ["SCRIPT", "STYLE", "OPTION"].includes(node.parentElement.tagName)) return;
+        ["SCRIPT", "STYLE", "TEXTAREA"].includes(node.parentElement.tagName)||node.parentElement.closest("#languageSelect")) return;
+    if(node.parentElement.tagName==="OPTION"&&!node.parentElement.hasAttribute("value"))return;
     const before = node.nodeValue;
     const previous = texts.get(node);
-    const original = previous && previous.rendered === before ? previous.original : before;
-    const after = language === "ru" ? translate(original) : original;
+    const original = previous && previous.rendered === before ? previous.original : sourceText(before);
+    const after = language === "ru" ? rememberPair(original,translate(original)) : original;
     texts.set(node, {original, rendered: after});
     if (before !== after) node.nodeValue = after;
   }
@@ -625,8 +667,8 @@
       const before = element.getAttribute(attr);
       if (before === null) continue;
       const previous = saved[attr];
-      const original = previous && previous.rendered === before ? previous.original : before;
-      const after = language === "ru" ? translate(original) : original;
+      const original = previous && previous.rendered === before ? previous.original : sourceText(before);
+      const after = language === "ru" ? rememberPair(original,translate(original)) : original;
       saved[attr] = {original, rendered:after};
       if (before !== after) element.setAttribute(attr, after);
     }
@@ -681,20 +723,49 @@
     }
     walk(document.body);
   }
-  function setLanguage(next) {
-    language = next === "ru" ? "ru" : "en";
-    try { localStorage.setItem(key, language); } catch (_) {}
+  let applyingRemote=false,revision=-1,localRequest=0;
+  const bridge=typeof window==="undefined"?null:window.DKLibraryBridge;
+  const nativeLanguage=Boolean(bridge?.internalPages&&bridge.getInterfaceLanguage&&bridge.setInterfaceLanguage);
+  function applyLanguage(next,notify=false){
+    const before=language;
+    language=next==="ru"?"ru":"en";
+    try{if(localStorage.getItem(key)!==language)localStorage.setItem(key,language);}catch(_){}
     apply();
+    if(notify&&before!==language){
+      applyingRemote=true;
+      try{document.getElementById("languageSelect")?.dispatchEvent(new Event("change",{bubbles:true}));}
+      finally{applyingRemote=false;}
+    }
+  }
+  function acceptNative(value){
+    if(!value||!["en","ru"].includes(value.language)||!Number.isSafeInteger(value.revision)||value.revision<revision)return;
+    revision=value.revision;applyLanguage(value.language,true);
+  }
+  function setLanguage(next,notify=true){
+    if(applyingRemote)return;
+    const value=next==="ru"?"ru":"en";
+    applyLanguage(value,notify);
+    if(nativeLanguage){
+      const request=++localRequest;
+      void bridge.setInterfaceLanguage(value).then(acceptNative).catch(()=>{
+        if(request===localRequest)void bridge.getInterfaceLanguage(readLanguage()).then(acceptNative).catch(()=>{});
+      });
+    }
   }
   if (typeof document === "undefined") {
     if (typeof module !== "undefined") module.exports = {translate, translations, russianPlural};
     return;
   }
-  window.DKLocale = {t: value => language === "ru" ? translate(value) : String(value),
+  window.DKLocale = {t: localized, pair:rememberPair, restoreClone,
     get: () => language, set: setLanguage, apply};
   apply();
   const select = document.getElementById("languageSelect");
-  if (select) select.addEventListener("change", event => setLanguage(event.target.value));
+  if(select)select.addEventListener("change",event=>{if(!applyingRemote)setLanguage(event.target.value,false);});
+  if(nativeLanguage){
+    bridge.onInterfaceLanguage?.(acceptNative);
+    const initial=localRequest;
+    void bridge.getInterfaceLanguage(readLanguage()).then(value=>{if(localRequest===initial)acceptNative(value);}).catch(()=>{});
+  }else window.addEventListener("storage",event=>{if(event.key===key)applyLanguage(event.newValue,true);});
   const observer = new MutationObserver(records => {
     for (const record of records) {
       if (record.type === "characterData") renderText(record.target);

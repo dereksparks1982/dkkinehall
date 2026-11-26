@@ -16,6 +16,7 @@ The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved r
 - Source-level native Qt/libmpv chapter menu, queue drag ordering, Shuffle/Loop and wider file selection.
 - Native prototype: TVmaze episode lookup from series and SxxExx only, cached verified names and stills, with original release filename kept for playback and local poster priority.
 - Explicit file selection no longer depends on a narrow filename suffix list; folder scanning recognizes additional modern and older video/audio formats. Actual decoding remains required.
+- Playback format policy: **Original (no conversion)** never engages native FFmpeg transcoding. Automatic mode can use bundled decoding as a fallback.
 - Source-level Electron codec backend: guarded preload IPC, FFprobe metadata, loopback-only FFmpeg output inside the existing video element, seek/resume original-time adapter, alternate audio stream selection, FFprobe embedded chapter retrieval beyond MKV, on-demand text subtitle extraction to WebVTT (re-aligned after stream seeking), bounded FFprobe caching for repeated seek/audio changes, old MKV audio decoder teardown on native fallback, Repeat One stream restart, real playback-event confirmation and all-or-nothing backend archive staging.
 - Native portable packaging audits FFmpeg codec libraries, includes FFmpeg/FFprobe executables, records decoder/demuxer inventories and ships third-party notices.
 

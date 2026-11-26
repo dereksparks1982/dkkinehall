@@ -1156,6 +1156,7 @@
   };
   const tryNativeCodec = async item => {
     if(!codecPlayback||!item?.file||item.codecAttempted ||
+       item.requestedFormat==="original" ||
        current()!==item||state.stopped)return false;
     item.codecAttempted=true;
     // The previous MKV WebCodecs audio path must be shut down when the
@@ -1859,7 +1860,8 @@
         return;
       }
     }
-    if((code===3||code===4)&&!item.codecAttempted&&codecPlayback&&item.file) {
+    if((code===3||code===4)&&!item.codecAttempted&&codecPlayback&&
+       item.file&&item.requestedFormat!=="original") {
       void tryNativeCodec(item);
       return;
     }

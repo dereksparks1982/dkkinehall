@@ -20,7 +20,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Features
 
-- **Local playback:** Open video and music stored on your device.
+- **Local playback:** Open video and music stored on your device. Explicitly selected uncommon formats are passed to the playback engine for probing rather than rejected solely by extension.
 - **Up Next:** Reorder queued videos with mouse/touch drag handles or keyboard arrows without interrupting the playing video.
 - **Shuffle / repeat:** Shuffle upcoming videos. Repeat Off, One or All; remember these preferences. Repeat modes keep played entries available.
 - **Chapters:** A visible **Chapters** button selects real MKV or supported native-text-track chapter markers. Right-click is optional.
@@ -36,6 +36,10 @@ The two editions are separate. The Web App remains available regardless of chang
 - **Artwork:** Display movie posters, episode stills, and local cover images when available, with automatic recovery when an online artwork source fails.
 - **Languages:** English and Russian interface options.
 - **Background artwork:** The complete Soviet-themed picture is fitted to the window without cutting off its edges.
+
+## Final acceptance gate
+
+The complete checklist is in [docs/ROADMAP.md](docs/ROADMAP.md). Neither a code commit nor a successful subtitle lookup establishes universal media decoding. The standalone codec/backend integration and package verification remain unfinished. No end-user update instructions should be given until all requested functionality is accepted.
 
 ## Getting started
 

@@ -206,7 +206,7 @@
   };
   const fileIsMedia = file => !!file && (
     (typeof file.type === "string" && /^(video|audio)\//.test(file.type)) ||
-    /\.(mp4|m4v|mov|mkv|avi|webm|ogg|ogv|mp3|m4a|aac|wav|flac|opus|ts)$/i.test(file.name)
+    /\.(mp4|m4v|mov|mkv|avi|webm|ogg|ogv|mp3|m4a|aac|wav|flac|opus|ts|mts|m2ts|mpeg|mpg|m2v|mxf|vob|wmv|asf|flv|f4v|3gp|3g2|dv|divx|rm|rmvb|mpv|nut|mka|mp2|aiff?|ape|alac|wma|m4b|caf|dsf|dff|amr|ac3|dts)$/i.test(file.name)
   );
   const fileIsAudio = file => !!file && (
     file.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|flac|opus)$/i.test(file.name)
@@ -681,8 +681,9 @@
         const episodeName = document.createElement("span");
         episodeName.className = "item-episode-name";
         const knownTitle = item.episodeTitle || parsed.episodeTitle || "";
-        episodeName.textContent = knownTitle || "Finding episode title…";
-        labels.append(source, episodeName);
+        if (knownTitle) episodeName.textContent = " · " + knownTitle;
+        source.append(episodeName);
+        labels.append(source);
       }
       play.append(artworkBox, labels);
       play.addEventListener("click", () => load(index));
@@ -1063,7 +1064,9 @@
     const accepted = Array.from(files || []).map((file, index) => ({
       file, handle: handles[index] || null,
       path: artData?.media?.[index]?.path || file.webkitRelativePath || file.name
-    })).filter(entry => fileIsMedia(entry.file));
+    })).filter(entry => !!entry.file);
+    // User-selected files are handed to the decoder regardless of suffix;
+    // container recognition and successful playback are separate questions.
     if (!accepted.length) { status("No supported media file selected. Choose a video or audio file."); return; }
     const playing = Boolean(current()) && !state.stopped && !media.paused && !media.ended;
     const plan = window.DKQueueAutoplay.plan(mode, state.current, state.queue.length, playing);

@@ -14,6 +14,11 @@ class QWheelEvent;
 class QContextMenuEvent;
 class QEvent;
 
+struct MediaChapter {
+  double time = 0;
+  QString title;
+};
+
 struct MediaTrack {
   qint64 id = -1;
   QString type;
@@ -44,6 +49,7 @@ public:
   void selectSubtitles(qint64 id);
   void loadExternalSubtitle(const QString &path);
   QVector<MediaTrack> tracks(const QString &type) const;
+  QVector<MediaChapter> chapters() const;
   double duration() const;
   double position() const;
   bool paused() const;

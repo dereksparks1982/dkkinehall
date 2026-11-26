@@ -49,6 +49,11 @@ private:
   void openContextMenu(const QPoint &globalPos);
   void addExternalSubtitle();
   void refreshTrackIndicator();
+  void refreshChapterButton();
+  void openChapterMenu();
+  void updateLoopButton();
+  void shuffleUpcoming();
+  void applyQueueReorder();
   void toggleFullscreen();
   void changeLanguage(int index);
   void savePosition();
@@ -79,6 +84,9 @@ private:
   QPushButton *rewind_ = nullptr;
   QPushButton *forward_ = nullptr;
   QPushButton *fullscreen_ = nullptr;
+  QPushButton *chapters_ = nullptr;
+  QPushButton *shuffle_ = nullptr;
+  QPushButton *loop_ = nullptr;
   QPushButton *remove_ = nullptr;
   QPushButton *clear_ = nullptr;
   QComboBox *language_ = nullptr;
@@ -90,6 +98,7 @@ private:
   QAction *hardware_ = nullptr;
   QStringList paths_;
   int current_ = -1;
+  int loopMode_ = 0; // 0: off, 1: one, 2: all
   QString currentPath_;
   QString lastFinishedPath_;
   bool russian_ = false;

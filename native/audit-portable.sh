@@ -2,9 +2,18 @@
 # Build-time check: no app-level runtime dependency may resolve from the host.
 set -euo pipefail
 root="${1:?portable DK Kinehall directory required}"
-for needed in "bin/DK Kinehall" "bin/qt.conf" "lib/libQt6Gui.so.6" "lib/libmpv.so.2" "lib/libavcodec.so.60" "lib/libGLX_mesa.so.0" "lib/dri/swrast_dri.so" "plugins/platforms/libqxcb.so" "plugins/xcbglintegrations/libqxcb-glx-integration.so"; do
+for needed in "bin/DK Kinehall" "bin/qt.conf" "lib/libQt6Gui.so.6" "lib/libmpv.so.2" "lib/libGLX_mesa.so.0" "lib/dri/swrast_dri.so" "plugins/platforms/libqxcb.so" "plugins/xcbglintegrations/libqxcb-glx-integration.so"; do
   if [[ ! -f "$root/$needed" ]]; then
     echo "Incomplete DK Kinehall bundle: $needed" >&2; exit 1
+  fi
+done
+
+# Require the FFmpeg decoder/demux libraries irrespective of SONAME.
+# Codec major versions differ between supported Linux distributions.
+for component in avcodec avformat avutil swresample swscale; do
+  if [[ -z "$(find "$root/lib" -maxdepth 1 -type f -name "lib${component}.so.*" -print -quit)" ]]; then
+    echo "Missing bundled FFmpeg library: lib${component}.so" >&2
+    exit 1
   fi
 done
 lib="$(realpath "$root/lib")"

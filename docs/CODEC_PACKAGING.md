@@ -18,6 +18,10 @@ The installed standalone Linux edition should ship its required video, audio, co
 - An independent Qt/libmpv prototype also exists in `native/`. It is not interchangeable with the user's approved Chromium-based UI and should not be substituted as the installed standalone player.
 - Media info and subtitle success notices must not imply that decoding has succeeded merely because subtitle data or metadata could be read. The routine subtitle-success message should not repeat a browser-codec disclaimer; actual unsupported-media errors remain actionable.
 
+## Source-level codec and format progress
+
+The native Qt/libmpv prototype can probe uncommon explicitly selected formats and its packaging verifies presence of FFmpeg's avcodec, avformat, avutil, swresample and swscale libraries without a hardcoded SONAME. This does not put native decoding behind the approved Chromium interface, does not prove playback of a specific file, and does not yet satisfy the requested all-in-one standalone release.
+
 ## Required implementation before claiming broad bundled codec coverage
 
 1. Select and embed a complete native decoding back end (FFmpeg/libavcodec or libmpv-backed) **under the existing UI**, retaining the same playlist, controls, fullscreen, artwork, subtitles, icons, and window.

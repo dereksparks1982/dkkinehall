@@ -606,13 +606,13 @@ html.dk-desktop-fullscreen body {
  text-overflow:clip;overflow-wrap:anywhere;line-height:1.3;font-weight:750
 }
 .queue li[data-queue-episode="1"] .item-meta{
- display:block;max-width:none;white-space:nowrap;overflow:visible;
- text-overflow:clip;flex-shrink:0;font-size:.83rem;font-weight:750;
+ display:block;max-width:100%;min-width:0;white-space:normal;overflow-wrap:anywhere;
+ text-overflow:clip;flex-shrink:1;font-size:.83rem;font-weight:750;
  font-variant-numeric:tabular-nums;line-height:1.45;color:#f2d4d4
 }
 .queue .item-episode-name{
- display:block;max-width:100%;white-space:normal;overflow-wrap:anywhere;
- text-overflow:clip;font-size:.75rem;line-height:1.35;color:var(--muted)
+ display:inline;max-width:100%;white-space:normal;overflow-wrap:anywhere;
+ text-overflow:clip;font-size:.82rem;line-height:1.45;color:var(--muted)
 }
 /* The now-playing area has no redundant local-media classification. */
 .now-playing .media-subtitle[hidden],

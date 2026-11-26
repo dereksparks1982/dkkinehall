@@ -1,46 +1,33 @@
-# DK Kinehall native roadmap
+# DK Kinehall acceptance roadmap
 
-**Current product: DK Kinehall standalone Linux media player.** The previous
-browser/Electron application is retired; it is not the development or release
-target. The old root binary, Chromium runtime archive, Electron host files,
-and GitHub Pages player entrypoint have been deleted from `main`.
+## Approved product and scope
 
-## Native build: in progress
+The current installed standalone edition uses **the approved DK Kinehall shared web UI inside Chromium/Electron**. The web edition shares the same interface. Do not change the approved icons, transport buttons, episode artwork sizes or player identity.
 
-- **Single application:** `native/src/main.cpp`, `MainWindow.cpp` and
-  `MpvWidget.cpp` implement the DK Kinehall Qt Widgets window.
-- **Playback:** libmpv renders picture/audio with local media support,
-  dedicated equal-size transport buttons, ten-second skips, volume capped at
-  100%, seek bar, native fullscreen and restart/resume.
-- **MKV subtitles:** the standard Subtitles button and right-click menu
-  enumerate *embedded* MKV subtitle tracks using libmpv's `track-list`.
-  Choosing a track sets `sid`. The Off action sets `sid=no`, by default.
-  External subtitle selection is a distinct, explicitly labeled action.
-- **Audio:** the same native track list supplies the audio menu.
-- **Up Next:** playing Open files selections immediately, queue-only Add,
-  choosing a media directory, auto-advancing, optional watched-item cleanup,
-  red selected marker, local folder poster previews.
-- **English/Russian:** selectable interface with locally remembered setting.
-- **No browser:** no Chromium, Electron, WebView, server, downloads, or
-  browser codec restrictions in the new source.
+The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved replacement for that UI. The older roadmap falsely said Chromium artifacts were deleted; they are still present on `main`.
 
-## Required before a user-ready native release
+## Source changes on main
 
-1. Compile the Qt 6/libmpv source on an appropriate Linux build machine.
-2. Check that opening real MKVs, PGS/VobSub/text track switching, Off default,
-   seek/resume, fullscreen, poster fallback, queue and both languages work.
-3. Fix actual build and runtime faults that those checks reveal.
-4. Bundle all required native libraries/codecs, desktop metadata and icon
-   into a native release without telling end users to install a codec pack.
-5. Add genuine optional streaming remux/FFmpeg conversion later, without
-   changing DK Kinehall's interface or introducing a browser engine.
-6. Update licensing and third-party notices for shipped dependencies.
-7. Publish a verified executable only on explicit request.
+- Mouse/touch/keyboard Up Next reordering, Shuffle, Loop Off/One/All.
+- Visible Chapters button with embedded Matroska chapter reading and native cue fallback.
+- Resizable video, Float/Dock in the application, Chromium native Picture-in-Picture.
+- Episode show title on line one; SxxExx and episode name together on the wrapping second line.
+- Source-level native Qt/libmpv chapter menu, queue drag ordering, Shuffle/Loop and wider file selection.
+- File selection no longer depends on a narrow filename suffix list; actual decoding remains required.
+- Native portable packaging now audits FFmpeg codec libraries and ships third-party notices.
 
-**State:** source committed on `main`; **no compiled native executable
-has been verified or delivered**. The former executable was removed
-because it required Chromium.
+These are source-level changes, not a claim that a final release has been fully checked.
 
-There must remain exactly one GitHub branch: `main`. No persistent or
-heavy GitHub Actions. No commercial sale or repackaging of DK Softworks'
-original code.
+## Unfinished, mandatory acceptance gates
+
+1. **All-in-one native codecs.** Integrate and distribute a broad standalone decoder/demux backend behind the **approved current player interface**, without separate codecs or file conversion required of users. The current Chromium backend is not universal.
+2. **Video/audio sample coverage.** Verify MKV, MP4, AVI, MOV, WebM, TS, M2TS, VOB and older containers, and H.264, HEVC, VP9, AV1, MPEG-2/4, common legacy video; AAC, AC-3, E-AC-3, DTS, FLAC, MP3, Opus, Vorbis and common audio. Report genuine encrypted, proprietary, damaged and future-format exceptions honestly.
+3. **Subtitle/audio tracks.** Verify text, ASS/SSA, PGS, VobSub, external subtitle files, audio switching, and timing/remembered settings.
+4. **Playback/queue UI.** Verify fullscreen, resume, play-now vs queue-only, auto-next, shuffle, repeat, drag, chapters, Picture-in-Picture, float/dock, mouse/touch and keyboard.
+5. **Episode artwork/metadata.** Verify show, episode number and episode name; posters, episode stills, provider retrieval and local fallback.
+6. **Release packaging.** Ship a self-contained executable with actual codec libraries, correct licensing and notices, and unchanged approved icons. Verify English/Russian interface.
+7. **Final release gate.** No update command, download instruction or announcement that "everything" is finished before all applicable functions have been verified in the actual packaged standalone player.
+
+A decoder cannot literally handle every encrypted, malformed, unpublished or unknown future codec. Target broad coverage with automatic bundled support, never substitute an extension whitelist or metadata inspection for actual video/audio decoding.
+
+**Current status: in progress; not fully verified. One GitHub branch: main.**

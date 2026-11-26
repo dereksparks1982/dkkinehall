@@ -14,6 +14,10 @@ browser wrapper, or a web interface.
   libmpv distribution; arbitrary format conversion is not yet implemented
   in the native application.
 
+## Native source progress
+
+The libmpv prototype now exposes a visible chapter selector, drag-reorderable queue, Shuffle and Repeat Off/One/All. Explicit media selections are probed regardless of extension. Its portable packaging script requires FFmpeg decoder/demux libraries and preserves third-party notices and the original icon. These changes are not a replacement for the approved Chromium-based UI and still require actual playback validation.
+
 ## Embedded MKV subtitle fix
 
 The normal **Subtitles ▾** button opens an in-app menu, never a file picker.

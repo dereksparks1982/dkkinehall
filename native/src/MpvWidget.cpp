@@ -9,6 +9,8 @@
 #include <QWheelEvent>
 #include <QByteArray>
 #include <cmath>
+#include <cstring>
+#include <algorithm>
 
 namespace {
 void *glProc(void *, const char *name) {
@@ -173,6 +175,46 @@ void MpvWidget::loadExternalSubtitle(const QString &path) {
   const char *cmd[] = {"sub-add", native.constData(), "select", nullptr};
   mpv_command(mpv_, cmd);
 }
+QVector<MediaChapter> MpvWidget::chapters() const {
+  QVector<MediaChapter> result;
+  if (!mpv_) return result;
+  mpv_node root{};
+  if (mpv_get_property(mpv_, "chapter-list", MPV_FORMAT_NODE, &root)<0)
+    return result;
+  if (root.format==MPV_FORMAT_NODE_ARRAY && root.u.list) {
+    for (int i=0;i<root.u.list->num && i<500;i++) {
+      const mpv_node &entry=root.u.list->values[i];
+      if (entry.format!=MPV_FORMAT_NODE_MAP || !entry.u.list) continue;
+      MediaChapter chapter;
+      bool hasTime=false;
+      const mpv_node_list *fields=entry.u.list;
+      for (int j=0;j<fields->num;j++) {
+        const char *key=fields->keys[j];
+        if (!key) continue;
+        const mpv_node &value=fields->values[j];
+        if (std::strcmp(key,"time")==0) {
+          if (value.format==MPV_FORMAT_DOUBLE) {
+            chapter.time=value.u.double_;
+            hasTime=true;
+          } else if (value.format==MPV_FORMAT_INT64) {
+            chapter.time=static_cast<double>(value.u.int64);
+            hasTime=true;
+          }
+        } else if (std::strcmp(key,"title")==0 &&
+                   value.format==MPV_FORMAT_STRING && value.u.string) {
+          chapter.title=QString::fromUtf8(value.u.string).trimmed();
+        }
+      }
+      if (!hasTime || !std::isfinite(chapter.time) || chapter.time<0) continue;
+      result.push_back(chapter);
+    }
+  }
+  mpv_free_node_contents(&root);
+  std::sort(result.begin(),result.end(),
+    [](const MediaChapter &a,const MediaChapter &b){return a.time<b.time;});
+  return result;
+}
+
 double MpvWidget::duration() const {
   double value = 0;
   return mpv_ && mpv_get_property(mpv_, "duration", MPV_FORMAT_DOUBLE, &value) >= 0 ? value : 0;

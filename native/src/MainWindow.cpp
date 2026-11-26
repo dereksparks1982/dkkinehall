@@ -4,6 +4,10 @@
 #include <QAction>
 #include <QApplication>
 #include <QAbstractItemView>
+#include <QRandomGenerator>
+#include <QRegularExpression>
+#include <QDropEvent>
+#include <functional>
 #include <QCollator>
 #include <QComboBox>
 #include <QCoreApplication>
@@ -41,6 +45,42 @@
 #include <cmath>
 
 namespace {
+class ReorderListWidget final : public QListWidget {
+public:
+  using QListWidget::QListWidget;
+  std::function<void()> onReordered;
+protected:
+  void dropEvent(QDropEvent *event) override {
+    QListWidget::dropEvent(event);
+    if(event->isAccepted() && onReordered) onReordered();
+  }
+};
+struct DisplayMedia {QString name,detail;};
+DisplayMedia displayMedia(const QString &path) {
+  QString name=QFileInfo(path).completeBaseName();
+  name.replace(QRegularExpression(QStringLiteral("[._]+")),QStringLiteral(" "));
+  name=name.simplified();
+  static const QRegularExpression episode(
+    QStringLiteral(R"((?:^|[\s-])(?:S(\d{1,2})\s*E(\d{1,3})|(\d{1,2})\s*x\s*(\d{1,3}))(?=$|[\s-]))"),
+    QRegularExpression::CaseInsensitiveOption);
+  const auto match=episode.match(name);
+  if(match.hasMatch()) {
+    const int season=match.captured(1).isEmpty()?match.captured(3).toInt():match.captured(1).toInt();
+    const int number=match.captured(2).isEmpty()?match.captured(4).toInt():match.captured(2).toInt();
+    const QString series=name.left(match.capturedStart()).trimmed();
+    const QString code=QStringLiteral("S%1E%2").arg(season,2,10,QLatin1Char('0'))
+      .arg(number,2,10,QLatin1Char('0'));
+    QString title=name.mid(match.capturedEnd()).trimmed();
+    title.remove(QRegularExpression(QStringLiteral(R"((?:\s|^)(?:2160p|1080p|720p|480p|WEB[- ]?DL|WEB[- ]?Rip|BluRay|HEVC|x264|x265|H264|H265|AC3|AAC|DTS)(?:\s.*)?$)"),
+      QRegularExpression::CaseInsensitiveOption));
+    title=title.trimmed();
+    if(title.startsWith(QLatin1Char('-')))title=title.mid(1).trimmed();
+    if(!series.isEmpty())return {series,code+(title.isEmpty()?QString():QStringLiteral(" · ")+title)};
+  }
+  name.remove(QRegularExpression(QStringLiteral(R"((?:\s+)(?:2160p|1080p|720p|480p|WEB[- ]?DL|WEB[- ]?Rip|BluRay|HEVC|x264|x265)(?:\s.*)?$)"),
+    QRegularExpression::CaseInsensitiveOption));
+  return {name.trimmed(),QString()};
+}
 bool isMedia(const QString &path) {
   const QString ext = QFileInfo(path).suffix().toLower();
   return QStringList{
@@ -49,7 +89,18 @@ bool isMedia(const QString &path) {
     QStringLiteral("ts"),QStringLiteral("mpeg"),QStringLiteral("mpg"),
     QStringLiteral("mp3"),QStringLiteral("aac"),QStringLiteral("m4a"),
     QStringLiteral("wav"),QStringLiteral("flac"),QStringLiteral("ogg"),
-    QStringLiteral("opus")
+    QStringLiteral("opus"),QStringLiteral("m2ts"),QStringLiteral("mts"),
+    QStringLiteral("m2v"),QStringLiteral("vob"),QStringLiteral("3gp"),
+    QStringLiteral("3g2"),QStringLiteral("wmv"),QStringLiteral("asf"),
+    QStringLiteral("flv"),QStringLiteral("f4v"),QStringLiteral("ogv"),
+    QStringLiteral("dv"),QStringLiteral("divx"),QStringLiteral("rm"),
+    QStringLiteral("rmvb"),QStringLiteral("mpv"),QStringLiteral("mxf"),
+    QStringLiteral("nut"),QStringLiteral("mka"),QStringLiteral("mp2"),
+    QStringLiteral("aiff"),QStringLiteral("aif"),QStringLiteral("ape"),
+    QStringLiteral("alac"),QStringLiteral("wma"),QStringLiteral("m4b"),
+    QStringLiteral("m4p"),QStringLiteral("caf"),QStringLiteral("dsf"),
+    QStringLiteral("dff"),QStringLiteral("amr"),QStringLiteral("ac3"),
+    QStringLiteral("dts")
   }.contains(ext);
 }
 QString clockText(double seconds) {
@@ -220,6 +271,8 @@ MainWindow::MainWindow(QWidget *parent)
     rate_->addItem(QString::number(value,'f',value==1.25||value==0.75?2:1)+QStringLiteral("×"),value);
   rate_->setCurrentIndex(2);
   controls->addWidget(rate_);
+  chapters_=new QPushButton(left);
+  controls->addWidget(chapters_);
   fullscreen_=transportButton(QStringLiteral("⛶"),left);
   controls->addWidget(fullscreen_);
   leftLayout->addLayout(controls);
@@ -272,7 +325,23 @@ MainWindow::MainWindow(QWidget *parent)
   queueButtons->addWidget(addQueue_,1);
   queueButtons->addWidget(clear_,1);
   rightLayout->addLayout(queueButtons);
-  queue_=new QListWidget(right);
+  auto *orderControls=new QHBoxLayout;
+  shuffle_=new QPushButton(right);
+  shuffle_->setCheckable(true);
+  shuffle_->setChecked(settings_.value(QStringLiteral("shuffle"),false).toBool());
+  loop_=new QPushButton(right);
+  loopMode_=qBound(0,settings_.value(QStringLiteral("loopMode"),0).toInt(),2);
+  orderControls->addWidget(shuffle_,1);
+  orderControls->addWidget(loop_,1);
+  rightLayout->addLayout(orderControls);
+  queue_=new ReorderListWidget(right);
+  queue_->setDragEnabled(true);
+  queue_->setAcceptDrops(true);
+  queue_->setDragDropMode(QAbstractItemView::InternalMove);
+  queue_->setDefaultDropAction(Qt::MoveAction);
+  queue_->setDropIndicatorShown(true);
+  static_cast<ReorderListWidget *>(queue_)->onReordered=
+    [this]{applyQueueReorder();};
   queue_->setIconSize(QSize(88,126));
   queue_->setSpacing(6);
   queue_->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
@@ -291,6 +360,17 @@ MainWindow::MainWindow(QWidget *parent)
   connect(open_,&QPushButton::clicked,this,[this]{openFiles(false);});
   connect(addQueue_,&QPushButton::clicked,this,[this]{openFiles(true);});
   connect(openFolder_,&QPushButton::clicked,this,&MainWindow::openFolder);
+  connect(shuffle_,&QPushButton::clicked,this,[this](bool active){
+    settings_.setValue(QStringLiteral("shuffle"),active);
+    if(active)shuffleUpcoming();
+    rebuildQueue();
+  });
+  connect(loop_,&QPushButton::clicked,this,[this]{
+    loopMode_=(loopMode_+1)%3;
+    settings_.setValue(QStringLiteral("loopMode"),loopMode_);
+    updateLoopButton();
+  });
+  connect(chapters_,&QPushButton::clicked,this,&MainWindow::openChapterMenu);
   connect(clear_,&QPushButton::clicked,this,[this] {
     // Clearing Up Next never interrupts the selected movie.
     if (current_<0) paths_.clear();
@@ -361,6 +441,7 @@ MainWindow::MainWindow(QWidget *parent)
     player_->selectSubtitles(-1);
     restorePosition();
     refreshTrackIndicator();
+    refreshChapterButton();
   });
   connect(player_,&MpvWidget::fullscreenRequested,this,&MainWindow::toggleFullscreen);
   connect(player_,&MpvWidget::contextRequested,this,&MainWindow::openContextMenu);
@@ -392,11 +473,17 @@ void MainWindow::rebuildLanguage() {
   removeWatched_->setText(t("Remove watched videos","Удалять просмотренные видео"));
   hardware_->setText(t("Hardware acceleration","Аппаратное ускорение"));
   fullscreen_->setToolTip(t("Fullscreen","Полный экран"));
+  chapters_->setText(t("Chapters","Главы"));
+  chapters_->setToolTip(t("Select chapters","Выбрать главы"));
+  shuffle_->setText(t("Shuffle","Перемешать"));
+  updateLoopButton();
   rewind_->setToolTip(t("Rewind 10 seconds","Назад на 10 секунд"));
   forward_->setToolTip(t("Forward 10 seconds","Вперёд на 10 секунд"));
-  title_->setText(current_<0?t("Nothing playing","Нет воспроизведения"):QFileInfo(currentPath_).fileName());
+  const DisplayMedia display=displayMedia(currentPath_);
+  title_->setText(current_<0?t("Nothing playing","Нет воспроизведения"):display.name);
   source_->setText(current_<0?t("Choose a video or music file from this device.","Выберите видео или музыку на этом устройстве."):
-    t("Local device","Локальное устройство"));
+    display.detail);
+  refreshChapterButton();
   refreshTrackIndicator();
   rebuildQueue();
 }
@@ -410,7 +497,11 @@ void MainWindow::rebuildQueue() {
   QSignalBlocker block(queue_);
   queue_->clear();
   for (int index=0; index<paths_.size(); ++index) {
-    auto *item=new QListWidgetItem(QFileInfo(paths_.at(index)).fileName(),queue_);
+    const DisplayMedia display=displayMedia(paths_.at(index));
+    const QString label=display.name+
+      (display.detail.isEmpty()?QString():QStringLiteral("\n")+display.detail);
+    auto *item=new QListWidgetItem(label,queue_);
+    item->setData(Qt::UserRole,paths_.at(index));
     item->setSizeHint(QSize(272,140));
     const QString image=resolvePoster(paths_.at(index));
     if(!image.isEmpty()) {
@@ -459,7 +550,9 @@ void MainWindow::addPaths(const QStringList &paths,bool queueOnly) {
   int first=-1;
   for (const QString &candidate:paths) {
     const QFileInfo info(candidate);
-    if(!info.isFile() || !info.isReadable() || !isMedia(candidate))continue;
+    // Accept explicit user-chosen files regardless of extension: libmpv
+    // can probe supported containers even with unusual file suffixes.
+    if(!info.isFile() || !info.isReadable())continue;
     const QString absolute=info.absoluteFilePath();
     if(paths_.contains(absolute)) {
       if(first<0)first=paths_.indexOf(absolute);
@@ -508,9 +601,11 @@ void MainWindow::openIndex(int index,bool autoplay) {
   else player_->pause();
   settings_.setValue(QStringLiteral("lastFile"),currentPath_);
   rebuildQueue();
-  title_->setText(QFileInfo(currentPath_).fileName());
-  source_->setText(t("Local device","Локальное устройство"));
+  const DisplayMedia display=displayMedia(currentPath_);
+  title_->setText(display.name);
+  source_->setText(display.detail);
   refreshTrackIndicator();
+  refreshChapterButton();
   starting_=false;
 }
 void MainWindow::removeIndex(int index) {
@@ -530,16 +625,29 @@ void MainWindow::removeIndex(int index) {
   refreshTrackIndicator();
 }
 void MainWindow::next() {
-  if(current_>=0&&current_+1<paths_.size())openIndex(current_+1,true);
+  if(current_<0||paths_.isEmpty())return;
+  if(current_+1<paths_.size())openIndex(current_+1,true);
+  else if(loopMode_==2 && paths_.size()>1)openIndex(0,true);
 }
 void MainWindow::previous() {
+  if(current_<0||paths_.isEmpty())return;
   if(current_>0)openIndex(current_-1,true);
+  else if(loopMode_==2 && paths_.size()>1)openIndex(paths_.size()-1,true);
   else player_->seekTo(0);
 }
 void MainWindow::completed() {
   if(suppressCompletion_||starting_||current_<0)return;
   const QString finished=currentPath_;
   settings_.remove(resumeKey(finished));
+  if(loopMode_==1) {
+    player_->seekTo(0);
+    player_->play();
+    return;
+  }
+  if(loopMode_==2 && !paths_.isEmpty()) {
+    openIndex((current_+1)%paths_.size(),true);
+    return;
+  }
   if(removeWatched_->isChecked()) {
     paths_.removeAt(current_);
     const int nextIndex=current_;
@@ -564,6 +672,58 @@ void MainWindow::updateTime(double pos,double length) {
   }
   seek_->setEnabled(length>0 && current_>=0);
 }
+void MainWindow::updateLoopButton() {
+  const QStringList english{QStringLiteral("Loop: Off"),QStringLiteral("Loop: One"),QStringLiteral("Loop: All")};
+  const QStringList russian{QStringLiteral("Повтор: выкл."),QStringLiteral("Повтор: один"),QStringLiteral("Повтор: все")};
+  loop_->setText((russian_?russian:english).at(qBound(0,loopMode_,2)));
+  loop_->setProperty("active",loopMode_!=0);
+}
+
+void MainWindow::shuffleUpcoming() {
+  // Fisher-Yates in the pending section only: current playback never reloads.
+  const int start=qMax(0,current_+1);
+  for(int i=paths_.size()-1;i>start;--i) {
+    const int j=start+QRandomGenerator::global()->bounded(i-start+1);
+    paths_.swapItemsAt(i,j);
+  }
+  rebuildQueue();
+}
+
+void MainWindow::applyQueueReorder() {
+  if(!queue_||queue_->count()!=paths_.size())return;
+  QStringList reordered;
+  for(int i=0;i<queue_->count();++i)
+    reordered<<queue_->item(i)->data(Qt::UserRole).toString();
+  if(reordered.size()!=paths_.size())return;
+  for(const QString &path:reordered)
+    if(!paths_.contains(path))return;
+  paths_=reordered;
+  if(!currentPath_.isEmpty())current_=paths_.indexOf(currentPath_);
+  rebuildQueue();
+}
+
+void MainWindow::refreshChapterButton() {
+  if(chapters_)chapters_->setEnabled(current_>=0&&!player_->chapters().isEmpty());
+}
+
+void MainWindow::openChapterMenu() {
+  if(current_<0)return;
+  const auto found=player_->chapters();
+  if(found.isEmpty())return;
+  QMenu menu(this);
+  int index=0;
+  for(const MediaChapter &chapter:found) {
+    const QString title=chapter.title.isEmpty()?
+      t("Chapter","Глава")+QStringLiteral(" ")+QString::number(++index):
+      (index++,chapter.title);
+    QAction *entry=menu.addAction(clockText(chapter.time)+QStringLiteral(" · ")+title);
+    connect(entry,&QAction::triggered,this,[this,chapter]{
+      player_->seekTo(chapter.time);
+    });
+  }
+  menu.exec(chapters_->mapToGlobal(QPoint(0,chapters_->height())));
+}
+
 void MainWindow::populateSubtitleMenu(QMenu *menu) {
   menu->clear();
   QAction *off=menu->addAction(t("Off","Выключены"));

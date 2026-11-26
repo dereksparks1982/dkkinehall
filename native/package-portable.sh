@@ -7,6 +7,8 @@ ROOT="$OUT/DK Kinehall"
 mkdir -p "$ROOT/bin" "$ROOT/lib" "$ROOT/plugins" "$ROOT/docs/icons"
 install -m 0755 "$BINARY" "$ROOT/bin/DK Kinehall"
 cp docs/icons/dk-media-player-512.png "$ROOT/docs/icons/dk-media-player-512.png"
+# Ship the existing approved icon and all applicable third-party notices.
+cp LICENSE THIRD_PARTY_NOTICES.md "$ROOT/"
 
 PLUGIN_ROOT="$(qtpaths6 --query QT_INSTALL_PLUGINS 2>/dev/null || true)"
 if [[ -z "$PLUGIN_ROOT" || ! -d "$PLUGIN_ROOT" ]]; then
@@ -110,6 +112,8 @@ while IFS= read -r -d '' object; do
     exit 1
   fi
 done < <(find "$ROOT/bin" "$ROOT/lib" "$ROOT/plugins" -type f -print0)
+# Refuse any "standalone" archive missing its native decoder libraries.
+bash native/audit-portable.sh "$ROOT"
 cat > "$ROOT/README.txt" <<'DOC'
 DK Kinehall native Linux x86_64
 Unpack the complete directory before launching.

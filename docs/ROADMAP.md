@@ -8,6 +8,18 @@ The current installed standalone edition uses **the approved DK Kinehall shared 
 
 The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved replacement for that UI. The older roadmap falsely said Chromium artifacts were deleted; they are still present on `main`.
 
+## DK Family Cut (planned standalone feature)
+
+Parent-directed, non-destructive scene and chapter editing for local movies and TV episodes. Keep this feature optional; preserve original files, approved player controls and the hosted web edition. English and Russian UI parity is required.
+
+1. **Scene and chapter editor:** Add a Family Cut entry to the existing player settings/right-click menus; mark start/end using the original media clock, support frame stepping where available, select actual chapters (label virtual chapters separately), preview boundaries, edit/delete marks and undo. Validate and normalize overlapping or out-of-range intervals.
+2. **Non-destructive playback:** Save per-file edit profiles with a media identity/fingerprint and edition name. Automatically skip selected intervals or whole chapters, mute audio (including voiceover) and hide corresponding captions where requested, or black out the picture while retaining audio. Handle seeks, resume, chapter navigation, decoder changes, repeat and queue transitions; prevent marked content from briefly appearing during seeks in protected mode. If an edit cannot be safely applied, pause rather than silently play unfiltered.
+3. **Library and parental controls:** Offer Original and Family Cut editions without duplicating video bytes, remember profiles and separate resume states, and allow an optional parental PIN to protect profile changes, switching to Original, and disabling filters. PIN is an in-app restriction, not OS-level access control; do not claim children cannot bypass it using another player or account.
+4. **Permanent export:** Use bundled FFmpeg/FFprobe to create a separate edited file (initially MKV/MP4 where supported), with accurate cut boundaries, suitable re-encoding when necessary, synchronized audio/subtitles, adjusted chapter timestamps, progress, cancellation, disk-space checks, and verified output before adding it to the library. Never overwrite or delete the original. Warn of unsupported tracks/format limitations.
+5. **Acceptance:** Test local files and multiple editions, mismatched/replaced files, overlapping cuts, seek/resume, all audio/subtitle/voiceover paths, protected playback, export quality and A/V sync, cancellation and persistence on Linux. Verify both languages and retain existing UI styling. No automatic content classification or DRM bypass in the initial scope; parents choose and review edits.
+
+Priority proposal: complete the existing playback/release-critical work, then implement the non-destructive scene/chapter editor before the more expensive export and optional protection layers. No code implementation, build or release acceptance implied by this entry. Public README remains free of development notes.
+
 ## Local Library Home scope
 
 - **New standalone requirement:** automatically discover movie/TV files under the user's home and standard mounted-media roots, without a folder-picker setup. A bounded one-shot scan follows immediate rendering of the saved IndexedDB collection; manual Scan Library remains available. Never run a constant scanner/server.

@@ -76,7 +76,8 @@ function coverShell(landscape){
   const shell=create("span","library-poster");
   const fallback=create("span","library-poster-placeholder");
   const mark=create("span",null,landscape?"▶":"▣");
-  const label=create("small",null,landscape?"":"DK KINEHALL");
+  const label=create("small",null,landscape?"":
+    say("DK KINEHALL","ДК КИНЕХОЛЛ"));
   fallback.append(mark,label);
   shell.append(fallback);
   return shell;
@@ -84,6 +85,8 @@ function coverShell(landscape){
 function createCard(row,{landscape=false,series=false}={}){
   const card=create("button","library-card"+(row.missing?" library-unavailable":""));
   card.type="button";
+  card.dataset.libraryId=row.id;
+  card.dataset.displayRole=series?"series":landscape?"resume":"entry";
   const box=coverShell(landscape);
   const title=create("span","library-card-title",
     series?row.series:row.kind==="tv"?
@@ -125,25 +128,40 @@ function findLocalArtworkFolder(folder,relative,series=false){
       dirs.push(current);
     }
     const stem=String(relative.split("/").at(-1)||"").replace(/\.[^.]+$/,"");
-    for(const dir of dirs.reverse()){
-      const episodeNames=[
-        stem+".jpg",stem+".png",stem+".webp",
-        stem+"-still.jpg",stem+"-still.png",stem+"-still.webp"
-      ];
-      const posterNames=[
-        "poster.jpg","poster.png","poster.webp",
-        "folder.jpg","folder.png","folder.webp",
-        "cover.jpg","cover.png","cover.webp"
-      ];
-      // Series views should never use a nearby individual episode still.
-      const candidates=series?posterNames:[...episodeNames,...posterNames];
-      for(const name of candidates){
+    const sidecarNames=[
+      stem+".jpg",stem+".png",stem+".webp",
+      stem+"-still.jpg",stem+"-still.png",stem+"-still.webp"
+    ];
+    const posterNames=[
+      "poster.jpg","poster.png","poster.webp",
+      "folder.jpg","folder.png","folder.webp",
+      "cover.jpg","cover.png","cover.webp"
+    ];
+    const check=async(dir,names)=>{
+      for(const name of names){
         try{
           const file=await(await dir.getFileHandle(name,{create:false})).getFile();
           if(/^image\/(jpeg|png|webp)$/.test(file.type)&&file.size<3*1024*1024)
             return file;
         }catch(_){}
       }
+      return null;
+    };
+    // A mixed movie folder may contain a poster.jpg for an unrelated
+    // title. Only a dedicated subfolder may supply generic poster art.
+    if(!series){
+      const still=await check(dirs.at(-1),sidecarNames);
+      if(still)return still;
+      if(parent.length){
+        const cover=await check(dirs.at(-1),posterNames);
+        if(cover)return cover;
+      }
+    }else if(parent.length){
+      // TV show poster belongs to the series directory, not an individual
+      // season or episode. Skip a shared collection root entirely.
+      const showFolder=parent.length>=2?dirs.at(-2):dirs.at(-1);
+      const cover=await check(showFolder,posterNames);
+      if(cover)return cover;
     }
     return null;
   };
@@ -434,11 +452,24 @@ function connect(){
     selectedSeason=Number(event.target.value);visibleCount=72;void render();
   });
   store.onChange(event=>{
-    if(scanning||(!event.progress&&!event.folders&&!event.entries&&!event.metadata))return;
+    if(event.metadata&&event.id){
+      // A verified episode name must update only its visible text, not
+      // discard/rebuild the artwork for the entire library.
+      void store.item(event.id).then(row=>{
+        if(!row||row.kind!=="tv")return;
+        for(const card of document.querySelectorAll(".library-card")){
+          if(card.dataset.libraryId!==row.id ||
+             card.dataset.displayRole==="series")continue;
+          const detail=card.querySelector(".library-card-detail");
+          if(detail)detail.textContent=row.episodeTitle||"";
+        }
+      }).catch(()=>{});
+      return;
+    }
+    if(scanning||(!event.progress&&!event.folders&&!event.entries))return;
     // Keep the video smooth on low-memory Surface Pro hardware. Playback
     // history still commits to IndexedDB; repaint only when Home is active.
-    if((event.progress||event.metadata) &&
-       (document.hidden||!document.hasFocus())){
+    if(event.progress && (document.hidden||!document.hasFocus())){
       deferredProgress=true;
       return;
     }

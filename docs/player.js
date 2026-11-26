@@ -2782,16 +2782,33 @@
   // Library selections launch in this original player window, not a new
   // playback implementation. Their durable ID resolves to the user's own
   // permissioned file, while the database stores no duplicated movie bytes.
+  let externalChain=Promise.resolve();
+  const acceptExternal=()=>{
+    if(!window.DKLibraryBridge?.externalSelection)return Promise.resolve(false);
+    externalChain=externalChain.catch(()=>{}).then(async()=>{
+      const rows=await window.DKLibraryBridge.externalSelection();
+      const selected=[];
+      for(const {row,opened} of rows||[]){
+        try{selected.push(window.DKNativeFile.create(row,opened,window.DKLibraryBridge));}
+        catch(_){}
+      }
+      // One Open action lets the existing queue policy start only if idle.
+      // Remaining files join Up Next without disturbing the current movie.
+      if(selected.length){
+        addFiles([selected[0].file],[],"open",{nativeSrc:selected[0].src});
+        for(const item of selected.slice(1))
+          addFiles([item.file],[],"queue",{nativeSrc:item.src});
+      }
+      return selected.length>0;
+    }).catch(()=>{status("Cannot open the selected local video.");return false;});
+    return externalChain;
+  };
+  window.DKLibraryBridge?.onExternalReady?.(()=>{void acceptExternal();});
   const openFromLibrary = async () => {
     const params=new URLSearchParams(window.location.search);
     const external=params.get("externalItem");
     if(external&&window.DKLibraryBridge?.externalSelection){
-      try{
-        const {row,opened}=await window.DKLibraryBridge.externalSelection(external);
-        const selected=window.DKNativeFile.create(row,opened,window.DKLibraryBridge);
-        addFiles([selected.file],[],"open",{nativeSrc:selected.src});
-      }catch(_){status("Cannot open the selected local video.");}
-      return true;
+      await acceptExternal();return true;
     }
     const id=params.get("libraryItem");
     if(!id)return false;
@@ -2826,7 +2843,7 @@
   // Restore plain file selection only when this is not a library launch.
   void (async()=>{
     const selected=await openFromLibrary();
-    if(!selected){
+    if(!selected&&!await acceptExternal()){
       await restoreLastMedia();
       await restoreSavedFolder();
     }

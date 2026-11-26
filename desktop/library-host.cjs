@@ -188,7 +188,7 @@ for start in range(0,len(lines),32):
     print(json.dumps({"start":start,"batch":translated},ensure_ascii=False),flush=True)
 `;
 function translationPaths(pair){
-  if(!["en-ru","ru-en"].includes(pair))throw Error("Unsupported translation direction");
+  if(!["en-ru","ru-en","en-ar","ar-en","ru-ar","ar-ru"].includes(pair))throw Error("Unsupported translation direction");
   const root=path.join(process.env.XDG_DATA_HOME||path.join(app.getPath("home"),".local","share"),"dk-kinehall","translation-runtime");
   const python=path.join(root,"bin","python3");
   const model=path.join(root,"models",pair);
@@ -360,10 +360,12 @@ if skipped==len(rows):
     raise ValueError("No speech could fit the cue timing")
 print(json.dumps({"stage":"complete","done":len(rows),"total":len(rows),"skipped":skipped}),flush=True)
 `;
-function voiceoverPaths(pair){
+function voiceoverPaths(pair,profile="default"){
+  if(!["default","male","female"].includes(profile))throw Error("Unsupported voice profile");
   const runtime=translationPaths(pair);
   const root=path.dirname(path.dirname(runtime.model));
-  const voice=path.join(root,"voices",pair.split("-")[1]);
+  const baseVoice=path.join(root,"voices",pair.split("-")[1]);
+  const voice=profile==="default"?baseVoice:path.join(baseVoice,profile);
   const ready=runtime.ready&&[path.join(voice,"READY.json"),path.join(voice,"model.onnx"),path.join(voice,"tokens.txt"),path.join(voice,"espeak-ng-data")].every(p=>fs.existsSync(p));
   return {...runtime,voice,ready};
 }
@@ -539,8 +541,8 @@ function voiceCacheSave(key,rows,output,skipped){
     voiceCachePrune();
   }catch(_){}finally{if(temp)try{fs.rmSync(temp,{recursive:true,force:true});}catch(_){}}
 }
-function generateVoiceover(event,pair,rows,ticket){
-  const runtime=voiceoverPaths(pair);
+function generateVoiceover(event,pair,rows,ticket,profile="default"){
+  const runtime=voiceoverPaths(pair,profile);
   if(!runtime.ready)throw Error("Voiceover runtime is not installed");
   if(voiceoverJob||translationJob||asrJob||voiceoverExporting)throw Error("Offline speech or translation job already running");
   if(!Number.isSafeInteger(ticket)||ticket<1||!Array.isArray(rows)||!rows.length||rows.length>6000||
@@ -702,7 +704,7 @@ function saveASRCache(file,srt){
 }
 async function generateASR(event,source,language,audioIndex,ticket){
   if(asrJob||translationJob||voiceoverJob)throw Error("Another offline speech job is running");
-  if(!["en","ru","auto"].includes(language)||!Number.isInteger(audioIndex)||audioIndex<0||audioIndex>31||
+  if(!["en","ru","ar","auto"].includes(language)||!Number.isInteger(audioIndex)||audioIndex<0||audioIndex>31||
      !Number.isSafeInteger(ticket)||ticket<1)throw Error("Invalid speech recognition request");
   const runtime=asrPaths();if(!runtime.ready)throw Error("Offline speech runtime is not installed");
   const job={ticket,child:null,cancelled:false};asrJob=job;
@@ -720,7 +722,7 @@ async function generateASR(event,source,language,audioIndex,ticket){
     const cacheRoot=asrCacheRoot();
     // A detected-language suffix preserves the actual language across restarts.
     // Do not treat manually forced transcripts as automatically detected.
-    const cacheFiles=language==="auto"?["en","ru"].map(code=>({code,file:path.join(cacheRoot,key+"."+code+".srt")})):
+    const cacheFiles=language==="auto"?["en","ru","ar"].map(code=>({code,file:path.join(cacheRoot,key+"."+code+".srt")})):
       [{code:language,file:path.join(cacheRoot,key+".srt")}];
     for(const entry of cacheFiles){
       const cached=readASRCache(entry.file,duration);
@@ -753,7 +755,7 @@ async function generateASR(event,source,language,audioIndex,ticket){
         const match=/progress\s*=\s*(\d+)%/i.exec(line);
         if(match)asrProgress(event,job,"recognize",15+Number(match[1])*.84);
       });
-    if(language==="auto"&&!["en","ru"].includes(detected))
+    if(language==="auto"&&!["en","ru","ar"].includes(detected))
       throw Error("Speech language uncertain or unsupported; choose the original language manually");
     const file=path.join(cacheRoot,key+(language==="auto"?"."+detected:"")+".srt");
     const srtFile=output+".srt";
@@ -1197,13 +1199,13 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event)||!["en","ru"].includes(language))throw Error("Voiceover cache request rejected");
     return clearVoiceCache(language);
   });
-  ipcMain.handle("dk-library:voiceover-status",(event,pair)=>{
+  ipcMain.handle("dk-library:voiceover-status",(event,pair,profile="default")=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
-    return voiceoverPaths(pair).ready;
+    return voiceoverPaths(pair,profile).ready;
   });
-  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket)=>{
+  ipcMain.handle("dk-library:voiceover-generate",(event,pair,rows,ticket,profile="default")=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");
-    return generateVoiceover(event,pair,rows,ticket);
+    return generateVoiceover(event,pair,rows,ticket,profile);
   });
   ipcMain.handle("dk-library:voiceover-discard",event=>{
     if(!onlyPlayer(event))throw Error("Voiceover request rejected");

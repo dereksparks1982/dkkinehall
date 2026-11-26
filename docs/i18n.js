@@ -255,6 +255,7 @@
     "Restore original subtitles":"Восстановить исходные субтитры",
     "Empty Trash":"Очистить корзину",
     "Connect to media server":"Подключиться к медиасерверу",
+    "Network decoder unavailable.":"Сетевой декодер недоступен.",
     "Search media titles":"Поиск по названиям",
     "Clear search":"Очистить поиск",
     "This server could not search media titles.":"Этот сервер не поддерживает поиск по названиям или не смог его выполнить.",

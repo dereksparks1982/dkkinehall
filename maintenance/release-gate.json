@@ -16,7 +16,6 @@
     "original_window_and_icons_verified": false,
     "full_package_playback_verified": false,
     "licenses_and_notices_verified": false,
-    "library_two_windows_verified": false,
     "library_persistent_cache_verified": false,
     "library_manual_scan_verified": false,
     "library_visual_parity_verified": false,
@@ -25,7 +24,11 @@
     "silent_audio_fix_verified": false,
     "dock_drop_verified": false,
     "video_export_verified": false,
-    "window_navigation_verified": false
+    "window_navigation_verified": false,
+    "library_single_window_verified": false,
+    "shared_scan_buttons_verified": false,
+    "gold_highlights_verified": false,
+    "movie_metadata_verified": false
   },
   "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player.",
   "codec_bundle_asset_url": null,

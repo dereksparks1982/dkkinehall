@@ -222,7 +222,7 @@
     byId("restoreHint").hidden = true;
   };
   const rememberSelectedMedia = item => {
-    if(item.file?.dvdToken)return; // Session-only disc selections do not replace the last local file.
+    if(item.file?.dvdToken||item.kind==="network")return; // Session-only sources do not replace the last local file.
     if (item.handle) {
       write(store.lastMedia, {kind: "file", name: item.name, key: item.key,libraryId:item.libraryId||null});
       updateStoredHandle(item.handle);
@@ -369,7 +369,7 @@
     if(state.stopped)return;
     const item = current();
     const duration=playbackDuration(),position=playbackSeconds();
-    if (!item || item.file?.dvdToken || !Number.isFinite(duration) || duration <= 0) return;
+    if (!item || item.file?.dvdToken || item.kind==="network" || !Number.isFinite(duration) || duration <= 0) return;
     if(window.DKLibraryBridge?.internalPages){
       // Never overwrite saved progress with an initializing decoder clock.
       if(!item.historyReady||media.readyState<2||media.seeking||
@@ -1000,7 +1000,7 @@
       fallback.className = "queue-artwork-fallback";
       fallback.textContent = item.audio ? "♫" : "▶";
       artworkBox.append(fallback);
-      if (queueHover&&!item.file?.dvdToken) queueHover.bind(play, item, artworkBox);
+      if (queueHover&&!item.file?.dvdToken&&item.kind!=="network") queueHover.bind(play, item, artworkBox);
       const labels = document.createElement("span");
       labels.className = "queue-item-labels";
       const title = document.createElement("span");
@@ -1206,7 +1206,7 @@
     item.codecActive = false;
     item.codecRestart = false;
     item.compatPending = false;
-    item.requestedFormat = item.file?.dvdToken?"auto":playbackSettings.format;
+    item.requestedFormat = item.kind==="network"?"original":item.file?.dvdToken?"auto":playbackSettings.format;
     item.deinterlaceMode=standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
     item.smoothingMode=standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
@@ -1224,6 +1224,7 @@
       /\.mkv$/i.test(item.name) && !!item.file && !item.file.nativeVirtual;
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     media.removeAttribute("crossorigin");
+    if(item.kind==="network")media.crossOrigin="anonymous";
     if (item.file?.dvdToken || needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");
@@ -1505,6 +1506,7 @@
       item.compatSrc=null;
     }
   };
+  const releaseNetwork=item=>{if(item?.networkToken)void window.DKLibraryBridge?.networkRelease(item.networkToken).catch(()=>{});};
   const releaseArtwork = item => {
     if(item?.folderArtworkSrc){
       try{URL.revokeObjectURL(item.folderArtworkSrc);}catch(_){}
@@ -1522,12 +1524,13 @@
     const old = state.queue.splice(index, 1)[0];
     if (wasCurrent) {
       if (state.queue.length) { state.current = -1; load(Math.min(index, state.queue.length - 1), false); }
-      else { idle(); clearRememberedMedia(); }
+      else { idle(); if(old.kind!=="network"&&!old.file?.dvdToken)clearRememberedMedia(); }
     } else {
       if (index < state.current) state.current--;
       renderQueue();
     }
     releaseArtwork(old);
+    releaseNetwork(old);
     releaseCompatible(old);
     if (old.kind === "file") URL.revokeObjectURL(old.src);
     rememberQueueSequence();
@@ -2390,6 +2393,122 @@
     dvdDialog.addEventListener("close",()=>byId("playerSettingsPanel").append(section));
     window.DKLocale?.apply();
   }
+  if(window.DKLibraryBridge?.internalPages&&window.DKLibraryBridge?.networkDiscover&&settingsDetails){
+    const bridge=window.DKLibraryBridge;
+    const dlg=document.createElement("dialog");dlg.className="dk-dvd-dialog dk-network-dialog";
+    const translate=value=>window.DKLocale?.t(value)||value;
+    const makeButton=(label,action)=>{
+      const button=document.createElement("button");button.type="button";button.className="btn small";
+      button.textContent=label;button.addEventListener("click",action);return button;
+    };
+    const heading=document.createElement("strong");heading.textContent="Network media";
+    const note=document.createElement("p");note.className="helper";
+    note.textContent="Browse DLNA media servers or enter a private IPv4 HTTP media URL. Compatible streams only.";
+    const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
+    const results=document.createElement("div");results.className="dk-network-results";
+    const url=document.createElement("input");url.type="url";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
+    const queueLabel=document.createElement("label"),queueOnly=document.createElement("input");
+    queueOnly.type="checkbox";queueLabel.append(queueOnly,document.createTextNode(" Add to queue only"));
+    let generation=0,opening=false;
+    const say=value=>{message.textContent=translate(value);};
+    const parse=value=>{
+      if(typeof value!=="string"||/<!DOCTYPE|<!ENTITY/i.test(value))throw Error("Invalid XML");
+      const doc=new DOMParser().parseFromString(value,"application/xml");
+      if(doc.getElementsByTagName("parsererror").length)throw Error("Invalid XML");
+      return doc;
+    };
+    const nodes=(root,name)=>Array.from(root.getElementsByTagNameNS("*",name));
+    const first=(root,name)=>nodes(root,name)[0]?.textContent?.trim()||"";
+    const addNetwork=async(serverId,address,name,audio=false)=>{
+      if(opening)return;opening=true;const epoch=generation;
+      try{
+        say("Opening network media…");
+        const grant=await bridge.networkGrant(serverId,address);
+        if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
+        const item={kind:"network",networkToken:grant.token,key:"network:"+grant.token,
+          name:String(name||"Network media").slice(0,250),audio,src:grant.src,
+          embeddedSubtitles:[],embeddedAudio:[],embeddedVideo:[],chapters:[],mkvInspection:"not-mkv"};
+        if(queueOnly.checked&&state.queue.length){state.queue.push(item);renderQueue();}
+        else{
+          const index=state.current<0?state.queue.length:state.current+1;
+          state.queue.splice(index,0,item);load(index,true);
+        }
+        settingsDetails.open=false;dlg.close();
+      }catch(_){if(dlg.open&&epoch===generation)say("Cannot open network media.");}
+      finally{opening=false;}
+    };
+    const showServers=async()=>{
+      const epoch=++generation;results.replaceChildren();say("Searching for media servers…");
+      try{
+        const servers=await bridge.networkDiscover();
+        if(!dlg.open||epoch!==generation)return;
+        say(servers.length?"Choose a media server.":"No DLNA media servers found.");
+        for(const server of servers){
+          let label;try{label=new URL(server.location).host;}catch(_){continue;}
+          const button=makeButton(label,()=>void openServer(server));
+          results.append(button);
+        }
+      }catch(_){if(dlg.open&&epoch===generation)say("Network discovery failed.");}
+    };
+    const openServer=async server=>{
+      const epoch=++generation;results.replaceChildren();say("Reading media server…");
+      try{
+        const info=await bridge.networkDescription(server.id);
+        if(!dlg.open||epoch!==generation)return;
+        const description=parse(info.xml);
+        const service=nodes(description,"service").find(s=>/^urn:schemas-upnp-org:service:ContentDirectory:[1-4]$/.test(first(s,"serviceType")));
+        if(!service)throw Error("ContentDirectory unavailable");
+        const base=first(description,"URLBase")||info.location;
+        const control=new URL(first(service,"controlURL"),base).href;
+        const ctx={id:server.id,control,type:first(service,"serviceType"),base,name:first(description,"friendlyName")||new URL(info.location).host};
+        await browse(ctx,[{id:"0",name:ctx.name}],0);
+      }catch(_){if(dlg.open&&epoch===generation){say("Cannot read this media server.");results.append(makeButton("Back to servers",()=>void showServers()));}}
+    };
+    const browse=async(ctx,trail,start)=>{
+      const epoch=++generation;results.replaceChildren();say("Loading media folder…");
+      const folder=trail[trail.length-1];
+      try{
+        const soap=parse(await bridge.networkBrowse(ctx.id,ctx.control,ctx.type,folder.id,start));
+        const result=first(soap,"Result");
+        const doc=parse(result);
+        if(!dlg.open||epoch!==generation)return;
+        say(folder.name);
+        results.append(makeButton(trail.length>1?"Parent folder":"Back to servers",()=>trail.length>1?void browse(ctx,trail.slice(0,-1),0):void showServers()));
+        for(const element of Array.from(doc.documentElement.children).slice(0,100)){
+          const id=element.getAttribute("id"),name=first(element,"title").slice(0,250)||translate("Untitled");
+          if(element.localName==="container"&&id!==null){
+            results.append(makeButton("▸ "+name,()=>void browse(ctx,[...trail,{id,name}],0)));continue;
+          }
+          if(element.localName!=="item")continue;
+          const cls=first(element,"class");
+          const resource=nodes(element,"res").find(r=>/^http-get:[^:]*:(video\/|audio\/|application\/octet-stream)/i.test(r.getAttribute("protocolInfo")||"")&&r.textContent.trim());
+          if(!resource||!/^object\.item\.(videoItem|audioItem)/i.test(cls))continue;
+          let address;try{address=new URL(resource.textContent.trim(),ctx.base).href;}catch(_){continue;}
+          results.append(makeButton("▶ "+name,()=>void addNetwork(ctx.id,address,name,/audioItem/i.test(cls))));
+        }
+        const count=Number(first(soap,"NumberReturned")),total=Number(first(soap,"TotalMatches"));
+        if(start>0)results.append(makeButton("Previous page",()=>void browse(ctx,trail,Math.max(0,start-100))));
+        if(count>0&&Number.isFinite(total)&&start+count<total)results.append(makeButton("Next page",()=>void browse(ctx,trail,start+count)));
+      }catch(_){if(dlg.open&&epoch===generation){say("Cannot read this media folder.");results.append(makeButton("Back to servers",()=>void showServers()));}}
+    };
+    const direct=makeButton("Open network URL",()=>{
+      try{
+        const address=new URL(url.value.trim());
+        const name=decodeURIComponent(address.pathname.split("/").filter(Boolean).pop()||address.host);
+        void addNetwork(null,address.href,name,/\.(mp3|flac|wav|m4a|aac|opus|ogg)$/i.test(name));
+      }catch(_){say("Enter a valid network media URL.");}
+    });
+    const discover=makeButton("Find DLNA servers",()=>void showServers());
+    const close=makeButton("Close",()=>dlg.close());
+    dlg.append(heading,note,discover,url,direct,queueLabel,message,results,close);
+    document.body.append(dlg);
+    const open=()=>{if(!dlg.open){results.replaceChildren();say("");dlg.showModal();window.DKLocale?.apply();}};
+    dlg.addEventListener("close",()=>{generation++;results.replaceChildren();});
+    byId("openEmpty").after(makeButton("Network media…",open));
+    const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
+    section.append(makeButton("Network media…",open));byId("playerSettingsPanel").append(section);
+    window.DKLocale?.apply();
+  }
   // Frame stepping uses actual source presentation timestamps. Pause before
   // seeking; do not substitute guessed 24/30-fps offsets when unavailable.
   let stepFrame=null;
@@ -2694,6 +2813,7 @@
       else idle();
       releaseArtwork(completed);
       releaseCompatible(completed);
+      releaseNetwork(completed);
       if (completed.kind === "file") URL.revokeObjectURL(completed.src);
     } else if (state.current < state.queue.length - 1) {
       load(state.current + 1, true);
@@ -3861,7 +3981,7 @@
     rememberPosition();
     if(codecPlayback)void codecPlayback.stop();
     clearSubtitles();
-    state.queue.forEach(item => { releaseArtwork(item); releaseCompatible(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
+    state.queue.forEach(item => { releaseArtwork(item); releaseNetwork(item); releaseCompatible(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
   });
   idle();
   // Library selections launch in this original player window, not a new

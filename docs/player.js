@@ -2783,7 +2783,17 @@
   // playback implementation. Their durable ID resolves to the user's own
   // permissioned file, while the database stores no duplicated movie bytes.
   const openFromLibrary = async () => {
-    const id=new URLSearchParams(window.location.search).get("libraryItem");
+    const params=new URLSearchParams(window.location.search);
+    const external=params.get("externalItem");
+    if(external&&window.DKLibraryBridge?.externalSelection){
+      try{
+        const {row,opened}=await window.DKLibraryBridge.externalSelection(external);
+        const selected=window.DKNativeFile.create(row,opened,window.DKLibraryBridge);
+        addFiles([selected.file],[],"open",{nativeSrc:selected.src});
+      }catch(_){status("Cannot open the selected local video.");}
+      return true;
+    }
+    const id=params.get("libraryItem");
     if(!id)return false;
     if(!window.DKLibraryStore){
       status("The local library is unavailable.");return true;

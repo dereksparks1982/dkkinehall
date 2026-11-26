@@ -103,7 +103,7 @@ def main():
             data=data.replace('"use strict";','"use strict";\n'+prefix,1)
         else:data=prefix+data
         mainfile.write_text(data)
-        print("Launching v0.9.3 local preview. Close both windows to remove the temporary copy.",flush=True)
+        print("Launching v0.9.3 local preview. Close the application window to remove the temporary copy.",flush=True)
         return subprocess.run([str(runtime/"electron"),str(app), "--user-data-dir="+str(profile/"userData"),*sys.argv[1:]],cwd=runtime,env=env).returncode
 
 if __name__=="__main__":

@@ -7,10 +7,9 @@ const {ipcMain,BrowserWindow,app,dialog,shell}=require("electron");
 const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
-const crypto=require("node:crypto");
 const {fileURLToPath}=require("node:url");
-const VERSION="0.9.1";
-let externalSelection=null;
+const VERSION="0.9.2";
+let externalSelections=[],externalWork=Promise.resolve();
 let installed=false,home=null,player=null,playerFile=null;
 let scanController=null,scanPromise=null;
 function onlyPlayer(event){
@@ -72,7 +71,7 @@ function openPlayer(id,external=false) {
       require("./codec-host.cjs").install(player);
     player.on("page-title-updated",event=>{event.preventDefault();player?.setTitle("DK Kinehall v"+VERSION);});
     player.setTitle("DK Kinehall v"+VERSION);
-    player.on("closed",()=>{player=null;externalSelection=null;});
+    player.on("closed",()=>{player=null;externalSelections=[];});
   }
   player.show();
   player.focus();
@@ -81,21 +80,33 @@ function openPlayer(id,external=false) {
   return player.loadFile(playerFile,{query:external?{externalItem:id}:{libraryItem:id}}).then(()=>true);
 }
 async function openExternal(argv,cwd){
+  const entries=[],seen=new Set();
   for(const arg of argv.slice(1)){
     if(typeof arg!=="string"||arg.startsWith("-"))continue;
     try{
       const target=arg.startsWith("file://")?fileURLToPath(arg):path.resolve(cwd,arg);
       const id=native.fileIdentity(target);
+      if(seen.has(id))continue;
       const opened=await native.openVideo(id,target);
-      if(!home||home.isDestroyed())return false;
-      const token=crypto.randomBytes(24).toString("hex");
-      externalSelection={token,row:{id,nativePath:target,filename:opened.name,
-        size:opened.size,modified:opened.modified},opened};
-      await openPlayer(token,true);
-      return true;
-    }catch(_){/* Skip non-media arguments or paths outside allowed roots. */}
+      seen.add(id);
+      entries.push({row:{id,nativePath:target,filename:opened.name,
+        size:opened.size,modified:opened.modified},opened});
+      if(entries.length>=256)break;
+    }catch(_){/* Ignore non-media arguments and out-of-scope paths. */}
   }
-  return false;
+  if(!entries.length||!home||home.isDestroyed())return false;
+  externalSelections.push(...entries);
+  if(installedWindow()){
+    player.show();player.focus();
+    player.webContents.send("dk-library:external-ready");
+  }else{
+    await openPlayer("pending",true);
+  }
+  return true;
+}
+function enqueueExternal(argv,cwd){
+  externalWork=externalWork.catch(()=>{}).then(()=>openExternal(argv,cwd));
+  void externalWork.catch(()=>{});
 }
 function install(originalWindow,originalPlayer){
   if(installed)return;
@@ -103,13 +114,12 @@ function install(originalWindow,originalPlayer){
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
   if(!app.requestSingleInstanceLock()){app.quit();return;}
-  app.on("second-instance",(_event,argv,cwd)=>{void openExternal(argv,cwd);});
-  ipcMain.handle("dk-library:external-selection",(event,token)=>{
-    if(!onlyPlayer(event)||!externalSelection||externalSelection.token!==token)throw Error("External selection rejected");
-    const selected=externalSelection;externalSelection=null;
-    return {row:selected.row,opened:selected.opened};
+  app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
+  ipcMain.handle("dk-library:external-selection",event=>{
+    if(!onlyPlayer(event))throw Error("External selection rejected");
+    return externalSelections.splice(0);
   });
-  void openExternal(process.argv,process.cwd());
+  enqueueExternal(process.argv,process.cwd());
   ipcMain.handle("dk-library:open-player",(event,id)=>{
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);

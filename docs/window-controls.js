@@ -10,6 +10,20 @@ function attach({screen,button,onResize=()=>{}}){
   if(!screen||!button)return null;
   const container=screen.parentElement;
   const nativeDock=Boolean(root.DKLibraryBridge?.internalPages);
+  const grid=nativeDock?container.closest(".main-grid"):null;
+  const sidebar=grid?.querySelector(":scope > aside");
+  let expanded=false;
+  const normalLimit=()=>{
+    const width=availableWidth();
+    const gap=Number.parseFloat(getComputedStyle(grid).columnGap)||19;
+    const sidebarWidth=305;
+    return Math.max(Math.min(300,width),width-sidebarWidth-gap);
+  };
+  const applyExpanded=value=>{
+    expanded=Boolean(value&&grid&&sidebar);
+    grid?.classList.toggle("dk-player-expanded",expanded&&!floating);
+    if(sidebar)sidebar.inert=expanded&&!floating;
+  };
   const availableWidth=()=>Math.max(0,nativeDock?(container.parentElement?.clientWidth||container.clientWidth):container.clientWidth);
   const placeholder=document.createElement("div");
   placeholder.className="dk-player-placeholder";
@@ -34,6 +48,7 @@ function attach({screen,button,onResize=()=>{}}){
   try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{};}catch(_){}
   let floating=false;
   let dockWidth=Number(saved.dockWidth)||0;
+  expanded=Boolean(saved.expanded&&dockWidth&&grid&&sidebar);
   let floatWidth=Number(saved.floatWidth)||560;
   let floatHeight=Number(saved.floatHeight)||315;
   let left=Number.isFinite(saved.left)?saved.left:48;
@@ -41,12 +56,12 @@ function attach({screen,button,onResize=()=>{}}){
   const notify=()=>requestAnimationFrame(onResize);
   const save=()=>{
     try{localStorage.setItem(KEY,JSON.stringify({
-      dockWidth,floatWidth,floatHeight,left,top,floating
+      dockWidth,floatWidth,floatHeight,left,top,floating,expanded
     }));}catch(_){}
   };
   function layout(){
     if(floating){
-      if(nativeDock)container.style.removeProperty("width");
+      if(nativeDock){applyExpanded(expanded);container.style.removeProperty("width");}
       floatWidth=clamp(floatWidth,Math.min(300,innerWidth-16),Math.max(300,innerWidth-16));
       floatHeight=clamp(floatHeight,Math.min(175,innerHeight-16),Math.max(175,innerHeight-16));
       left=clamp(left,0,Math.max(0,innerWidth-floatWidth));
@@ -58,7 +73,8 @@ function attach({screen,button,onResize=()=>{}}){
       const available=availableWidth();
       if(nativeDock){
         screen.style.removeProperty("width");
-        if(dockWidth)container.style.width=Math.min(dockWidth,available)+"px";
+        applyExpanded(expanded);
+        if(dockWidth)container.style.width=Math.min(dockWidth,expanded?available:(innerWidth>970&&grid?normalLimit():available))+"px";
         else container.style.removeProperty("width");
       }else if(dockWidth)screen.style.width=Math.min(dockWidth,available)+"px";
       else screen.style.removeProperty("width");
@@ -121,10 +137,35 @@ function attach({screen,button,onResize=()=>{}}){
       // The docked surface preserves 16:9; the video always uses contain.
       const available=availableWidth();
       dockWidth=clamp(sizingStart.width+dx,Math.min(300,available),available);
+      if(grid&&sidebar){
+        const limit=normalLimit();
+        // Cross the normal two-column boundary to hide Up Next; crossing
+        // back restores it. Hysteresis avoids flicker at the threshold.
+        if(!expanded&&dockWidth>limit+12)expanded=true;
+        else if(expanded&&dockWidth<=limit)expanded=false;
+      }
       screen.classList.add("dk-sized");
     }
     layout();
   });
+  if(grid&&sidebar){
+    const edge=document.createElement("div");
+    edge.className="dk-dock-resize-edge";edge.setAttribute("aria-hidden","true");
+    container.append(edge);
+    edge.addEventListener("pointerdown",()=>{
+      const bounds=container.getBoundingClientRect();sizingStart={width:bounds.width,height:bounds.height};
+    },{capture:true});
+    startPointer(edge,dx=>{
+      if(floating)return;
+      const available=availableWidth();
+      dockWidth=clamp(sizingStart.width+dx,Math.min(300,available),available);
+      const limit=normalLimit();
+      if(!expanded&&dockWidth>limit+12)expanded=true;
+      else if(expanded&&dockWidth<=limit)expanded=false;
+      screen.classList.add("dk-sized");layout();
+    });
+    edge.addEventListener("dblclick",event=>event.stopPropagation());
+  }
   for(const element of [handle,corner])element.addEventListener("dblclick",e=>e.stopPropagation());
   window.addEventListener("resize",layout);
   if(dockWidth||saved.floating)toggle(Boolean(saved.floating));

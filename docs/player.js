@@ -3,6 +3,7 @@
   const byId = id => document.getElementById(id);
   const media = byId("media");
   let translationRun=0,translationBusy=false,translationReady=false,translationOriginals=null;
+  let deferStartup=Boolean(window.DKLibraryBridge?.internalPages&&new URLSearchParams(location.search).get("settingsOnly")==="1");
   let mkvAudio = null;
   let userMuted = false;
   const screen = byId("screen");
@@ -73,7 +74,7 @@
   const smoothingKey="dk-kinehall.smoothing.v1";
   const savedSmoothing=standaloneDeinterlace?read(smoothingKey,"off"):"off";
   let smoothingPreference=["off","auto","60","120"].includes(savedSmoothing)?savedSmoothing:"off";
-  let reapplyCurrentFormat = null;
+  let reapplyCurrentFormat = null, sharedSettingsEditing=false;
   const playbackFormatInput = byId("playbackFormat");
   if(window.DKCodecBridge?.exportVideo){
     const button=document.createElement("button");
@@ -104,7 +105,7 @@
     byId("playbackFormatNote").textContent = playbackSettings.format === "original"
       ? "Original mode skips conversion and keeps the local source unchanged."
       : "Supported MKV files can be remuxed without re-encoding. Full transcoding and GPU switching are not installed.";
-    if (formatChanged && reapplyCurrentFormat) reapplyCurrentFormat();
+    if (formatChanged && reapplyCurrentFormat && !sharedSettingsEditing) reapplyCurrentFormat();
   };
   for (const control of [playbackFormatInput,hardwareInput,rememberInput,removeWatchedInput])
     control.addEventListener("change",updatePlaybackSettings);
@@ -4011,7 +4012,7 @@
     }).catch(()=>{status("Cannot open the selected local video.");return false;});
     return externalChain;
   };
-  window.DKLibraryBridge?.onExternalReady?.(()=>{void acceptExternal();});
+  window.DKLibraryBridge?.onExternalReady?.(()=>{deferStartup=false;void acceptExternal();});
   // Match durable identity first. A file opened by the OS can already have
   // a native file ID/path even if the library ID was not set at that time.
   function existingLibraryIndex(row){
@@ -4183,12 +4184,117 @@
     void check();
   }
   setupTranslation();
+  if(window.DKLibraryBridge?.internalPages){
+    // This is a live projection of the real controls, not a second settings
+    // store. Exclude actions that depend on a selected movie or open files.
+    const panel=byId("playerSettingsPanel");
+    const globalSubtitles=document.createElement("section");
+    globalSubtitles.className="player-settings-section";
+    globalSubtitles.id="globalSubtitleSettings";
+    const subtitleHeading=document.createElement("strong");subtitleHeading.textContent="Default text subtitles";
+    const subtitleLabel=document.createElement("label");subtitleLabel.htmlFor="defaultSubtitleLanguage";subtitleLabel.textContent="Preferred text subtitle language";
+    const subtitleChoice=document.createElement("select");subtitleChoice.id="defaultSubtitleLanguage";
+    for(const [value,label] of [["remembered","Remembered track"],["off","Subtitles off"],["en","English"],["ru","Russian"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=label;subtitleChoice.append(option);
+    }
+    const subtitleNote=document.createElement("p");subtitleNote.className="helper";
+    subtitleNote.textContent="Applies to matching text tracks. Per-file embedded subtitle choices are preserved.";
+    const syncSubtitleDefault=()=>{
+      const pref=state.subtitlePreference;
+      subtitleChoice.value=pref.mode!=="track"?"off":!pref.label&&["en","ru"].includes(normalizeSubtitleLanguage(pref.language))?normalizeSubtitleLanguage(pref.language):"remembered";
+      subtitleChoice.options[0].disabled=subtitleChoice.value!=="remembered";
+    };
+    subtitleChoice.addEventListener("change",()=>{
+      if(subtitleChoice.value==="remembered")return;
+      state.subtitlePreference=subtitleChoice.value==="off"?{mode:"off"}:{mode:"track",label:"",language:subtitleChoice.value};
+      write(store.subtitlePreference,state.subtitlePreference);syncSubtitleDefault();
+      if(!sharedSettingsEditing&&current()&&!state.stopped)applySubtitlePreference();
+    });
+    globalSubtitles.append(subtitleHeading,subtitleLabel,subtitleChoice,subtitleNote);panel.append(globalSubtitles);
+    syncSubtitleDefault();
+    const allowedSections=()=>[
+      byId("playbackFormat")?.closest(".player-settings-section"),
+      globalSubtitles,
+      byId("pictureEnhancements"),
+      byId("picture-fit")?.closest(".player-settings-section"),
+      byId("deinterlaceMode")?.closest(".player-settings-section"),
+      byId("smoothingMode")?.closest(".player-settings-section"),
+      byId("audioEnhancementsEnabled")?.closest(".player-settings-section")
+    ].filter(Boolean);
+    const controlMap=new Map();
+    const exclude=new Set(["rate","nativeExportVideo"]);
+    let sequence=0;
+    const controlId=node=>{
+      if(!node.dataset.sharedSetting)node.dataset.sharedSetting="shared-"+(++sequence);
+      controlMap.set(node.dataset.sharedSetting,node);return node.dataset.sharedSetting;
+    };
+    const available=node=>!exclude.has(node.id)&&!(node.id==="picture-geometry-x"||node.id==="picture-geometry-y");
+    const snapshot=language=>{
+      if(language==="en"||language==="ru"){
+        if(window.DKLocale?.get()!==language){window.DKLocale?.set(language);byId("languageSelect")?.dispatchEvent(new Event("change",{bubbles:true}));}
+      }
+      syncSubtitleDefault();controlMap.clear();
+      return allowedSections().map(section=>{
+        const clone=section.cloneNode(true);
+        const live=Array.from(section.querySelectorAll("input,select,button"));
+        const copies=Array.from(clone.querySelectorAll("input,select,button"));
+        live.forEach((node,i)=>{
+          const copy=copies[i];
+          if(!available(node)){
+            if(node.id==="picture-geometry-x"||node.id==="picture-geometry-y")copy.closest(".dk-picture-adjustment")?.remove();
+            else {clone.querySelector('label[for="'+node.id+'"]')?.remove();copy.remove();}
+            return;
+          }
+          copy.dataset.sharedSetting=controlId(node);
+          if(node.tagName==="SELECT"){
+            Array.from(copy.options).forEach((option,j)=>{
+              option.toggleAttribute("selected",node.options[j].selected);
+              if(window.DKLocale?.get()==="ru")option.textContent=window.DKLocale.t(option.textContent);
+            });
+          }else if(node.tagName==="INPUT"){
+            if(node.type==="checkbox")copy.toggleAttribute("checked",node.checked);
+            else copy.setAttribute("value",node.value);
+          }
+          copy.toggleAttribute("disabled",node.disabled);
+        });
+        return clone.outerHTML;
+      });
+    };
+    window.DKSharedSettings=Object.freeze({snapshot,change:(id,action,value)=>{
+      const node=controlMap.get(id);
+      if(!node||node.disabled||!node.isConnected||!available(node))throw Error("Shared setting unavailable");
+      sharedSettingsEditing=true;
+      try{
+        if(action==="click"&&node.tagName==="BUTTON"){node.click();}
+        else if(action==="change"&&(node.tagName==="SELECT"||node.tagName==="INPUT")){
+          if(node.type==="checkbox"){if(typeof value!=="boolean")throw Error("Invalid setting");node.checked=value;}
+          else if(node.tagName==="SELECT"){
+            if(!Array.from(node.options).some(o=>o.value===value&&!o.disabled))throw Error("Invalid option");
+            node.value=value;
+          }else if(node.type==="range"){
+            const n=Number(value);if(!Number.isFinite(n)||n<Number(node.min)||n>Number(node.max))throw Error("Invalid range");
+            node.value=String(n);node.dispatchEvent(new Event("input",{bubbles:true}));
+          }else throw Error("Unsupported setting");
+          node.dispatchEvent(new Event("change",{bubbles:true}));
+        }else throw Error("Unsupported setting action");
+      }finally{sharedSettingsEditing=false;}
+      return snapshot();
+    }});
+  }
   let librarySelectionChain=Promise.resolve();
   window.DKLibraryBridge?.onLibrarySelection?.(id=>{
+    deferStartup=false;
     librarySelectionChain=librarySelectionChain.catch(()=>{}).then(()=>openFromLibrary(id));
+  });
+  window.DKLibraryBridge?.onActivatePlayer?.(()=>{
+    if(!deferStartup)return;deferStartup=false;
+    librarySelectionChain=librarySelectionChain.catch(()=>{}).then(async()=>{
+      if(!state.queue.length&&!await acceptExternal()){await restoreLastMedia();await restoreSavedFolder();}
+    });
   });
   // Restore plain file selection only when this is not a library launch.
   librarySelectionChain=librarySelectionChain.catch(()=>{}).then(async()=>{
+    if(deferStartup)return;
     const selected=await openFromLibrary();
     if(!selected&&!await acceptExternal()){
       await restoreLastMedia();

@@ -272,6 +272,8 @@ Source-only repair build, v0.9.3. Runtime acceptance pending; next new feature r
 
 All existing solid red interface accents use the shared Russian red token `#D52B1E` across the Player and Library in both languages. Red-tinted supporting text, darker trim and translucent highlights derive from the same hue. The settings gear is permanently Russian red on pure white with a gold border, including idle, open, hovered, pressed and focused states. The gear-specific CSS selectors match the actual summary classes to outrank the shared transport button palette. The approved gold, white and brown palette, transport symbols, dimensions, crimson background and application icons are preserved. The hosted web palette retains its original fallback colours. Source styling only; actual installed rendering remains unverified. Next feature remains video smoothing.
 
+Picture-in-Picture uses solid Russian red with the original white glyph and gold border in idle, hover, pressed, focused and active states. Existing dimensions and behavior remain unchanged.
+
 Fullscreen/Exit fullscreen is also solid gold with a dark symbol and gold border, matching Stop. Existing fullscreen behavior, symbols, dimensions and spacing remain unchanged.
 
 ### Compact standalone player footer

@@ -2714,11 +2714,20 @@
       const matching=Object.keys(eqPresets).find(name=>eqPresets[name].every((value,index)=>value===eq.bands[index]));
       preset.value=matching||"custom";
       const db=value=>(value>0?"+":"")+value+" "+(window.DKLocale?.get()==="ru"?"дБ":"dB");
-      for(const [index,entry] of entries.entries()){entry.input.value=String(eq.bands[index]);entry.output.textContent=db(eq.bands[index]);}
+      const ru=window.DKLocale?.get()==="ru";
+      for(const [index,entry] of entries.entries()){
+        const hz=eqFrequencies[index];
+        entry.input.value=String(eq.bands[index]);entry.output.textContent=db(eq.bands[index]);
+        entry.input.setAttribute("aria-label",hz>=1000?hz/1000+(ru?" кГц":" kHz"):hz+(ru?" Гц":" Hz"));
+        entry.input.parentElement.querySelector("label").textContent=hz>=1000?hz/1000+(ru?"к":"k"):String(hz);
+      }
       for(const [id,entry] of Object.entries(extras)){entry.input.value=String(eq[id]);entry.output.textContent=id==="balance"?String(eq[id])+"%":db(eq[id]);}
       applyVolume();
-      try{volumeAudioGraph?.effects?.apply();mkvAudio?.applyEffects?.();}
-      catch(_){status("Audio enhancements unavailable for this output.");}
+      try{
+        volumeAudioGraph?.effects?.apply();mkvAudio?.applyEffects?.();
+        if(eqActive()&&current()&&!state.stopped&&!mkvAudio?.active()&&!volumeAudioGraph?.effects)
+          status("Audio enhancements unavailable for this output.");
+      }catch(_){status("Audio enhancements unavailable for this output.");}
     };
     enable.addEventListener("change",()=>{eq.enabled=enable.checked;applyAudioSettings();write(eqKey,eq);});
     preset.addEventListener("change",()=>{

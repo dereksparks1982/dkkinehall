@@ -1,5 +1,7 @@
 # DK Kinehall
 
+**Standalone development version: v0.9.1 (2026-11-26).** Not an accepted release. Linux file-manager launch handling now routes validated video command-line arguments to the original Player, including file URLs and paths containing spaces, with second-instance forwarding. Requires the installed launcher and file association to forward arguments to Electron; this has not been verified. Supported external paths currently use the native library roots. The standalone player window title displays the version. Codec packaging now includes the required source validator and refreshes previously embedded codec preloads.
+
 **DK Kinehall (ДК Кинехолл)** is a free media player from **DK Softworks** for watching movies, television episodes, and listening to music from your own device.
 
 ## Choose your edition

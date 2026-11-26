@@ -2696,7 +2696,7 @@
           // on a rounding-sensitive boundary.
           media.currentTime=Math.min(result.sample,Math.max(0,playbackDuration()-0.000001));
         }
-        if(current()===item&&!state.stopped){updateTime();keepControlsVisible();}
+        if(current()===item&&!state.stopped){updateTime();revealControls();}
       }catch(_){
         if(current()===item&&!state.stopped)status("Frame navigation unavailable for this video.");
       }finally{busy=false;refresh();}
@@ -2712,9 +2712,30 @@
   }
   let hideControlsTimer = null;
   let menuOpen = false;
+  let cursorIdleTimer = null;
+  let controlPointer=null,keyboardControlFocus=false;
+  // Standalone: a paused picture is still a displayed movie. Mouse focus
+  // left on a button after a click is not an active control interaction.
+  const idleEligible=()=>Boolean(current()&&!state.stopped&&!media.ended&&
+    !screen.classList.contains("empty"));
+  const idleBlocked=()=>menuOpen||settingsDetails?.open||!infoPanel.hidden||
+    (!standaloneChapters&&!chapterPicker.hidden)||controlPointer!==null||
+    (keyboardControlFocus&&controls.contains(document.activeElement));
   const revealControls = () => {
     screen.classList.remove("ui-hidden");
     clearTimeout(hideControlsTimer);
+    if(standaloneChapters){
+      clearTimeout(cursorIdleTimer);
+      screen.classList.remove("cursor-hidden");
+      if(!idleEligible()||idleBlocked())return;
+      hideControlsTimer=setTimeout(()=>{
+        if(!idleEligible()||idleBlocked())return;
+        screen.classList.add("ui-hidden");
+        if(screen.matches(":hover"))screen.classList.add("cursor-hidden");
+      },3000);
+      return;
+    }
+    // Retain the hosted edition's original playback-only policy.
     if (!media.paused && current() && !menuOpen &&
         !settingsDetails?.open) {
       hideControlsTimer = setTimeout(() => {
@@ -2725,12 +2746,16 @@
           return;
         }
         screen.classList.add("ui-hidden");
-      }, standaloneChapters?3000:2700);
+      },2700);
     }
   };
   const keepControlsVisible = () => {
     clearTimeout(hideControlsTimer);
     screen.classList.remove("ui-hidden");
+    if(standaloneChapters){
+      clearTimeout(cursorIdleTimer);
+      screen.classList.remove("cursor-hidden");
+    }
   };
   settingsDetails?.addEventListener("toggle",()=>{
     if(settingsDetails.open)keepControlsVisible();
@@ -2738,11 +2763,15 @@
   });
   screen.addEventListener("pointermove", revealControls);
   screen.addEventListener("pointerleave", () => {
-    if (!media.paused && current() && !menuOpen) revealControls();
+    if(standaloneChapters){
+      screen.classList.remove("cursor-hidden");
+      revealControls();
+    }else if (!media.paused && current() && !menuOpen) revealControls();
   });
-  // Cursor auto-hide works with fullscreen and normal player dimensions.
-  let cursorIdleTimer = null;
+  // The standalone edition shares one inactivity timer for both layers.
+  // Hosted cursor behavior remains unchanged.
   const showCursor = () => {
+    if(standaloneChapters){revealControls();return;}
     screen.classList.remove("cursor-hidden");
     clearTimeout(cursorIdleTimer);
     if (!current() || menuOpen || !infoPanel.hidden) return;
@@ -2753,20 +2782,50 @@
       screen.classList.add("cursor-hidden");
     }, 3000);
   };
-  screen.addEventListener("pointermove", showCursor);
-  screen.addEventListener("pointerenter", showCursor);
-  screen.addEventListener("pointerdown", showCursor);
-  screen.addEventListener("pointerleave", () => {
-    clearTimeout(cursorIdleTimer);
-    screen.classList.remove("cursor-hidden");
-  });
+  if(standaloneChapters){
+    screen.addEventListener("pointerenter",revealControls);
+    document.addEventListener("pointerdown",event=>{
+      keyboardControlFocus=false;
+      if(controls.contains(event.target))controlPointer=event.pointerId;
+      if(screen.contains(event.target))revealControls();
+    },true);
+    const releaseControl=event=>{
+      if(controlPointer!==event.pointerId)return;
+      controlPointer=null;
+      revealControls();
+    };
+    window.addEventListener("pointerup",releaseControl,true);
+    window.addEventListener("pointercancel",releaseControl,true);
+    window.addEventListener("blur",()=>{
+      controlPointer=null;keyboardControlFocus=false;revealControls();
+    });
+    document.addEventListener("keydown",event=>{
+      if(event.key==="Tab"||controls.contains(event.target)){
+        keyboardControlFocus=true;revealControls();
+      }
+    },true);
+    controls.addEventListener("focusin",revealControls);
+    controls.addEventListener("focusout",()=>queueMicrotask(revealControls));
+    media.addEventListener("loadeddata",revealControls);
+  }else{
+    screen.addEventListener("pointermove", showCursor);
+    screen.addEventListener("pointerenter", showCursor);
+    screen.addEventListener("pointerdown", showCursor);
+    screen.addEventListener("pointerleave", () => {
+      clearTimeout(cursorIdleTimer);
+      screen.classList.remove("cursor-hidden");
+    });
+    controls.addEventListener("focusin", keepControlsVisible);
+    controls.addEventListener("focusout", revealControls);
+  }
   document.addEventListener("fullscreenchange", showCursor);
-  controls.addEventListener("focusin", keepControlsVisible);
-  controls.addEventListener("focusout", revealControls);
   media.addEventListener("pause",()=>{if(window.DKLibraryBridge?.internalPages)rememberPosition();});
   for (const eventName of ["play", "pause", "ended", "emptied"]) {
     media.addEventListener(eventName, () => {
-      if (media.paused || media.ended || !current()) keepControlsVisible();
+      if(standaloneChapters){
+        if(eventName==="ended"||eventName==="emptied"||!idleEligible())keepControlsVisible();
+        else revealControls();
+      }else if (media.paused || media.ended || !current()) keepControlsVisible();
       else revealControls();
     });
   }

@@ -180,8 +180,8 @@ All items are in scope, including network playback; none are deferred indefinite
 | Priority | Feature | Status |
 |---|---|---|
 | Preserve | Playback speed, fullscreen, mini-player, chapters | Existing; retain |
-| 1 | Brightness, contrast, saturation, hue, reset picture settings | Planned |
-| 2 | Gamma correction and sharpness | Planned |
+| 1 | Brightness, contrast, saturation, hue, reset picture settings | Source added; runtime acceptance pending |
+| 2 | Gamma correction and sharpness | Source added; runtime acceptance pending |
 | 3 | Single-frame forward and reverse navigation | Planned; accurate reverse requires decoder work |
 | 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Planned/partial |
 | 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Planned |
@@ -194,3 +194,10 @@ All items are in scope, including network playback; none are deferred indefinite
 | Preserve | Video format conversion and 200% volume amplification | Existing source; retain and improve |
 
 Enhancements belong in the existing settings gear and must not modify original media files. Preserve the approved palette, icons, background and existing controls. No compiling, runtime testing or hosted development in this update.
+
+
+### Standalone picture enhancements (v0.9.3)
+
+The existing playback gear now includes six live picture sliders: brightness, contrast and saturation (0–200%, neutral 100%), hue (−180° to +180°, neutral 0°), gamma (0.25–3.00, neutral 1.00), and sharpness (0–100%, neutral 0%). Values are remembered locally; Reset picture restores all neutral settings. CSS picture filters and local SVG gamma/convolution filters apply only to the existing video element, with no filtering at neutral defaults. Original media, export output, icons, crimson background and playback bar layout are not changed. Native Picture-in-Picture, subtitle rendering and performance with non-neutral filters require later runtime acceptance.
+
+[Master development and acceptance roadmap](docs/ROADMAP.md) is the consolidated source of truth for all outstanding classic player features, previous library/player fixes, translation and codec packaging, design requirements and acceptance gates. Next: frame-by-frame navigation. Standalone source only; no compilation, testing, downloads or terminal commands in this update.

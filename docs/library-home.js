@@ -78,15 +78,15 @@ function create(tag,cls,text){
   return el;
 }
 function currentProgress(row){
-  if(Number(row.position)>12)return Number(row.position);
+  if(Number(row.position)>2)return Number(row.position);
   const key="file:"+row.filename+":"+row.size+":"+row.modified;
   const value=Number(legacyResume[key]);
   return Number.isFinite(value)?value:0;
 }
 function needsContinue(row){
   const value=currentProgress(row),length=Number(row.duration)||0;
-  return !row.missing&&!row.completed&&value>12&&
-    (!length||value<Math.max(15,length-12));
+  // Unavailable media still has history; retain its disabled/unavailable card.
+  return !row.completed&&value>2&&(!length||value<length);
 }
 function coverShell(landscape){
   const shell=create("span","library-poster");
@@ -774,7 +774,7 @@ function connect(){
     repaintTimer=setTimeout(()=>void render(),260);
   });
   const refreshOnReturn=()=>{
-    if(deferredProgress&&!document.hidden&&document.hasFocus()){
+    if(deferredProgress&&!document.hidden){
       deferredProgress=false;
       void render();
     }

@@ -1068,3 +1068,27 @@ html.dk-standalone .screen.dk-custom-picture>#media{
   max-width:none!important;max-height:none!important;
   object-fit:fill!important;clip-path:var(--dk-picture-clip);
 }
+
+
+/* Standalone ten-band equalizer. Two banks of five fit the existing gear
+   panel on narrow windows without changing its width or the transport. */
+html.dk-standalone .dk-audio-settings>strong{color:var(--dk-gold)}
+html.dk-standalone .dk-eq-bands{
+  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:12px 6px;padding:10px 6px;background:#261a1d;
+  border:1px solid var(--dk-antique);border-radius:9px;
+}
+html.dk-standalone .dk-eq-band{
+  display:flex;flex-direction:column;align-items:center;gap:5px;min-width:0;
+}
+html.dk-standalone .dk-eq-band input{
+  writing-mode:vertical-lr;direction:rtl;width:23px;height:91px;
+  margin:0;accent-color:var(--dk-gold);cursor:pointer;
+}
+html.dk-standalone .dk-eq-band label{
+  color:#eee0e3;font-size:.72rem;white-space:nowrap;
+}
+html.dk-standalone .dk-eq-band output{
+  color:var(--dk-gold);font-size:.68rem;font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}

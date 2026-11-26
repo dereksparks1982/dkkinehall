@@ -2536,12 +2536,16 @@
   const eq={enabled:desktopVolume&&savedEQ.enabled===true,
     bands:eqFrequencies.map((_,index)=>eqClamp(savedEQ.bands?.[index],-12,12)),
     bass:eqClamp(savedEQ.bass,-12,12),treble:eqClamp(savedEQ.treble,-12,12),
-    balance:eqClamp(savedEQ.balance,-100,100),headroom:savedEQ.headroom!==false};
+    balance:eqClamp(savedEQ.balance,-100,100),headroom:savedEQ.headroom!==false,
+    leveling:desktopVolume&&savedEQ.leveling===true,levelStrength:savedEQ.levelStrength==null?50:eqClamp(savedEQ.levelStrength,0,100),
+    dialogue:desktopVolume&&savedEQ.dialogue===true,dialogueStrength:savedEQ.dialogueStrength==null?50:eqClamp(savedEQ.dialogueStrength,0,100)};
   const eqActive=()=>eq.enabled&&(eq.bands.some(Boolean)||eq.bass!==0||eq.treble!==0||eq.balance!==0);
-  const createAudioEffects=(context,input)=>{
+  const dynamicsActive=()=>Boolean(eq.leveling&&eq.levelStrength||eq.dialogue&&eq.dialogueStrength);
+  const audioEffectsActive=()=>eqActive()||dynamicsActive();
+  const createAudioEffects=(context,input,output=context.destination)=>{
     // Allocate filters lazily, keep the normal gain stage for 0–200%
     // independent, and use a direct connection for neutral settings.
-    let filters=null,headroom=null,panner=null,route="";
+    let filters=null,headroom=null,panner=null,compressor=null,makeup=null,voiceFilters=null,route="";
     const nodes=()=>{
       if(filters)return;
       const make=(type,frequency)=>{
@@ -2557,19 +2561,34 @@
       const stereo=typeof context.createStereoPanner==="function"?context.createStereoPanner():null;
       filters=[bass,...bands,treble];headroom=compensation;panner=stereo;
     };
+    const dynamicsNodes=()=>{
+      if(eq.leveling&&eq.levelStrength&&!compressor){compressor=context.createDynamicsCompressor();makeup=context.createGain();}
+      if(eq.dialogue&&eq.dialogueStrength&&!voiceFilters){
+        const low=context.createBiquadFilter();low.type="lowshelf";low.frequency.value=180;
+        const presence=context.createBiquadFilter();presence.type="peaking";presence.frequency.value=2200;presence.Q.value=.8;
+        const clarity=context.createBiquadFilter();clarity.type="peaking";clarity.frequency.value=3800;clarity.Q.value=1.2;
+        voiceFilters=[low,presence,clarity];
+      }
+    };
     const reconnect=next=>{
       if(next===route)return;
       input.disconnect();
-      for(const node of [...(filters||[]),headroom,panner])if(node)node.disconnect();
-      if(next==="direct"){input.connect(context.destination);route=next;return;}
+      for(const node of [...(filters||[]),headroom,panner,...(voiceFilters||[]),compressor,makeup])if(node)node.disconnect();
       let tail=input;
-      for(const node of filters){tail.connect(node);tail=node;}
-      tail.connect(headroom);tail=headroom;
-      if(next==="stereo"){tail.connect(panner);tail=panner;}
-      tail.connect(context.destination);route=next;
+      const append=node=>{tail.connect(node);tail=node;};
+      if(eqActive()){
+        for(const node of filters)append(node);
+        append(headroom);
+      }
+      if(eq.dialogue&&eq.dialogueStrength)for(const node of voiceFilters)append(node);
+      if(eq.leveling&&eq.levelStrength){append(compressor);append(makeup);}
+      if(eqActive()&&eq.balance!==0&&panner)append(panner);
+      tail.connect(output);route=next;
     };
     const apply=()=>{
-      if(!eqActive()){reconnect("direct");return;}
+      if(!audioEffectsActive()){reconnect("direct");return;}
+      dynamicsNodes();
+      if(eqActive()){
       nodes();
       const gains=[eq.bass,...eq.bands,eq.treble];
       filters.forEach((node,i)=>{node.gain.value=gains[i];});
@@ -2588,10 +2607,28 @@
         for(const value of combined)if(Number.isFinite(value))boost=Math.max(boost,value);
       }
       headroom.gain.value=1/boost;
-      reconnect(eq.balance!==0&&panner?"stereo":"filtered");
+      }
+      if(eq.dialogue&&eq.dialogueStrength){
+        const strength=eq.dialogueStrength/100;
+        voiceFilters[0].gain.value=-4*strength;
+        voiceFilters[1].gain.value=5*strength;
+        voiceFilters[2].gain.value=2*strength;
+      }
+      if(eq.leveling&&eq.levelStrength){
+        const strength=eq.levelStrength/100;
+        compressor.threshold.value=-12-20*strength;
+        compressor.knee.value=18;
+        compressor.ratio.value=1+4*strength;
+        compressor.attack.value=.012;
+        compressor.release.value=.35;
+        // Conservative makeup; master gain is downstream. This is dynamic
+        // range compression, not measured integrated loudness normalization.
+        makeup.gain.value=Math.pow(10,2*strength/20);
+      }
+      reconnect([eqActive()?"eq":"",eqActive()&&eq.balance!==0&&panner?"stereo":"",eq.dialogue&&eq.dialogueStrength?"voice":"",eq.leveling&&eq.levelStrength?"level":""].join(":"));
     };
     try{apply();}catch(error){
-      try{input.disconnect();input.connect(context.destination);route="direct";}catch(_){}
+      try{input.disconnect();input.connect(output);route="direct";}catch(_){}
       throw error;
     }
     return {apply};
@@ -2608,13 +2645,14 @@
     try{
       context=new AudioContextType();
       const gain=context.createGain();
+      const input=context.createGain();gain.connect(context.destination);
       // Set up output before binding the media source (binding is one-time).
       let effects=null;
       if(desktopVolume){
-        try{effects=createAudioEffects(context,gain);}catch(_){gain.disconnect();gain.connect(context.destination);}
-      }else gain.connect(context.destination);
+        try{effects=createAudioEffects(context,input,gain);}catch(_){input.disconnect();input.connect(gain);}
+      }else input.connect(gain);
       const source=context.createMediaElementSource(media);
-      source.connect(gain);
+      source.connect(input);
       volumeAudioGraph={context,gain,effects};
       media.addEventListener("play",resumeBoost);
       resumeBoost();
@@ -2633,7 +2671,7 @@
   volumePercent=Math.max(0,Math.min(volumeLimit,Math.round(volumePercent)));
   const applyVolume = () => {
     const separateAudio=Boolean(mkvAudio?.active());
-    if(!separateAudio&&(volumePercent>100||(eqActive()&&current()&&!state.stopped))){
+    if(!separateAudio&&(volumePercent>100||(audioEffectsActive()&&current()&&!state.stopped))){
       if(!ensureVolumeBoost()&&volumePercent>100)volumePercent=100;
     }
     media.volume=volumeAudioGraph?1:Math.min(1,volumePercent/100);
@@ -2706,11 +2744,33 @@
     }
     const headroom=document.createElement("input");headroom.type="checkbox";
     const headroomLabel=document.createElement("label");headroomLabel.append(headroom,document.createTextNode("Automatic EQ headroom"));section.append(headroomLabel);
+    const dynamicsTitle=document.createElement("strong");dynamicsTitle.textContent="Volume leveling and dialogue";section.append(dynamicsTitle);
+    const dynamicsControls=[];
+    for(const [flag,strength,labelText,strengthText] of [
+      ["leveling","levelStrength","Automatic volume leveling","Leveling strength"],
+      ["dialogue","dialogueStrength","Dialogue enhancement","Dialogue strength"]
+    ]){
+      const toggle=document.createElement("input");toggle.type="checkbox";
+      const toggleLabel=document.createElement("label");toggleLabel.append(toggle,document.createTextNode(labelText));section.append(toggleLabel);
+      const row=document.createElement("div");row.className="dk-picture-adjustment";
+      const label=document.createElement("label"),input=document.createElement("input"),output=document.createElement("output");
+      input.type="range";input.id="audioDynamics-"+strength;input.min="0";input.max="100";input.step="5";
+      label.htmlFor=input.id;label.textContent=strengthText;output.htmlFor=input.id;
+      row.append(label,output,input);section.append(row);
+      dynamicsControls.push({flag,strength,toggle,input,output});
+      toggle.addEventListener("change",()=>{eq[flag]=toggle.checked;applyAudioSettings();write(eqKey,eq);});
+      input.addEventListener("input",()=>{eq[strength]=eqClamp(input.value,0,100);applyAudioSettings();});
+      input.addEventListener("change",()=>write(eqKey,eq));
+    }
+    const dynamicsNote=document.createElement("p");dynamicsNote.className="helper";
+    dynamicsNote.textContent="Leveling reduces loud-to-quiet differences. Dialogue enhancement emphasizes speech frequencies, not isolated voices. Leveling may downmix surround audio.";
+    section.append(dynamicsNote);
     const reset=document.createElement("button");reset.type="button";reset.className="btn small dk-picture-reset";reset.textContent="Reset audio enhancements";
     const note=document.createElement("p");note.className="helper";note.textContent="Equalizer affects playback only. Stereo balance may downmix surround audio. Headroom reduces estimated filter boost, not all clipping.";
     section.append(reset,note);
     const applyAudioSettings=()=>{
       enable.checked=eq.enabled;headroom.checked=eq.headroom;
+      for(const c of dynamicsControls){c.toggle.checked=eq[c.flag];c.input.value=String(eq[c.strength]);c.input.disabled=!eq[c.flag]||!supportsVolumeBoost;c.output.textContent=eq[c.strength]+"%";}
       const matching=Object.keys(eqPresets).find(name=>eqPresets[name].every((value,index)=>value===eq.bands[index]));
       preset.value=matching||"custom";
       const db=value=>(value>0?"+":"")+value+" "+(window.DKLocale?.get()==="ru"?"дБ":"dB");
@@ -2725,7 +2785,7 @@
       applyVolume();
       try{
         volumeAudioGraph?.effects?.apply();mkvAudio?.applyEffects?.();
-        if(eqActive()&&current()&&!state.stopped&&!mkvAudio?.active()&&!volumeAudioGraph?.effects)
+        if(audioEffectsActive()&&current()&&!state.stopped&&!mkvAudio?.active()&&!volumeAudioGraph?.effects)
           status("Audio enhancements unavailable for this output.");
       }catch(_){status("Audio enhancements unavailable for this output.");}
     };
@@ -2736,12 +2796,12 @@
     });
     headroom.addEventListener("change",()=>{eq.headroom=headroom.checked;applyAudioSettings();write(eqKey,eq);});
     reset.addEventListener("click",()=>{
-      Object.assign(eq,{enabled:false,bands:[...eqPresets.flat],bass:0,treble:0,balance:0,headroom:true});
+      Object.assign(eq,{enabled:false,bands:[...eqPresets.flat],bass:0,treble:0,balance:0,headroom:true,leveling:false,levelStrength:50,dialogue:false,dialogueStrength:50});
       applyAudioSettings();write(eqKey,eq);
     });
     byId("playerSettingsPanel").append(section);
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(applyAudioSettings));
-    media.addEventListener("loadedmetadata",()=>{if(eqActive())applyAudioSettings();});
+    media.addEventListener("loadedmetadata",()=>{if(audioEffectsActive())applyAudioSettings();});
     if(!supportsVolumeBoost){for(const control of section.querySelectorAll("input,select,button"))control.disabled=true;}
     // Existing preferences can be shown before a file is selected.
     applyAudioSettings();window.DKLocale?.apply();
@@ -3305,7 +3365,7 @@
 
     // Direct action, not a deeply nested row.
     activeMenuSection = contextMenu;
-    addMenuItem("Media information", openMediaInfo);
+    addMenuItem("Media information", openMediaInfo).classList.add("dk-menu-information");
   };
   // If Matroska inspection finishes while the Subtitles section is open,
   // replace its temporary "Checking..." row with the actual embedded tracks.

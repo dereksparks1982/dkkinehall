@@ -847,3 +847,20 @@ html.dk-standalone #playerSettingsPanel .dk-settings-close{
   color:#ff515d;font-size:26px;font-weight:800;line-height:1;
 }
 html.dk-standalone #playerSettingsPanel .dk-settings-close:hover{background:#b92430;color:#fff}
+
+/* Standalone docked player resize grip belongs to the panel footer, not
+   the video. Keep the existing grip appearance and floating behavior. */
+html.dk-standalone .dk-resizable-panel{
+  position:relative;max-width:100%;box-sizing:border-box;padding-bottom:25px;
+}
+html.dk-standalone .dk-resizable-panel>.dk-player-resize{
+  position:absolute;z-index:46;bottom:2px;right:2px;
+  width:21px;height:21px;background:#26121dbb;color:#e7a4a9;
+  border:1px solid #8a4752;border-radius:4px;font-size:.88rem;
+  cursor:nwse-resize;touch-action:none;user-select:none;
+}
+html.dk-standalone .dk-resizable-panel.dk-player-detached{padding-bottom:0}
+html.dk-desktop-fullscreen .dk-resizable-panel>.dk-player-resize,
+html.dk-standalone .dk-resizable-panel:has(>.screen:fullscreen)>.dk-player-resize{
+  display:none!important;
+}

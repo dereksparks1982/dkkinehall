@@ -1220,6 +1220,17 @@ html.dk-standalone .language-select{
 }
 
 
+/* Approved red picture-in-picture control with the existing white glyph. */
+html.dk-standalone .screen .controls .extras #pip,
+html.dk-standalone .screen .controls .extras #pip:is(:hover,:active,:focus,:focus-visible),
+html.dk-standalone .screen .controls .extras #pip[aria-pressed="true"]{
+  background-color:var(--dk-russian-red,#D52B1E);color:#fff;border-color:var(--dk-antique);
+}
+html.dk-standalone .screen .controls .extras #pip:focus-visible{
+  outline:2px solid currentColor;outline-offset:-4px;
+}
+
+
 /* Approved gold fullscreen control, including exit-fullscreen state. */
 html.dk-standalone .screen .controls .extras #fullscreen{
   background-color:var(--dk-gold);color:#23171a;border-color:var(--dk-antique);

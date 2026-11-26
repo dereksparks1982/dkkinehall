@@ -15,6 +15,7 @@ let mode=storedMode(),selectedSeries=null,selectedSeason=null;
 let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
 let bottomObserver=null;
+let deferredProgress=false;
 const imageUrls=new Set();
 const imageQueue=[],activeArtwork=new Map();
 let artworkBusy=0;
@@ -396,9 +397,23 @@ function connect(){
   });
   store.onChange(event=>{
     if(scanning||(!event.progress&&!event.folders&&!event.entries))return;
+    // Keep the video smooth on low-memory Surface Pro hardware. Playback
+    // history still commits to IndexedDB; repaint only when Home is active.
+    if(event.progress && (document.hidden||!document.hasFocus())){
+      deferredProgress=true;
+      return;
+    }
     clearTimeout(repaintTimer);
     repaintTimer=setTimeout(()=>void render(),260);
   });
+  const refreshOnReturn=()=>{
+    if(deferredProgress&&!document.hidden&&document.hasFocus()){
+      deferredProgress=false;
+      void render();
+    }
+  };
+  window.addEventListener("focus",refreshOnReturn);
+  document.addEventListener("visibilitychange",refreshOnReturn);
   void render().then(()=>{
     // Render saved posters immediately. A bounded, one-shot rescan is
     // attempted only after initialization; no daemon or persistent server.

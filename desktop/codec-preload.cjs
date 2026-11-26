@@ -5,6 +5,7 @@
  */
 const {contextBridge,ipcRenderer,webUtils}=require("electron");
 const localPath=file=>{
+  if(typeof file?.networkToken==="string"&&/^[a-f0-9]{48}$/.test(file.networkToken))return {kind:"network",token:file.networkToken};
   if(typeof file?.dvdToken==="string"&&/^dvd:[a-f0-9]{48}$/.test(file.dvdToken))
     return {kind:"dvd",id:file.dvdToken};
   // Main verifies this discovered file's ID, path and library scope.

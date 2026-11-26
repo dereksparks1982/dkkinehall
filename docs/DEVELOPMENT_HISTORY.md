@@ -363,3 +363,7 @@ Standalone library context menu opens the selected movie or individual episode i
 ### Local speech recognition and catalogue controls
 
 Added source for selected-audio FFmpeg extraction, Whisper.cpp timestamped SRT generation, private bounded transcript caching, cancellation, display/export and Voiceover fallback. Separate runtime/model provisioning and actual verification remain outstanding. Corrected Bond collection/year parsing and stale catalogue titles using actual filenames. Added right-click Continue Watching dismissal with saved resume retained. No files renamed, deleted, downloaded, compiled or tested.
+
+### Menu scrolling repair
+
+Restrict wheel-driven volume changes to the actual media surface, bypassing the screen-level volume handler whenever menus, settings, media information or the chapter picker are open. Preserve native overlay scrolling and contain scroll chaining. No change to volume step, menu design or playback behavior. Runtime acceptance remains pending.

@@ -49,3 +49,5 @@ DK Kinehall is free for personal and business use. DK Softworks' original softwa
 Standalone metadata repair: existing incorrect 1974 Golden Gun movie records are corrected in place on library opening, preserving watch history and local artwork, with a verified IMDb identity for poster lookup. No rescan or filename change is required for this repair.
 
 Standalone Continue Watching uses the same portrait card dimensions and spacing as the collection, keeps the original poster uncropped, and retains its playback progress indicator.
+
+Standalone library: hold Ctrl and scroll the mouse wheel to scale all library content (50–200% in 10% steps); Ctrl + middle-click resets to 100%. The preference is local to the library and retained across restarts. Native discovery has no fixed time, video-count, entry-count or directory-depth quota. Stop Scan saves discovered records without marking unseen videos unavailable; the expandable scan issues report lists filesystem or verification failures. Existing scope/exclusions and per-video probe timeout remain in place.

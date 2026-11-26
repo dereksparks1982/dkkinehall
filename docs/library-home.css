@@ -85,3 +85,15 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 .library-context-menu button:hover,.library-context-menu button:focus-visible{
   background:#7c2029;color:white}
 .library-tools button[hidden],#addFirstFolder[hidden]{display:none}
+
+/* Movie metadata is displayed only on demand; leave the grid unchanged. */
+.dk-movie-details{width:min(560px,calc(100vw - 32px));max-height:85vh;overflow:auto;color:#f9f4f2;background:#1c1119;border:1px solid #a58039;border-radius:12px;padding:24px;box-shadow:0 16px 60px #000a}
+.dk-movie-details::backdrop{background:#0009}
+.dk-movie-details h2{color:#e2b956;margin:0 40px 14px 0}
+.dk-movie-details p{line-height:1.55;white-space:pre-line}
+.dk-movie-details dl{display:grid;grid-template-columns:max-content 1fr;gap:10px 18px;margin:20px 0 0}
+.dk-movie-details dt{color:#e2b956;font-weight:700}
+.dk-movie-details dd{margin:0;overflow-wrap:anywhere}
+.dk-movie-details-close{position:absolute;right:12px;top:12px;width:32px;height:32px;border:1px solid #f4515c;border-radius:8px;background:#351419;color:#ff515d;font-size:25px;font-weight:800;line-height:1}
+.dk-movie-details-close:hover{background:#b92430;color:white}
+.library-context-menu button[hidden]{display:none!important}

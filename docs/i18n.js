@@ -203,6 +203,8 @@
     "Choose the matching original subtitle language.":"Выберите соответствующий язык исходных субтитров.",
     "Voiceover ready; some lines could not fit their timing.":"Озвучивание готово; некоторые реплики не удалось уложить в отведённое время.",
     "Voiceover audio ready.":"Звуковая дорожка готова.",
+    "Play generated audio while synthesis continues":"Воспроизводить готовое озвучивание во время синтеза",
+    "Unfinished audio uses the original soundtrack until generated speech becomes available.":"На ещё не обработанных участках звучит оригинальная дорожка, пока озвучивание не будет готово.",
     "Arabic":"Арабский",
     "English → Arabic":"Английский → Арабский",
     "Arabic → English":"Арабский → Английский",

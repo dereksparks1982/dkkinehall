@@ -4524,7 +4524,7 @@
     if(!bridge?.internalPages||!bridge.generateVoiceover)return;
     const group=document.createElement("div");
     group.className="player-settings-section dk-voiceover";group.id="voiceoverSettings";
-    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option><option value="en-ar">English → Arabic</option><option value="ar-en">Arabic → English</option><option value="ru-ar">Russian → Arabic</option><option value="ar-ru">Arabic → Russian</option><option value="auto">Detect source (English, Russian or Arabic)</option><option value="auto-en">Detect source → English</option><option value="auto-ru">Detect source → Russian</option><option value="auto-ar">Detect source → Arabic</option></select><label for="dkVoiceProfile">Voice profile</label><select id="dkVoiceProfile"><option value="default">Default voice</option><option value="male">Male voice (optional model)</option><option value="female">Female voice (optional model)</option><option value="speakers">Speaker-aware voices (optional models)</option></select><div class="dk-voiceover-cache" id="dkSpeakerSettings" hidden><p class="helper">Identify speakers in clips up to 60 minutes. Assign a voice to each anonymous speaker; voices are not matched by gender.</p><button class="btn small" type="button" id="dkIdentifySpeakers" disabled>Identify speakers</button><span class="helper" id="dkSpeakerStatus" role="status" aria-live="polite"></span><div id="dkSpeakerAssignments"></div></div><span class="helper" id="dkVoiceDetected" role="status" aria-live="polite"></span><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><label><input type="checkbox" id="dkVoiceProgressive"> Play generated audio while synthesis continues</label><p class="helper">Unfinished audio uses the original soundtrack until generated speech becomes available.</p><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
+    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option><option value="en-ar">English → Arabic</option><option value="ar-en">Arabic → English</option><option value="ru-ar">Russian → Arabic</option><option value="ar-ru">Arabic → Russian</option><option value="auto">Detect source (English, Russian or Arabic)</option><option value="auto-en">Detect source → English</option><option value="auto-ru">Detect source → Russian</option><option value="auto-ar">Detect source → Arabic</option></select><label for="dkVoiceProfile">Voice profile</label><select id="dkVoiceProfile"><option value="default">Default voice</option><option value="male">Male voice (optional model)</option><option value="female">Female voice (optional model)</option><option value="speakers">Speaker-aware voices (optional models)</option></select><div class="dk-voiceover-cache" id="dkSpeakerSettings" hidden><p class="helper">Identify speakers in clips up to 60 minutes. Assign a voice to each anonymous speaker; voices are not matched by gender.</p><button class="btn small" type="button" id="dkIdentifySpeakers" disabled>Identify speakers</button><span class="helper" id="dkSpeakerStatus" role="status" aria-live="polite"></span><div id="dkSpeakerAssignments"></div></div><span class="helper" id="dkVoiceDetected" role="status" aria-live="polite"></span><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><label><input type="checkbox" id="dkVoiceProgressive"> Play generated audio while synthesis continues</label><p class="helper">Current playback and nearby segments are generated first. Unfinished audio uses the original soundtrack.</p><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
     byId("playerSettingsPanel").append(group);
     // Cache management remains usable even without installed speech models.
     const cacheControls=document.createElement("div");
@@ -4568,7 +4568,7 @@
     let speechReady=false,generated=null,recognizing=false,jobAudio=null;
     let availablePairs=new Set(),speakerReady=false,speakerState=null,analyzing=false;
     let voiceGain=null,voicePlaying=false,videoWaiting=false,voiceEpoch=0,playPending=false;
-    let sourceEpoch=0,loadedSegment=null,pendingSegment=null,segmentOffset=0,graphReady=false;
+    let sourceEpoch=0,loadedSegment=null,pendingSegment=null,segmentOffset=0,graphReady=false,lastPriority=-1;
     const voice=new Audio();voice.crossOrigin="anonymous";voice.preload="metadata";
     const enabled=byId("dkVoiceEnabled"),original=byId("dkVoiceOriginal"),level=byId("dkVoiceLevel"),progressive=byId("dkVoiceProgressive");
     const progressiveKey="dk-kinehall.voiceover-progressive.v1";
@@ -4690,7 +4690,16 @@
     for(const event of ["playing","canplay","seeked","loadeddata"]){
       media.addEventListener(event,()=>{videoWaiting=false;syncVoice(true);});
     }
-    media.addEventListener("timeupdate",()=>syncVoice());
+    const prioritize=()=>{
+      if(!busy||!result||result.complete||!bridge.prioritizeVoiceover)return;
+      const position=Math.max(0,Math.min(10800,Number(playbackSeconds())||0));
+      const index=Math.floor(position/30);
+      if(index===lastPriority)return;
+      lastPriority=index;
+      void bridge.prioritizeVoiceover(result.ticket,position).catch(()=>{});
+    };
+    media.addEventListener("timeupdate",()=>{prioritize();syncVoice();});
+    media.addEventListener("seeked",prioritize);
     media.addEventListener("ratechange",()=>syncVoice(true));
     voice.addEventListener("loadedmetadata",()=>syncVoice(true));
     voice.addEventListener("playing",()=>{const segment=selectSegment(Number(playbackSeconds()));if(enabled.checked&&segment?.key===loadedSegment&&!media.paused&&!media.seeking&&!videoWaiting){voicePlaying=true;applyVolume();}else voice.pause();});
@@ -4859,8 +4868,8 @@
       }
       if(!data.total)return;
       const fraction=data.done/data.total;
-      setProgress(Math.min(100,data.stage==="translation"?fraction*35:data.stage==="complete"?100:35+fraction*65));
-      setStatus(data.stage==="translation"?"Translating dialogue…":"Generating speech…");
+      setProgress(Math.min(99,data.stage==="complete"?99:fraction*99));
+      setStatus("Translating and generating speech…");
     });
     const obtainSpeech=async(item,job,audio)=>{
       if(!speechReady||!localCodecBridge?.recognizeSpeech)throw Error("Speech runtime unavailable");
@@ -4918,7 +4927,9 @@
         const prepared=profile.value==="speakers"?assignVoices(rows):rows;
         const incremental=progressive.checked;
         if(incremental)result={item,ticket:job,complete:false,chunks:new Map()};
-        const info=await bridge.generateVoiceover(pair,prepared,job,profile.value,incremental);
+        const position=Math.max(0,Math.min(10800,Number(playbackSeconds())||0));
+        lastPriority=Math.floor(position/30);
+        const info=await bridge.generateVoiceover(pair,prepared,job,profile.value,incremental,position);
         if(job!==ticket||current()!==item){await bridge.discardVoiceover();return;}
         if(result?.ticket===job){result.complete=true;syncVoice(true);}
         else result={item,ticket:job,complete:true,chunks:new Map()};

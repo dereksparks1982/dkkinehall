@@ -1127,3 +1127,33 @@ html.dk-standalone .player-context-menu>.context-section-toggle::after{color:cur
 html.dk-standalone .dk-audio-settings .dk-picture-adjustment input:disabled{
   opacity:.5;cursor:default;
 }
+
+
+/* Approved standalone transport palette, 2026-11-26.
+   Change colours only: keep the original glyphs, hit areas and spacing. */
+html.dk-standalone .screen .controls .transport :is(#previous,#next){
+  --dk-transport-bg:#462a25;--dk-transport-ink:#e2b956;--dk-transport-hover:#53322b;
+}
+html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10){
+  --dk-transport-bg:#fff;--dk-transport-ink:#23171a;--dk-transport-hover:#f5eee5;
+}
+html.dk-standalone .screen .controls .transport #playPause{
+  --dk-transport-bg:#dc3942;--dk-transport-ink:#fff;--dk-transport-hover:#ef434d;
+}
+html.dk-standalone .screen .controls .transport #stop{
+  --dk-transport-bg:#e2b956;--dk-transport-ink:#23171a;--dk-transport-hover:#f2ce76;
+}
+html.dk-standalone .screen .controls .transport :is(#previous,#rewind10,#playPause,#forward10,#stop,#next){
+  background-color:var(--dk-transport-bg);color:var(--dk-transport-ink);
+  border-color:#a58039;box-shadow:none;outline:none;
+}
+html.dk-standalone .screen .controls .transport :is(#previous,#rewind10,#playPause,#forward10,#stop,#next):is(:hover,:active):not(:disabled){
+  background-color:var(--dk-transport-hover);color:var(--dk-transport-ink);
+  border-color:#a58039;
+}
+html.dk-standalone .screen .controls .transport :is(#previous,#rewind10,#playPause,#forward10,#stop,#next):focus-visible{
+  outline:2px solid currentColor;outline-offset:-5px;
+}
+html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .seek-ten-icon text{
+  fill:currentColor;
+}

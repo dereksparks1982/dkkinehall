@@ -9,6 +9,7 @@
  */
 const fs=require("node:fs");
 const path=require("node:path");
+const os=require("node:os");
 const http=require("node:http");
 const crypto=require("node:crypto");
 const {spawn}=require("node:child_process");
@@ -23,7 +24,11 @@ let installed=false,windowRef=null,playerContents=null,server=null,session=null,
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
 let frameCache=null,frameProbeBusy=false;
-let deinterlaceCapability=null;
+let deinterlaceCapability=null,smoothingCapability=null;
+function frameRate(value){
+  const [n,d=1]=String(value||"").split("/").map(Number);
+  const fps=n/d;return Number.isFinite(fps)&&fps>0?fps:null;
+}
 
 function binary(name) {
   const base=app.getAppPath();
@@ -112,7 +117,7 @@ async function probe(localPath) {
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
@@ -122,13 +127,17 @@ async function probe(localPath) {
   const hasAudio=streams.some(s=>s.codec_type==="audio");
   if(!hasVideo&&!hasAudio)throw new Error("The selected file has no playable media streams");
   const seconds=Number(json.format?.duration);
+  const fps=frameRate(video?.avg_frame_rate)||frameRate(video?.r_frame_rate);
+  const cores=typeof os.availableParallelism==="function"?os.availableParallelism():os.cpus().length;
+  const autoSmoothing=Boolean(fps&&fps<59.5&&video?.width<=1280&&video?.height<=720&&
+    video?.width>0&&video?.height>0&&cores>=8&&os.totalmem()>=7*1024**3);
   return {ready:true,duration:Number.isFinite(seconds)&&seconds>0?seconds:null,
     hasVideo,hasAudio,format:String(json.format?.format_name||"").slice(0,120),
     startTime:Number.isFinite(Number(json.format?.start_time))?Number(json.format.start_time):0,
     videoCodec:String(video?.codec_name||""),
     videoPixelFormat:String(video?.pix_fmt||""),
     fieldOrder:["progressive","tt","bb","tb","bt"].includes(video?.field_order)?video.field_order:"unknown",
-    videoStreamIndex:hasVideo?video.index:null,
+    videoStreamIndex:hasVideo?video.index:null,sourceFps:fps,autoSmoothing,
     width:Number(video?.width)||null,height:Number(video?.height)||null,
     audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
     audioTracks:streams.filter(s=>s.codec_type==="audio").map((s,index)=>({
@@ -256,7 +265,12 @@ function serve(req,res) {
     "-ss",String(active.position),"-i",active.path,
     ...(active.hasVideo?["-map","0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
-  if(active.deinterlace)args.push("-vf","bwdif=mode=send_frame:parity=auto:deint="+(active.deinterlace==="on"?"all":"interlaced"),"-fps_mode","passthrough");
+  const filters=[];
+  if(active.deinterlace)filters.push("bwdif=mode=send_frame:parity=auto:deint="+(active.deinterlace==="on"?"all":"interlaced"));
+  // Motion-compensated interpolation generates intermediate frames; no
+  // fps-only duplication. Deinterlace before interpolation when enabled.
+  if(active.smoothing)filters.push("minterpolate=fps="+active.smoothing+":mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1");
+  if(filters.length)args.push("-vf",filters.join(","),"-fps_mode","passthrough");
   if(active.format==="webm") {
     if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
     if(active.hasAudio)args.push("-c:a","libopus","-b:a","160k","-ac","2");
@@ -326,7 +340,7 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off") {
+async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off") {
   const info=await probe(localPath);
   const available=await status();
   const target=selectedFile(localPath);
@@ -342,16 +356,23 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
       .then(filters=>/\bbwdif\s+V->V\b/.test(filters)).catch(error=>{deinterlaceCapability=null;throw error;});
     if(!await deinterlaceCapability)throw Error("Bundled decoder does not include the deinterlacing filter");
   }
-  const copyVideo=!filterMode&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
+  const targetFps=smoothing==="auto"?(info.autoSmoothing?60:0):smoothing==="60"?60:smoothing==="120"?120:0;
+  const smoothFps=info.hasVideo&&!frameStep&&targetFps&&info.sourceFps&&info.sourceFps<targetFps-0.5?targetFps:0;
+  if(smoothFps){
+    if(!smoothingCapability)smoothingCapability=processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000)
+      .then(filters=>/\bminterpolate\s+V->V\b/.test(filters)).catch(error=>{smoothingCapability=null;throw error;});
+    if(!await smoothingCapability)throw Error("Bundled decoder does not include the motion interpolation filter");
+  }
+  const copyVideo=!filterMode&&!smoothFps&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
-    copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,smoothing:smoothFps,
     process:null,response:null};
-  return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",
+  return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",smoothing:smoothFps,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }
 function onlyWindow(event) {
@@ -499,10 +520,11 @@ function install(win,contents=win?.webContents) {
     if(!onlyWindow(event))throw new Error("Rejected subtitle request");
     return subtitleVtt(await resolveSource(localPath,checkVideo),index);
   });
-  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace)=>{
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return start(await resolveSource(localPath,checkVideo),
-      offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off");
+      offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off",
+      ["auto","60","120"].includes(smoothing)?smoothing:"off");
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

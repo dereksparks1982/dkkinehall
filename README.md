@@ -8,6 +8,8 @@
 
 ## v0.9.3 installed update
 
+**Continue Watching:** Standalone library selections reuse the existing queue entry by library ID or native file identity, with an unambiguous file fingerprint fallback for manually opened files. Repeated selections are serialized, do not append duplicate entries, and resume the selected movie without rearranging the existing queue. Stop preserves the unfinished source position for Continue Watching; pressing Play directly after Stop still restarts the movie. Existing duplicate entries are not automatically deleted.
+
 **Volume requirement:** The standalone volume slider and thumb are red. Standalone volume is 0–200%, including slider, scroll wheel, keyboard and remembered settings. Values above 100% use actual audio gain. Do not reduce the standalone maximum without explicit user approval. Hosted Web App volume stays at 0–100%.
 
 **Native codec improvements:** Audio-only sources no longer treat embedded cover images as video. The native decoder supports audio-only AAC/Opus streams, selects the actual video stream, and retries the other supported output format once in Automatic mode. Explicit format choices are honored. The self-contained release codec asset remains pending.

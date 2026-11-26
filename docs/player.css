@@ -1354,3 +1354,25 @@ html.dk-desktop-fullscreen .dk-resizable-panel :is(.dk-player-reset,.dk-player-r
 html.dk-standalone .dk-resizable-panel:has(>.screen:fullscreen) :is(.dk-player-reset,.dk-player-resize){
   display:none!important;
 }
+
+/* Standalone automatic queue transition is visible on the video surface,
+   including the welcome/empty state and actual fullscreen. */
+html.dk-standalone .screen>.dk-next-countdown{
+  position:absolute;inset:0;z-index:60;display:grid;place-items:center;
+  padding:12px;background:#080407c9;box-sizing:border-box;cursor:default;
+}
+html.dk-standalone .screen>.dk-next-countdown[hidden]{display:none!important}
+html.dk-standalone .dk-next-card{
+  width:min(350px,100%);max-height:100%;overflow:auto;box-sizing:border-box;
+  background:#21171bf5;border:1px solid #a58039;border-radius:12px;
+  padding:clamp(10px,2vw,22px);display:grid;gap:10px;text-align:center;color:#fff;
+}
+html.dk-standalone .dk-next-card>strong{color:#e2b956;font-size:1.05rem}
+html.dk-standalone .dk-next-title{font-weight:700;overflow-wrap:anywhere}
+html.dk-standalone .dk-next-clock{font-size:1.4rem;font-weight:700;color:#e2b956;font-variant-numeric:tabular-nums}
+html.dk-standalone .dk-next-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+html.dk-standalone .dk-next-actions>.btn{width:100%;min-width:0;min-height:36px;padding:6px}
+html.dk-standalone .dk-next-actions>[data-next-play]{background:#d52b1e;color:#fff;border-color:#d52b1e}
+html.dk-standalone .dk-next-actions>[data-next-cancel]{background:#e2b956;color:#462a25;border-color:#a58039}
+html.dk-standalone .dk-voiceover progress{width:100%;accent-color:#e2b956}
+html.dk-standalone .dk-voiceover output{text-align:center;color:#e2b956}

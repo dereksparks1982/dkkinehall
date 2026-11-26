@@ -4652,7 +4652,7 @@
         const info=await bridge.generateVoiceover(direction.value,rows,job);
         if(job!==ticket||current()!==item){await bridge.discardVoiceover();return;}
         result={item,ticket:job};setProgress(100);
-        setStatus(info.skipped?"Voiceover ready; some lines could not fit their timing.":"Voiceover audio ready.");
+        setStatus(info.cached?(info.skipped?"Cached voiceover ready; some lines could not fit their timing.":"Cached voiceover audio ready."):(info.skipped?"Voiceover ready; some lines could not fit their timing.":"Voiceover audio ready."));
       }catch(_){if(job===ticket){setStatus("Voiceover generation failed; original playback unchanged.");setProgress(0);}}
       finally{busy=false;refreshVoiceover();}
     });

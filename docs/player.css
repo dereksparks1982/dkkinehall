@@ -432,8 +432,6 @@ body {
 .queue .queue-artwork-image{object-fit:cover}
 .queue .queue-artwork-image[hidden]{display:none!important}
 .queue .queue-title-card{display:none!important}
-.queue-attribution{padding:0 16px 12px;margin:0;color:var(--muted);font-size:.69rem}
-.queue-attribution a{color:var(--dk-russian-red-muted,#efa0a0)}
 .metadata-opt{display:block;margin:10px 0 6px;color:var(--text);font-size:.86rem}
 .metadata-opt input{accent-color:var(--dk-russian-red,#d83a42)}
 .metadata-token-row{display:flex;flex-wrap:wrap;gap:5px;margin:8px 0 10px}

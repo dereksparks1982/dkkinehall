@@ -127,8 +127,9 @@ bash native/audit-portable.sh "$ROOT"
 # it supports every historical codec and container.
 env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -hide_banner -decoders   > "$ROOT/CODECS_INCLUDED.txt"
 env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -hide_banner -demuxers   > "$ROOT/CONTAINERS_INCLUDED.txt"
+env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -hide_banner -encoders   > "$ROOT/ENCODERS_INCLUDED.txt"
 env LD_LIBRARY_PATH="$PWD/$ROOT/lib" "$ROOT/bin/ffmpeg" -buildconf   > "$ROOT/FFMPEG_CONFIGURATION.txt" 2>&1
-if [[ ! -s "$ROOT/CODECS_INCLUDED.txt" || ! -s "$ROOT/CONTAINERS_INCLUDED.txt" ]]; then
+if [[ ! -s "$ROOT/CODECS_INCLUDED.txt" || ! -s "$ROOT/CONTAINERS_INCLUDED.txt" || ! -s "$ROOT/ENCODERS_INCLUDED.txt" ]]; then
   echo "Decoder and container inventories were not generated" >&2
   exit 1
 fi
@@ -140,7 +141,7 @@ Keep bin/, lib/, plugins/ and docs/ alongside it.
 Qt6/libmpv with bundled FFmpeg/FFprobe and recorded codec inventory.
 No browser engine or Electron in this separate native prototype.
 Requires Linux graphical desktop, OpenGL and audio/graphics drivers.
-See CODECS_INCLUDED.txt, CONTAINERS_INCLUDED.txt and third-party notices.
+See CODECS_INCLUDED.txt, CONTAINERS_INCLUDED.txt, ENCODERS_INCLUDED.txt and third-party notices.
 DOC
 tar -czf "$OUT/DK-Kinehall-native-linux-x86_64.tar.gz" -C "$OUT" "DK Kinehall"
 du -h "$OUT/DK-Kinehall-native-linux-x86_64.tar.gz"

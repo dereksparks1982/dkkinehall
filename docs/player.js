@@ -211,11 +211,28 @@
   const fileIsAudio = file => !!file && (
     file.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|flac|opus)$/i.test(file.name)
   );
+  const codecPlayback = window.DKCodecPlayback?.attach({
+    media,bridge:window.DKCodecBridge,current,
+    onStatus:(message,good)=>status(message,good),
+    onClockChanged:()=>updateTime()
+  }) || null;
+  const playbackSeconds = () => codecPlayback ?
+    codecPlayback.position(current()) : media.currentTime;
+  const playbackDuration = () => codecPlayback ?
+    codecPlayback.duration(current()) : media.duration;
+  const setPlaybackPosition = seconds => {
+    const item=current();
+    if (!item) return;
+    const value=Math.max(0,Number(seconds)||0);
+    if (codecPlayback?.isActive(item))void codecPlayback.seek(item,value);
+    else media.currentTime=value;
+  };
   const rememberPosition = () => {
     const item = current();
-    if (!item || !Number.isFinite(media.duration) || media.duration <= 0) return;
-    if (media.currentTime >= media.duration - 4) delete state.resume[item.key];
-    else if (media.currentTime > 2) state.resume[item.key] = media.currentTime;
+    const duration=playbackDuration(),position=playbackSeconds();
+    if (!item || !Number.isFinite(duration) || duration <= 0) return;
+    if (position >= duration - 4) delete state.resume[item.key];
+    else if (position > 2) state.resume[item.key] = position;
     const keys = Object.keys(state.resume);
     if (keys.length > 160) keys.slice(0, keys.length - 160).forEach(key => delete state.resume[key]);
     write(store.resume, state.resume);
@@ -341,7 +358,7 @@
       if (pgsCanvas) pgsCanvas.hidden = true;
       return;
     }
-    const frame = api.frameAt(events,media.currentTime - subtitleDelayForCurrent());
+    const frame = api.frameAt(events,playbackSeconds() - subtitleDelayForCurrent());
     if (!frame || (frame.regions && !frame.regions.length)) { pgsCanvas.hidden = true; return; }
     try {
       if (state.pgsLastFrame !== frame) {
@@ -545,14 +562,15 @@
     updateOrderButtons();
   };
   const updateTime = () => {
-    const length = media.duration;
+    const length = playbackDuration();
+    const position = playbackSeconds();
     const seekable = Number.isFinite(length) && length > 0;
-    byId("currentTime").textContent = time(media.currentTime);
+    byId("currentTime").textContent = time(position);
     byId("duration").textContent = seekable ? time(length) : "0:00";
     byId("seek").disabled = !current() || !seekable;
     byId("rewind10").disabled = !current() || !seekable || state.stopped;
     byId("forward10").disabled = !current() || !seekable || state.stopped;
-    byId("seek").value = seekable ? String(Math.max(0, Math.min(1000, Math.round(1000 * media.currentTime / length)))) : "0";
+    byId("seek").value = seekable ? String(Math.max(0, Math.min(1000, Math.round(1000 * position / length)))) : "0";
   };
   const queueHover = window.DKQueueHover && window.DKQueueHover.create({
     makeVideo: () => document.createElement("video")
@@ -603,7 +621,7 @@
       title.textContent = String(chapter.text || "Chapter").slice(0,200);
       button.append(timestamp,title);
       button.addEventListener("click",()=>{
-        media.currentTime = chapter.startTime;
+        setPlaybackPosition(chapter.startTime);
         chapterPicker.hidden = true;
         updateTime();
       });
@@ -807,7 +825,7 @@
   };
   const seekPreview = window.DKSeekPreview && window.DKSeekPreview.attach({
     seek: byId("seek"), bubble: byId("seekPreview"), frame: byId("previewFrame"),
-    label: byId("previewTime"), current, duration: () => media.duration,
+    label: byId("previewTime"), current, duration: playbackDuration,
     formatTime: time
   });
   const playCurrent = () => {
@@ -817,6 +835,13 @@
       screen.classList.remove("empty", "stopped");
       syncPgsOverlay();
       screen.classList.toggle("audio", current().audio);
+      if(current().codecRestart && codecPlayback) {
+        current().codecRestart=false;
+        current().codecAttempted=true;
+        void codecPlayback.start(current(),0,true,
+          current().requestedFormat==="webm"?"webm":"mp4");
+        return;
+      }
       try { media.currentTime = 0; } catch (_) {}
       restoreAudioPreference();
     }
@@ -836,6 +861,7 @@
     }
     if (seekPreview) seekPreview.reset();
     if (!state.stopped) rememberPosition();
+    if(codecPlayback?.isActive(previous))void codecPlayback.stop();
     state.stopped = false;
     clearSubtitles();
     if (mkvAudio) mkvAudio.stop();
@@ -851,6 +877,9 @@
     // different format. An old asynchronous remux may not replace a new load.
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
     item.compatAttempted = false;
+    item.codecAttempted = false;
+    item.codecActive = false;
+    item.codecRestart = false;
     item.compatPending = false;
     item.requestedFormat = playbackSettings.format;
     item.playbackMethod = (item.compatSrc && item.requestedFormat === "auto")
@@ -900,10 +929,17 @@
       if (item.mkvInspection === "pending") {
         item.compatPending = true;
         status("Checking MKV for the requested format…");
-      } else void tryCompatibleFallback(item);
+      } else void tryCompatibleFallback(item).then(ok=>{
+        if(!ok)void tryNativeCodec(item);
+      });
     } else if (cannotConvert) {
-      item.playbackMethod = "Unsupported conversion";
-      status("Requested format is not available for this file. It has not been converted.");
+      if(codecPlayback && item.file) {
+        item.playbackMethod="Preparing included codecs";
+        void tryNativeCodec(item);
+      }else{
+        item.playbackMethod="Unsupported conversion";
+        status("Requested format is not available for this file. It has not been converted.");
+      }
     } else if (autoplay) {
       playCurrent();
     }
@@ -1022,6 +1058,16 @@
     if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
     return false;
   };
+  const tryNativeCodec = async item => {
+    if(!codecPlayback||!item?.file||item.codecAttempted ||
+       current()!==item||state.stopped)return false;
+    item.codecAttempted=true;
+    const resume=Number(state.resume[item.key]||0);
+    const at=Number.isFinite(resume)&&resume>0?resume:
+      (Number.isFinite(media.currentTime)?Math.max(0,media.currentTime):0);
+    return codecPlayback.start(item,at,Boolean(item.autoplayRequested),
+      item.requestedFormat==="webm"?"webm":"mp4");
+  };
   const releaseCompatible = item => {
     if(item?.remuxAbort){
       item.remuxAbort.abort();
@@ -1103,9 +1149,7 @@
             if(item.compatPending){
               item.compatPending=false;
               void tryCompatibleFallback(item).then(ok=>{
-                if(!ok&&current()===item&&!item.compatAttempted &&
-                   item.requestedFormat === "auto")
-                  status("This MKV video codec or container is not supported.");
+                if(!ok && current()===item)void tryNativeCodec(item);
               });
             }
           }
@@ -1114,7 +1158,10 @@
           if (current() === item) {
             updateSubtitleStatus();
             refreshOpenSubtitleMenu();
-            if(item.compatPending)status("This MKV file could not be inspected.");
+            if(item.compatPending){
+              item.compatPending=false;
+              void tryNativeCodec(item);
+            }
           }
         });
       }
@@ -1520,6 +1567,10 @@
     if (!item) return;
     cancelVideoClick();
     media.pause();
+    if(codecPlayback?.isActive(item)) {
+      item.codecRestart=true;
+      void codecPlayback.stop();
+    }
     if(item.remuxAbort){
       item.remuxAbort.abort();
       item.remuxAbort=null;
@@ -1552,15 +1603,29 @@
     load(next);
   });
   const skipTen = delta => {
-    if (!current() || state.stopped || !Number.isFinite(media.duration) ||
-        media.duration <= 0) return;
-    media.currentTime = Math.max(0, Math.min(media.duration, media.currentTime + delta));
+    const length=playbackDuration();
+    if(!current()||state.stopped||!Number.isFinite(length)||length<=0)return;
+    setPlaybackPosition(Math.max(0,Math.min(length,playbackSeconds()+delta)));
     updateTime();
   };
   byId("rewind10").addEventListener("click", () => skipTen(-10));
   byId("forward10").addEventListener("click", () => skipTen(10));
   byId("seek").addEventListener("input", event => {
-    if (Number.isFinite(media.duration) && media.duration > 0) media.currentTime = media.duration * Number(event.target.value) / 1000;
+    const length=playbackDuration();
+    if(!Number.isFinite(length)||length<=0)return;
+    if(!codecPlayback?.isActive(current()))
+      setPlaybackPosition(length*Number(event.target.value)/1000);
+    else byId("currentTime").textContent=
+      time(length*Number(event.target.value)/1000);
+  });
+  // Restart a native-transcoded stream only after the user releases the
+  // seek bar, not continuously for each thumb movement.
+  byId("seek").addEventListener("change",event=>{
+    if(codecPlayback?.isActive(current())){
+      const length=playbackDuration();
+      if(Number.isFinite(length)&&length>0)
+        setPlaybackPosition(length*Number(event.target.value)/1000);
+    }
   });
   media.addEventListener("loadedmetadata", () => {
     const item = current();
@@ -1568,6 +1633,10 @@
     applySubtitlePreference();
     restoreAudioPreference();
     if (state.stopped) { updateTime(); return; }
+    if(codecPlayback?.isActive(item)) {
+      // The stream has already been started at the original source time.
+      updateTime();updateChapterButton();return;
+    }
     const position = Number(state.resume[item.key] || 0);
     if (position > 2 && Number.isFinite(media.duration) && position < media.duration - 4) {
       try { media.currentTime = position; } catch (_) {}
@@ -1621,10 +1690,14 @@
     delete state.resume[completed.key];
     write(store.resume, state.resume);
     if (playbackOrder.loop === "one") {
-      try { media.currentTime = 0; } catch (_) {}
       state.stopped = false;
-      const restarted = media.play();
-      if (restarted?.catch) restarted.catch(()=>status("Couldn't restart video."));
+      if(codecPlayback?.isActive(completed)) {
+        void codecPlayback.seek(completed,0);
+      }else{
+        try { media.currentTime = 0; } catch (_) {}
+        const restarted = media.play();
+        if (restarted?.catch) restarted.catch(()=>status("Couldn't restart video."));
+      }
     } else if (playbackOrder.loop === "all") {
       load((state.current + 1) % state.queue.length,true);
     } else if (playbackSettings.removeWatched) {
@@ -1646,9 +1719,12 @@
     }
   });
   media.addEventListener("error", () => {
-    if (!current() || !media.error) return;
+    if (!current() || !media.error || state.stopped) return;
     const code = media.error.code;
     const item=current();
+    if(codecPlayback?.isActive(item)){
+      status("Included decoder output could not be played.");return;
+    }
     if((code===3||code===4)&&item?.file && /\.mkv$/i.test(item.name) &&
        !item.compatAttempted && item.requestedFormat !== "original" &&
        (window.DKMkvWebM||window.DKMkvMP4)){
@@ -1660,16 +1736,22 @@
       if(item.requestedFormat === "mp4" || item.requestedFormat === "webm" ||
          window.DKMkvWebM?.eligible(compatibleInfo(item),item.file) ||
          window.DKMkvMP4?.eligible(compatibleInfo(item),item.file)){
-        void tryCompatibleFallback(item);
+        void tryCompatibleFallback(item).then(ok=>{
+          if(!ok && current()===item)void tryNativeCodec(item);
+        });
         return;
       }
+    }
+    if((code===3||code===4)&&!item.codecAttempted&&codecPlayback&&item.file) {
+      void tryNativeCodec(item);
+      return;
     }
     const mkvVideo = current().embeddedVideo?.[0]?.codec || null;
     const message = code === 4 && mkvVideo ?
       "This MKV video codec is not supported: " + mkvVideo + "." :
-      code === 4 ? "This file format isn't supported by your browser." :
+      code === 4 ? "This media format could not be decoded." :
       code === 2 ? "The media file couldn't be read." :
-      code === 3 ? "The browser couldn't decode this media format." :
+      code === 3 ? "This media format could not be decoded." :
       "Unable to play this media source.";
     status(message);
     updateButtons();
@@ -2113,7 +2195,7 @@
       addMenuHeading("Chapters");
       for (const cue of cues) addMenuItem(
         time(cue.startTime) + "  " + (cue.text || "Chapter"),
-        () => { media.currentTime = cue.startTime; });
+        () => { setPlaybackPosition(cue.startTime); });
     }
 
     addMenuHeading("Picture");
@@ -2173,7 +2255,8 @@
     if (item.mime) addDetail("Format", item.mime);
     if (media.videoWidth && media.videoHeight)
       addDetail("Resolution", media.videoWidth + " × " + media.videoHeight);
-    addDetail("Duration", Number.isFinite(media.duration) ? time(media.duration) : "Live / unknown");
+    addDetail("Duration", Number.isFinite(playbackDuration()) ?
+      time(playbackDuration()) : "Live / unknown");
     addDetail("Speed", media.playbackRate + "×");
     if (item.embeddedVideo && item.embeddedVideo.length)
       addDetail("Detected MKV video codec",item.embeddedVideo.map(t =>
@@ -2339,8 +2422,10 @@
     if (key === "m") byId("mute").click();
     if (key === "arrowup") setVolume(volumePercent + 5);
     if (key === "arrowdown") setVolume(volumePercent - 5);
-    if (key === "arrowleft" && Number.isFinite(media.duration)) media.currentTime = Math.max(0, media.currentTime - 5);
-    if (key === "arrowright" && Number.isFinite(media.duration)) media.currentTime = Math.min(media.duration, media.currentTime + 5);
+    if (key === "arrowleft" && Number.isFinite(playbackDuration()))
+      setPlaybackPosition(Math.max(0,playbackSeconds()-5));
+    if (key === "arrowright" && Number.isFinite(playbackDuration()))
+      setPlaybackPosition(Math.min(playbackDuration(),playbackSeconds()+5));
   });
   window.addEventListener("pagehide", () => {
     cancelVideoClick();
@@ -2348,6 +2433,7 @@
     clearTimeout(hideControlsTimer);
     clearTimeout(cursorIdleTimer);
     rememberPosition();
+    if(codecPlayback)void codecPlayback.stop();
     clearSubtitles();
     state.queue.forEach(item => { releaseArtwork(item); releaseCompatible(item); if (item.kind === "file") URL.revokeObjectURL(item.src); });
   });

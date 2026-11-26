@@ -13,6 +13,16 @@ DK Softworks-owned original source is governed by the repository's
 DK Softworks Original Work License. That license does not override the
 separate license terms of the third-party runtime.
 
+## Native codec components under development
+
+The planned standalone codec bridge can bundle independent FFmpeg, FFprobe,
+libavcodec/libavformat/libavutil and third-party codec libraries including
+libx264, libvpx and libopus. Actual redistribution rights depend on the
+specific compiled binaries. Native packages must carry applicable third-party
+licenses plus accurate FFmpeg build flags and decoder/encoder inventories.
+DK Softworks' sale restrictions do not replace those third-party licenses.
+A codec-enabled Electron release has not yet been verified or distributed.
+
 ## Online artwork providers
 
 DK Kinehall can query TVmaze for episode artwork , Cinemeta for keyless film poster links, and the Apple iTunes Search

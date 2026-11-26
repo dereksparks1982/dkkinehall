@@ -43,7 +43,37 @@ trap cleanup EXIT
 echo "Fetching DK Kinehall source from GitHub main..."
 git clone --quiet --depth 1 --filter=blob:none --sparse --branch main \
   https://github.com/dereksparks1982/dkkinehall.git "$WORK/repo"
-git -C "$WORK/repo" sparse-checkout set docs maintenance
+git -C "$WORK/repo" sparse-checkout set docs maintenance desktop desktop-codecs
+
+# No partial end-user updates. The signed-off release gate remains closed
+# until the complete standalone codec bundle and all roadmap checks pass.
+python3 - "$WORK/repo/maintenance/release-gate.json" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+manifest = Path(sys.argv[1])
+if not manifest.is_file():
+    raise SystemExit("ERROR: Standalone release gate is missing. Player unchanged.")
+data = json.loads(manifest.read_text(encoding="utf-8"))
+checks = data.get("acceptance", {})
+if not data.get("release_ready") or not checks or not all(checks.values()):
+    raise SystemExit("ERROR: DK Kinehall is not fully verified for release. Existing player unchanged.")
+PYTHON
+
+# The release gate alone is insufficient: the actual included codec payload
+# must be present on GitHub main, with its runtime preload/host sources.
+for resource in desktop/codec-host.cjs desktop/codec-preload.cjs \
+                desktop-codecs/bin/ffmpeg desktop-codecs/bin/ffprobe \
+                desktop-codecs/CODECS_INCLUDED.txt desktop-codecs/ENCODERS_INCLUDED.txt; do
+  if [[ ! -f "$WORK/repo/$resource" ]]; then
+    echo "ERROR: Complete bundled-codec release payload is missing: $resource" >&2
+    exit 1
+  fi
+done
+if [[ ! -d "$WORK/repo/desktop-codecs/lib" ]]; then
+  echo "ERROR: Native decoding libraries are missing from the release." >&2
+  exit 1
+fi
 
 # Abort before touching the installed player if the source is incomplete.
 for resource in index.html player.js player.css mkv-tracks.js \
@@ -83,7 +113,7 @@ for item in source.rglob("*"):
         copy2(item, dest)
 PYTHON
 
-python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP"
+python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP" "$WORK/repo"
 
 echo "SUCCESS: Existing DK Kinehall updated; approved icons untouched."
 echo "Backup: $BACKUP"

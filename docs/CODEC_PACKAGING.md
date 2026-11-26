@@ -30,6 +30,14 @@ The Qt/libmpv prototype's TVmaze lookup code is a separate, optional metadata pa
 
 Native packaging source now copies build-provided `ffmpeg` and `ffprobe` executables into the portable bundle, recursively bundles their linked libraries, and records `CODECS_INCLUDED.txt`, `CONTAINERS_INCLUDED.txt` and `FFMPEG_CONFIGURATION.txt`. The user is not asked to install them. The inventory identifies the capabilities of a particular build, but still needs playback verification and integration underneath the approved Chromium-based interface.
 
+## Native decoding under the approved Chromium interface
+
+The `desktop/` modules retain the existing Electron window, icons and web-based controls. The preload uses Electron's supported `webUtils.getPathForFile` on user-selected local files, and exposes only narrowly scoped codec IPC operations. The main process probes via **bundled FFprobe**, then runs **bundled FFmpeg** to stream compatible fragmented MP4 (H.264/AAC) or WebM (VP9/Opus, where encoders exist) over a random-token loopback HTTP endpoint to the same HTML video element. The `docs/codec-playback.js` adapter maintains source time for seeking, resume and chapter navigation; no source file is sent to a remote server.
+
+The `maintenance/codec_bundle.py` injector, `maintenance/prepare_desktop_codecs.py` packager and runtime synchronization source are configured to refuse incomplete codec bundles and preserve the approved icon/window code. Decoder and container inventories must be generated from the *actually included* FFmpeg tools.
+
+**Unverified release blockers:** preloaded Electron bridge detection, selected-file path handling, seek/resume correctness, runtime performance, all supported decoder/encoder combinations, alternate audio and subtitle handling, legal redistribution and an end-to-end Linux package/playback check. This source is not an installed universal decoder, and must not be described or distributed as finished.
+
 ## Required implementation before claiming broad bundled codec coverage
 
 1. Select and embed a complete native decoding back end (FFmpeg/libavcodec or libmpv-backed) **under the existing UI**, retaining the same playlist, controls, fullscreen, artwork, subtitles, icons, and window.

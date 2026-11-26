@@ -1,0 +1,217 @@
+"use strict";
+/* DK Kinehall standalone-only codec bridge.
+ * A bundled FFmpeg/FFprobe pair decodes source video/audio on demand and
+ * streams H.264/AAC fragmented MP4 into the ORIGINAL Chromium video element.
+ * No file bytes go to the Internet; stream port is loopback-only and tokenized.
+ * Requires the packaged executables and their native linked libraries.
+ *
+ * This module is deliberately independent from the web player and its icons.
+ */
+const fs=require("node:fs");
+const path=require("node:path");
+const http=require("node:http");
+const crypto=require("node:crypto");
+const {spawn}=require("node:child_process");
+const {app,ipcMain}=require("electron");
+
+const BIND_ADDRESS="127.0.0.1";
+const MAX_PROBE_OUTPUT=512*1024;
+let installed=false,windowRef=null,server=null,session=null,availability=null;
+
+function binary(name) {
+  const base=app.getAppPath();
+  return path.join(base,"bin",name);
+}
+function codecEnvironment() {
+  const libs=path.join(app.getAppPath(),"lib");
+  return {...process.env,
+    LD_LIBRARY_PATH:libs+path.delimiter+(process.env.LD_LIBRARY_PATH||""),
+    PATH:path.join(app.getAppPath(),"bin")+path.delimiter+(process.env.PATH||"")};
+}
+function executable(file) {
+  try {fs.accessSync(file,fs.constants.X_OK);return true;}
+  catch(_){return false;}
+}
+function processOutput(command,args,timeout=15000) {
+  return new Promise((resolve,reject)=>{
+    const child=spawn(command,args,{stdio:["ignore","pipe","pipe"],windowsHide:true,
+      env:codecEnvironment()});
+    let stdout="",stderr="",settled=false;
+    const settle=(err,result)=>{
+      if(settled)return;
+      settled=true;clearTimeout(timer);
+      if(err)reject(err);else resolve(result);
+    };
+    const timer=setTimeout(()=>{
+      child.kill("SIGKILL");settle(new Error("Native decoder timed out"));
+    },timeout);
+    child.on("error",error=>settle(error));
+    child.stdout.on("data",buffer=>{
+      stdout+=buffer.toString("utf8");
+      if(stdout.length>MAX_PROBE_OUTPUT) {
+        child.kill("SIGKILL");settle(new Error("Codec probe output too large"));
+      }
+    });
+    child.stderr.on("data",buffer=>{
+      if(stderr.length<4096)stderr+=buffer.toString("utf8").slice(0,4096);
+    });
+    child.on("close",code=>{
+      if(code===0)settle(null,stdout);
+      else settle(new Error((stderr.trim()||"FFmpeg exited with an error").slice(0,500)));
+    });
+  });
+}
+async function status() {
+  if(availability)return availability;
+  const ffmpeg=binary("ffmpeg"),ffprobe=binary("ffprobe");
+  if(!executable(ffmpeg)||!executable(ffprobe))
+    return {ready:false,reason:"Bundled FFmpeg/FFprobe are missing"};
+  try {
+    const encoders=await processOutput(ffmpeg,["-hide_banner","-encoders"]);
+    const hasH264=/(?:^|\n)\s*V\S*\s+libx264\s/m.test(encoders);
+    const hasAAC=/(?:^|\n)\s*A\S*\s+aac\s/m.test(encoders);
+    if(!hasH264||!hasAAC) return {ready:false,
+      reason:"Bundled FFmpeg lacks H.264 or AAC encoders"};
+    await processOutput(ffprobe,["-version"],8000);
+    const webm=/(?:^|\n)\s*V\S*\s+libvpx-vp9\s/m.test(encoders) &&
+      /(?:^|\n)\s*A\S*\s+libopus\s/m.test(encoders);
+    availability={ready:true,engine:"bundled FFmpeg",
+      output:"fragmented MP4",webm};
+    return availability;
+  }catch(error){
+    return {ready:false,reason:String(error.message||error).slice(0,200)};
+  }
+}
+function selectedFile(localPath) {
+  if(typeof localPath!=="string"||localPath.length>4096||
+     !path.isAbsolute(localPath)||localPath.includes("\0"))
+    throw new Error("A local selected file is required");
+  const stat=fs.statSync(localPath);
+  if(!stat.isFile())throw new Error("Selected path is not a file");
+  return localPath;
+}
+async function probe(localPath) {
+  const ready=await status();
+  if(!ready.ready)throw new Error(ready.reason);
+  const file=selectedFile(localPath);
+  const stdout=await processOutput(binary("ffprobe"),[
+    "-v","error","-show_entries",
+    "format=duration,format_name:stream=index,codec_type,codec_name",
+    "-of","json","-i",file
+  ],30000);
+  const json=JSON.parse(stdout);
+  const streams=Array.isArray(json.streams)?json.streams:[];
+  const hasVideo=streams.some(s=>s.codec_type==="video");
+  const hasAudio=streams.some(s=>s.codec_type==="audio");
+  if(!hasVideo&&!hasAudio)throw new Error("The selected file has no playable media streams");
+  const seconds=Number(json.format?.duration);
+  return {ready:true,duration:Number.isFinite(seconds)&&seconds>0?seconds:null,
+    hasVideo,hasAudio,format:String(json.format?.format_name||"").slice(0,120),
+    videoCodec:String(streams.find(s=>s.codec_type==="video")?.codec_name||""),
+    audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||"")};
+}
+function cancelStream() {
+  if(!session)return;
+  const old=session;session=null;
+  try {old.process?.kill("SIGTERM");} catch(_){}
+  try {old.response?.end();} catch(_){}
+}
+function serve(req,res) {
+  const active=session;
+  const requestPath=(req.url||"").split("?")[0];
+  if(req.method!=="GET"||!active||requestPath!=="/media/"+active.token){
+    res.writeHead(404,{"Cache-Control":"no-store"});
+    res.end();return;
+  }
+  if(active.process||active.response) {
+    res.writeHead(409);res.end();return;
+  }
+  const args=["-hide_banner","-loglevel","error","-nostdin",
+    "-ss",String(active.position),"-i",active.path,
+    "-map","0:v:0?","-map","0:a:0?","-sn","-dn"];
+  if(active.format==="webm") {
+    args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5",
+      "-b:v","0","-crf","33","-c:a","libopus","-b:a","160k",
+      "-f","webm","pipe:1");
+  }else{
+    args.push("-c:v","libx264","-preset","veryfast","-crf","23",
+      "-pix_fmt","yuv420p","-g","48","-c:a","aac","-b:a","160k",
+      "-movflags","+frag_keyframe+empty_moov+default_base_moof",
+      "-frag_duration","1000000","-f","mp4","pipe:1");
+  }
+  let child;
+  try {child=spawn(binary("ffmpeg"),args,{
+    stdio:["ignore","pipe","pipe"],windowsHide:true,
+    env:codecEnvironment()
+  });}
+  catch(_){res.writeHead(500);res.end();return;}
+  active.process=child;active.response=res;
+  res.writeHead(200,{"Content-Type":active.format==="webm"?"video/webm":"video/mp4",
+    "Cache-Control":"no-store","Access-Control-Allow-Origin":"null",
+    "X-Content-Type-Options":"nosniff"});
+  child.stdout.pipe(res);
+  child.stderr.on("data",()=>{}); // Consume diagnostics without logging paths.
+  child.on("error",()=>{try{res.end();}catch(_){}});
+  child.on("close",()=>{try{res.end();}catch(_){}});
+  res.on("close",()=>{
+    if(session===active){try{child.kill("SIGTERM");}catch(_){}}
+  });
+}
+async function loopback() {
+  if(server)return server.address().port;
+  server=http.createServer(serve);
+  try {
+    await new Promise((resolve,reject)=>{
+      server.once("error",reject);
+      server.listen(0,BIND_ADDRESS,()=>{
+        server.removeListener("error",reject);
+        resolve();
+      });
+    });
+  }catch(error){server.close();server=null;throw error;}
+  return server.address().port;
+}
+async function start(localPath,offset=0,format="mp4") {
+  const info=await probe(localPath);
+  if(format==="webm" && !(await status()).webm)
+    throw new Error("This bundled decoder cannot create WebM streams");
+  if(!["mp4","webm"].includes(format))
+    throw new Error("Unsupported streaming output format");
+  const target=selectedFile(localPath);
+  const position=Math.max(0,Math.min(
+    Number.isFinite(Number(offset))?Number(offset):0,
+    info.duration===null?24*60*60:Math.max(0,info.duration-0.5)));
+  const port=await loopback();
+  cancelStream();
+  const token=crypto.randomBytes(24).toString("hex");
+  session={token,path:target,position,format,process:null,response:null};
+  return {...info,position,
+    url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
+}
+function onlyWindow(event) {
+  return windowRef && !windowRef.isDestroyed() &&
+    event.sender===windowRef.webContents &&
+    event.senderFrame?.url?.startsWith("file://");
+}
+function install(win) {
+  if(installed)return;
+  if(!win?.webContents)throw new Error("A DK Kinehall window is required");
+  installed=true;windowRef=win;
+  ipcMain.handle("dk-codec:status",async event=>
+    onlyWindow(event)?status():{ready:false});
+  ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
+    if(!onlyWindow(event))throw new Error("Rejected media request");
+    return probe(localPath);
+  });
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format)=>{
+    if(!onlyWindow(event))throw new Error("Rejected media request");
+    return start(localPath,offset,format);
+  });
+  ipcMain.handle("dk-codec:stop",async event=>{
+    if(!onlyWindow(event))return;
+    cancelStream();return true;
+  });
+  win.once("closed",()=>{cancelStream();server?.close();server=null;});
+  app.once("before-quit",()=>{cancelStream();server?.close();server=null;});
+}
+module.exports={install};

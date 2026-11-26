@@ -1,0 +1,21 @@
+{
+  "product": "DK Kinehall standalone Chromium",
+  "release_ready": false,
+  "release_commit": null,
+  "bundled_codec_package_sha256": null,
+  "approved_icons_unchanged": true,
+  "acceptance": {
+    "codec_bundle_verified": false,
+    "broad_video_formats_verified": false,
+    "audio_and_subtitles_verified": false,
+    "chapters_and_seek_verified": false,
+    "queue_shuffle_loop_verified": false,
+    "movable_resizable_pip_verified": false,
+    "episode_art_and_titles_verified": false,
+    "english_russian_verified": false,
+    "original_window_and_icons_verified": false,
+    "full_package_playback_verified": false,
+    "licenses_and_notices_verified": false
+  },
+  "reason": "Development source is not an accepted, fully verified standalone release. Do not update the installed player."
+}

@@ -36,7 +36,9 @@ def sync(root):
     if not required.issubset(docs_map):
         raise RuntimeError("Missing original web player resources: " +
                            str(sorted(required - docs_map.keys())))
-    with tempfile.TemporaryDirectory(prefix="dk-runtime-") as temp:
+    # Stage archive chunks on the installation filesystem. /tmp can be a
+    # separate mount, where os.replace() fails with EXDEV (errno 18).
+    with tempfile.TemporaryDirectory(prefix=".dk-runtime-", dir=internal) as temp:
         temp = Path(temp)
         original, updated = temp / "original.tar.gz", temp / "updated.tar.gz"
         with original.open("wb") as output:

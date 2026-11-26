@@ -23,6 +23,7 @@ let installed=false,windowRef=null,playerContents=null,server=null,session=null,
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
 let frameCache=null,frameProbeBusy=false;
+let deinterlaceCapability=null;
 
 function binary(name) {
   const base=app.getAppPath();
@@ -337,8 +338,9 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
     info.duration===null?24*60*60:Math.max(0,info.duration-(frameStep===true?0.001:0.5))));
   const filterMode=info.hasVideo&&(deinterlace==="on"||deinterlace==="auto"&&["tt","bb","tb","bt"].includes(info.fieldOrder))?deinterlace:null;
   if(filterMode){
-    const filters=await processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000);
-    if(!/\bbwdif\s+V->V\b/.test(filters))throw Error("Bundled decoder does not include the deinterlacing filter");
+    if(!deinterlaceCapability)deinterlaceCapability=processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000)
+      .then(filters=>/\bbwdif\s+V->V\b/.test(filters)).catch(error=>{deinterlaceCapability=null;throw error;});
+    if(!await deinterlaceCapability)throw Error("Bundled decoder does not include the deinterlacing filter");
   }
   const copyVideo=!filterMode&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);

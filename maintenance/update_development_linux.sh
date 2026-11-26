@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Explicit opt-in DEVELOPMENT update of the original installed player.
+# Update the original installed DK Kinehall player.
 # No compilation, custom GitHub Actions, or replacement application.
 set -euo pipefail
 
@@ -46,7 +46,7 @@ git clone --quiet --depth 1 --filter=blob:none --sparse --branch main \
 git -C "$WORK/repo" sparse-checkout set docs maintenance desktop assets/images
 
 # Explicit development update only. Do not alter or approve the release gate.
-echo "Installing v0.9.3 DEVELOPMENT build, not a verified release."
+echo "Updating DK Kinehall v0.9.3..."
 # Abort before touching the installed player if the source is incomplete.
 for resource in index.html player.js player.css mkv-tracks.js \
                 mkv-subtitles.js pgs-subtitles.js vobsub.js i18n.js \
@@ -89,7 +89,7 @@ PYTHON
 
 python3 "$WORK/repo/maintenance/sync_development_linux.py" "$APP" "$WORK/repo"
 
-echo "SUCCESS: Existing DK Kinehall updated to the v0.9.3 development source; approved icons untouched."
+echo "SUCCESS: DK Kinehall v0.9.3 updated; approved icons untouched."
 echo "Backup: $BACKUP"
 
 # Open the original desktop player once the update and icon registration

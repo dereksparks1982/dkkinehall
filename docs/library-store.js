@@ -502,7 +502,7 @@ async function openFile(row,{requestPermission=false}={}){
     parent=await parent.getDirectoryHandle(segment,{create:false});
   const handle=await parent.getFileHandle(parts.at(-1),{create:false});
   const file=await handle.getFile();
-  return {excludedDiscovery,file,handle};
+  return {file,handle};
 }
 // Recover the catalog identity of a manually opened or restored local file.
 async function resolvePlaybackEntry(file,preferredId=null){
@@ -600,7 +600,7 @@ async function saveArtwork(id,blob,credit=""){
   changed({artwork:true,id});
   return true;
 }
-return Object.freeze({
+return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,reconcileNative,emptyTrash,removeEntry,
   checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,

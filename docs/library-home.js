@@ -106,7 +106,7 @@ function createCard(row,{landscape=false,series=false}={}){
   const title=create("span","library-card-title",
     series?row.series:row.kind==="tv"?
       (landscape?row.series+" · "+formatCode(row):formatCode(row)):
-      mediaName(row));
+      (nativeBridge?row.title:mediaName(row)));
   const detail=create("span","library-card-detail",
     series?"":row.kind==="tv"?(row.episodeTitle||""):row.year||"");
   card.append(box,title,detail);
@@ -191,7 +191,23 @@ function findLocalArtworkFolder(folder,relative,series=false){
     return null;
   };
 }
-async function findArtwork(row,id,series=false){
+async function saveMovieResult(row,result){
+  if(!result?.title)return false;
+  await store.updateMetadata(row.id,{movieTitle:result.title,movieYear:result.year,
+    movieDetails:result.details,movieProvider:result.provider});
+  return true;
+}
+async function findArtwork(row,id,series=false,force=false){
+  let movieResult=null;
+  // Native movie metadata is fetched independently of local and cached art.
+  if(nativeBridge&&row.kind==="movie"&&(force||!row.movieDetails)&&
+     artworkFinder&&navigator.onLine&&(force||networkTitleCount<TITLE_LOOKUP_LIMIT)){
+    networkTitleCount++;
+    try{
+      movieResult=await artworkFinder.find(metadataFilename(row),{details:true});
+      await saveMovieResult(row,movieResult);
+    }catch(_){}
+  }
   // Episode titles and stills are independent. A cached local poster must
   // not suppress title retrieval. Only visible episodes are requested,
   // and successful titles are persisted to IndexedDB once.
@@ -205,8 +221,8 @@ async function findArtwork(row,id,series=false){
     }catch(_){}
   }
   const cache=await store.artwork(id);
-  if(cache?.blob&&(row.kind!=="movie"||row.movieMetadataVerified||!nativeBridge))return cache.blob;
-  if(nativeBridge&&row.source==="native"&&row.nativePath){
+  if(cache?.blob&&!force&&(row.kind!=="movie"||row.movieMetadataVerified||movieResult||!nativeBridge))return cache.blob;
+  if(!force&&nativeBridge&&row.source==="native"&&row.nativePath){
     try{
       const picture=await nativeBridge.localCover(
         row.id,row.nativePath,series,row.kind);
@@ -220,7 +236,7 @@ async function findArtwork(row,id,series=false){
     }catch(_){}
   }
   const folder=folders.find(x=>x.id===row.folderId);
-  if(folder?.handle){
+  if(!force&&folder?.handle){
     try{
       const local=await findLocalArtworkFolder(folder,row.relative,series)();
       if(local){
@@ -229,13 +245,13 @@ async function findArtwork(row,id,series=false){
       }
     }catch(_){}
   }
-  if(!artworkFinder||networkArtworkCount>=ARTWORK_LIMIT||!navigator.onLine)
+  if(!artworkFinder||(!force&&networkArtworkCount>=ARTWORK_LIMIT)||!navigator.onLine)
     return cache?.blob||null;
   networkArtworkCount++;
   try{
     const excluded=[];
     for(let attempt=0;attempt<(row.kind==="movie"&&nativeBridge?2:1);attempt++){
-    const result=await artworkFinder.find(metadataFilename(row),{excludeProviders:excluded});
+    const result=attempt===0&&movieResult?movieResult:await artworkFinder.find(metadataFilename(row),{excludeProviders:excluded,details:!!nativeBridge&&row.kind==="movie"});
     if(result?.provider)excluded.push(result.provider);
     // Episode cards use episode stills; the series grid uses series art.
     const url=row.kind==="tv"&&series?
@@ -246,8 +262,8 @@ async function findArtwork(row,id,series=false){
       void store.updateMetadata(row.id,{episodeTitle:result.title.trim().slice(0,180)})
         .catch(()=>{});
     }
-    if(row.kind==="movie"&&result?.title)await store.updateMetadata(row.id,{movieTitle:result.title,movieYear:result.year});
-    if(!url||!/^https:\/\//.test(url))return cache?.blob||null;
+    if(row.kind==="movie"&&result?.title&&(!movieResult||!movieResult.details?.description))await saveMovieResult(row,result);
+    if(!url||!/^https:\/\//.test(url)){if(result?.provider&&row.kind==="movie")continue;return cache?.blob||null;}
     let blob;
     if(nativeBridge?.metadataRequest){
       const image=await nativeBridge.metadataRequest(url,"image");
@@ -320,7 +336,49 @@ function showContextMenu(row,x,y){
     window.innerWidth-menu.offsetWidth-8))+"px";
   menu.style.top=Math.max(4,Math.min(y,
     window.innerHeight-menu.offsetHeight-8))+"px";
-  $("deleteFromDisk").focus();
+  $("movieDetailsAction").hidden=row.kind!=="movie";
+  $("refreshMovieMetadata").hidden=row.kind!=="movie";
+  (row.kind==="movie"?$("movieDetailsAction"):$("deleteFromDisk")).focus();
+}
+let detailMovieId=null;
+function displayMovieDetails(row){
+  const d=$("movieDetailsDialog");
+  const data=row.movieDetails||{};
+  detailMovieId=row.id;
+  $("movieDetailsTitle").textContent=row.title+(row.year?" ("+row.year+")":"");
+  $("movieDetailsDescription").textContent=data.description||say("No description available.","Описание недоступно.");
+  const list=$("movieDetailsFields");list.replaceChildren();
+  const add=(label,value)=>{if(value){list.append(create("dt",null,label),create("dd",null,value));}};
+  add(say("Genre","Жанр"),data.genres?.join(", "));
+  add(say("Runtime","Продолжительность"),data.runtime?data.runtime+say(" min"," мин"):null);
+  add(say("Director","Режиссёр"),data.directors?.join(", "));
+  add(say("Cast","В ролях"),data.cast?.join(", "));
+  add(say("Rating","Рейтинг"),data.rating);
+  add(say("Source","Источник"),row.movieProvider==="Cinemeta"?say("Cinemeta","Синемета"):row.movieProvider==="Apple"?say("Apple","Эпл"):row.movieProvider||null);
+  $("movieDetailsClose").title=say("Close","Закрыть");
+  $("movieDetailsClose").setAttribute("aria-label",say("Close","Закрыть"));
+  if(!d.open)d.showModal();
+}
+async function showMovieDetails(){
+  const row=contextRow;hideContextMenu();
+  if(row?.kind!=="movie")return;
+  displayMovieDetails(await store.item(row.id)||row);
+}
+async function refreshMovie(){
+  const row=contextRow;hideContextMenu();
+  if(row?.kind!=="movie")return;
+  if(!navigator.onLine){status("Metadata refresh requires an internet connection.","Для обновления данных требуется интернет.",true);return;}
+  if(activeArtwork.has(row.id)){status("This movie is already being updated.","Данные фильма уже обновляются.");return;}
+  status("Refreshing movie metadata…","Обновление данных фильма…");
+  artworkFinder?.clear();
+  try{
+    await findArtwork(row,row.id,false,true);
+    const updated=await store.item(row.id);
+    await render();
+    if(updated?.movieMetadataVerified){
+      status("Movie metadata refreshed where available.","Доступные данные фильма обновлены.");
+    }else status("No matching movie metadata found.","Данные фильма не найдены.",true);
+  }catch(_){status("Could not refresh movie metadata.","Не удалось обновить данные фильма.",true);}
 }
 async function deleteFromDisk(){
   const row=contextRow;
@@ -573,6 +631,10 @@ async function chooseFolder(){
   }
 }
 function connect(){
+  $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
+  $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
+  $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
+  $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
   $("deleteFromDisk").addEventListener("click",()=>void deleteFromDisk());
   document.addEventListener("pointerdown",event=>{
     if(!event.target.closest("#libraryContextMenu"))hideContextMenu();
@@ -589,6 +651,8 @@ function connect(){
   // Standalone navigation only; leave the hosted library unchanged.
   if(nativeBridge?.internalPages){
     document.documentElement.classList.add("dk-standalone");
+    const labels=()=>{$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
+    labels();$("languageSelect").addEventListener("change",()=>queueMicrotask(labels));
     $("scanLibrary").classList.add("dk-scan");
     nativeBridge.onScanRequest(()=>void scan(true));
   }
@@ -614,12 +678,13 @@ function connect(){
       // discard/rebuild the artwork for the entire library.
       void store.item(event.id).then(row=>{
         if(!row)return;
+        if(detailMovieId===row.id&&$("movieDetailsDialog").open)displayMovieDetails(row);
         for(const card of document.querySelectorAll(".library-card")){
           if(card.dataset.libraryId!==row.id ||
              card.dataset.displayRole==="series")continue;
           const detail=card.querySelector(".library-card-detail");
           if(row.kind==="tv"){if(detail)detail.textContent=row.episodeTitle||"";}
-          else{const title=card.querySelector(".library-card-title");if(title)title.textContent=mediaName(row);if(detail)detail.textContent="";}
+          else{const title=card.querySelector(".library-card-title");if(title)title.textContent=nativeBridge?row.title:mediaName(row);if(detail)detail.textContent=nativeBridge?(row.year||""):"";}
         }
       }).catch(()=>{});
       return;

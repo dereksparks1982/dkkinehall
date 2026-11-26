@@ -77,6 +77,9 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         item.codecActive=true;
         onOffsetChanged(item,active.offset);
         media.pause();
+        // The private loopback endpoint permits the local file origin. CORS
+        // mode is required for amplified Web Audio playback of this stream.
+        media.crossOrigin="anonymous";
         media.src=result.url;
         media.load();
         onClockChanged();

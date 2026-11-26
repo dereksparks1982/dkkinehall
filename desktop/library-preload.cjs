@@ -11,6 +11,9 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  getInterfaceLanguage:fallback=>libIpc.invoke("dk-library:language-get",fallback==="ru"?"ru":"en"),
+  setInterfaceLanguage:value=>libIpc.invoke("dk-library:language-set",value==="ru"?"ru":"en"),
+  onInterfaceLanguage:callback=>subscribe("dk-library:language-changed",callback),
   networkDiscover:()=>libIpc.invoke("dk-network:discover"),
   networkDescription:id=>libIpc.invoke("dk-network:description",String(id)),
   networkBrowse:(id,control,type,objectId,start)=>libIpc.invoke("dk-network:browse",

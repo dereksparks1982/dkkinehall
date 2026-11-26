@@ -97,12 +97,54 @@ async function checkVideo(id,filePath){
   if(!stat.isFile()||stat.isSymbolicLink())throw Error("Not a regular local video");
   return {target,stat};
 }
+// Read Linux mount topology rather than assuming that /mnt or /media
+// being present means a removable volume is attached.
+async function mountedPaths(){
+  const decode=value=>value.replace(/\\([0-7]{3})/g,(_match,octal)=>String.fromCharCode(parseInt(octal,8)));
+  const data=await fsp.readFile("/proc/self/mountinfo","utf8");
+  return data.trim().split("\n").map(line=>{
+    const fields=line.split(" "),separator=fields.indexOf("-");
+    return {point:decode(fields[4]||""),identity:[fields[2],decode(fields[3]||""),decode(fields[separator+2]||"")].join("|")};
+  }).filter(m=>m.point.startsWith("/")).sort((a,b)=>b.point.length-a.point.length);
+}
+const mountFor=(mounts,target)=>mounts.find(m=>target===m.point||containment(m.point,target));
+async function checkCatalogPaths(rows){
+  if(!Array.isArray(rows)||rows.length>128)throw Error("Invalid file status batch");
+  let mounts;try{mounts=await mountedPaths();}catch(_){mounts=[];}
+  const results=[];
+  for(const row of rows){
+    let target;
+    try{target=ensureVideo(row?.id,row?.nativePath);}
+    catch(_){results.push({id:row?.id,state:"unknown"});continue;}
+    try{
+      await checkVideo(row.id,target);
+      results.push({id:row.id,state:"present"});continue;
+    }catch(error){
+      if(error?.code!=="ENOENT"){results.push({id:row.id,state:"unknown"});continue;}
+    }
+    // Missing is conclusive only with a real, accessible parent directory
+    // and a currently mounted expected volume. Otherwise leave the card.
+    try{
+      const parent=path.dirname(target),real=await fsp.realpath(parent);
+      if(real!==parent||!(await fsp.stat(real)).isDirectory())throw Error("Uncertain parent");
+      await fsp.access(real,fs.constants.R_OK|fs.constants.X_OK);
+      const mount=mountFor(mounts,real);
+      if(!mount)throw Error("Mount state unavailable");
+      if(row.volumeIdentity&&row.volumeIdentity!==mount.identity)throw Error("Volume changed");
+      const removable=["/media","/run/media","/mnt"].some(root=>containment(root,target));
+      if(removable&&!["/media","/run/media","/mnt"].some(root=>containment(root,mount.point)))throw Error("Volume not mounted");
+      results.push({id:row.id,state:"missing"});
+    }catch(_){results.push({id:row.id,state:"unknown"});}
+  }
+  return results;
+}
 async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,probe=null}={}){
   // Neither automatic nor manual native scans have an arbitrary duration,
   // directory depth, file count or visited-entry limit. Cancel explicitly.
   const start=Date.now(),roots=Array.isArray(testRoots)?testRoots:rootPath(),
     items=[],rejected=[],errors=[];
   let visits=0,folders=0,lastProgress=0;
+  let mounts;try{mounts=await mountedPaths();}catch(_){mounts=[];}
   const visitedDirs=new Set(),visitedPaths=new Set(),seenFiles=new Set();
   const record=(file,operation,error)=>errors.push({path:file,operation,
     code:typeof error?.code==="string"?error.code:"UNKNOWN"});
@@ -155,7 +197,7 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,pr
             if(valid===null){record(filePath,"inspect-video",{code:"UNVERIFIED_VIDEO"});continue;}
             items.push({id,nativePath:filePath,filename:entry.name,
               relative:path.relative(root,filePath).split(path.sep).join("/"),
-              size:stat.size,modified:stat.mtimeMs,root});
+              size:stat.size,modified:stat.mtimeMs,root,volumeIdentity:mountFor(mounts,filePath)?.identity||null});
           }catch(error){if(!signal?.aborted)record(filePath,"inspect-video",error);}
         }
       }catch(error){if(!signal?.aborted)record(dir,"read-directory",error);}
@@ -266,5 +308,5 @@ async function deleteVideo(id,filePath,{dialog,shell,window}={}){
 }
 module.exports={
   discover,openVideo,readRange,localArtwork,deleteVideo,
-  fileIdentity,checkVideo,rootPath,chooseLocalPoster
+  fileIdentity,checkVideo,rootPath,chooseLocalPoster,checkCatalogPaths
 };

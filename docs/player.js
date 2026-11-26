@@ -12,6 +12,7 @@
     volume: "dkmedia.web.volume.v2",
     lastMedia: "dkmedia.web.last-media.v1",
     subtitlePreference: "dkmedia.web.subtitle-preference.v1",
+    subtitleDelays: "dkmedia.web.subtitle-delays.v1",
     audioPreferences: "dkmedia.web.audio-preferences.v1",
     embeddedSubtitlePreferences: "dkmedia.web.mkv-subtitle-preferences.v1",
     folderName: "dkmedia.web.folder-name.v1",
@@ -188,6 +189,30 @@
     return {eng:"en",spa:"es",fre:"fr",fra:"fr",ger:"de",deu:"de",
       rus:"ru",ita:"it",por:"pt",jpn:"ja"}[lang] || lang;
   };
+  const sync = window.DKSubtitleSync;
+  const savedDelays = read(store.subtitleDelays, {});
+  const subtitleDelays = savedDelays && typeof savedDelays === "object" &&
+    !Array.isArray(savedDelays) ? savedDelays : {};
+  const subtitleDelayForCurrent = () => {
+    const item = current();
+    return item && sync ? sync.clampDelay(subtitleDelays[item.key] || 0) : 0;
+  };
+  const updateSubtitleDelayControls = () => {
+    const enabled = !!current() && !!sync;
+    const seconds = subtitleDelayForCurrent();
+    for (const id of ["subtitleDelayEarlier","subtitleDelayLater","subtitleDelayReset"])
+      byId(id).disabled = !enabled;
+    byId("subtitleDelayEarlier").disabled ||= seconds <= -30;
+    byId("subtitleDelayLater").disabled ||= seconds >= 30;
+    byId("subtitleDelayReset").disabled ||= seconds === 0;
+    byId("subtitleDelayValue").textContent = sync ?
+      sync.displayDelay(seconds, document.documentElement.lang) : "0.00 s";
+  };
+  const applySubtitleDelayToText = () => {
+    if (!sync) return;
+    const delay = subtitleDelayForCurrent();
+    for (const track of subtitleTracks()) sync.shiftTextTrack(track,delay);
+  };
   const subtitleIsOn = () => !!state.activePgsTrack ||
     state.activeEmbeddedTrack !== null || state.mkvSubtitlePending ||
     subtitleTracks().some(track => track.mode === "showing");
@@ -218,6 +243,7 @@
       detected ? "Subtitles off · " + detected + " embedded MKV track" +
         (detected === 1 ? "" : "s") + " found" : "Subtitles off";
     updateSubtitleToggle();
+    updateSubtitleDelayControls();
   };
   const applySubtitlePreference = () => {
     const tracks = subtitleTracks(), pref = state.subtitlePreference;
@@ -229,6 +255,7 @@
       try { track.mode = track === selection ? "showing" : "disabled"; }
       catch (_) { /* Read-only subtitle tracks cannot be changed. */ }
     });
+    applySubtitleDelayToText();
     updateSubtitleStatus();
   };
   const chooseSubtitleTrack = track => {
@@ -272,7 +299,7 @@
       if (pgsCanvas) pgsCanvas.hidden = true;
       return;
     }
-    const frame = api.frameAt(events,media.currentTime);
+    const frame = api.frameAt(events,media.currentTime - subtitleDelayForCurrent());
     if (!frame || (frame.regions && !frame.regions.length)) { pgsCanvas.hidden = true; return; }
     try {
       if (state.pgsLastFrame !== frame) {
@@ -1938,6 +1965,29 @@
     if (subtitleSection) subtitleSection.click();
     else fitContextMenu();
   });
+  // Shift playback subtitle timing without changing video/audio or media files.
+  const setSubtitleDelay = seconds => {
+    const item = current();
+    if (!item || !sync) return;
+    const next = sync.clampDelay(seconds);
+    if (next) subtitleDelays[item.key] = next;
+    else delete subtitleDelays[item.key];
+    const keys = Object.keys(subtitleDelays);
+    if (keys.length > 160) keys.slice(0, keys.length - 160)
+      .forEach(key => delete subtitleDelays[key]);
+    write(store.subtitleDelays, subtitleDelays);
+    applySubtitleDelayToText();
+    state.pgsLastFrame = null;
+    syncPgsOverlay();
+    updateSubtitleDelayControls();
+  };
+  byId("subtitleDelayEarlier").addEventListener("click",
+    () => setSubtitleDelay(subtitleDelayForCurrent() - 0.25));
+  byId("subtitleDelayLater").addEventListener("click",
+    () => setSubtitleDelay(subtitleDelayForCurrent() + 0.25));
+  byId("subtitleDelayReset").addEventListener("click",
+    () => setSubtitleDelay(0));
+
   // One-click embedded subtitles. Never invokes the external SRT picker.
   byId("subtitleToggle").addEventListener("click", () => {
     const item = current();

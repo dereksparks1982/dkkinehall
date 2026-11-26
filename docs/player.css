@@ -582,3 +582,11 @@ html.dk-desktop-fullscreen body {
 .subtitle-toggle:hover:not(:disabled){background:#87323c}
 .subtitle-toggle[aria-pressed="true"]{background:#b9323b;border-color:#f65c68;color:#fff}
 .subtitle-toggle:disabled{opacity:.45}
+
+/* Subtitle synchronization: − earlier, + later, reset to original timing. */
+.subtitle-sync-controls{display:inline-flex;align-items:center;flex-wrap:wrap;gap:6px;color:var(--muted)}
+.subtitle-delay-caption{font-size:.78rem;font-weight:700;white-space:nowrap}
+.subtitle-sync-button{min-width:32px;min-height:33px;padding:4px 8px;font-weight:800;color:#f5cbcd}
+.subtitle-delay-value{display:inline-block;min-width:58px;text-align:center;font-size:.79rem;font-variant-numeric:tabular-nums;color:#f2e5e5;white-space:nowrap}
+.subtitle-delay-reset{min-height:33px;padding:4px 9px;font-size:.76rem}
+@media(max-width:640px){.subtitle-sync-controls{gap:4px}.subtitle-delay-value{min-width:54px}}

@@ -13,6 +13,7 @@ const http=require("node:http");
 const crypto=require("node:crypto");
 const {spawn}=require("node:child_process");
 const {app,ipcMain}=require("electron");
+const {capabilityFromEncoders,chooseOutput}=require("./codec-policy.cjs");
 
 const BIND_ADDRESS="127.0.0.1";
 const MAX_PROBE_OUTPUT=512*1024;
@@ -82,15 +83,8 @@ async function status() {
     return {ready:false,reason:"Bundled FFmpeg/FFprobe are missing"};
   try {
     const encoders=await processOutput(ffmpeg,["-hide_banner","-encoders"]);
-    const hasH264=/(?:^|\n)\s*V\S*\s+libx264\s/m.test(encoders);
-    const hasAAC=/(?:^|\n)\s*A\S*\s+aac\s/m.test(encoders);
-    if(!hasH264||!hasAAC) return {ready:false,
-      reason:"Bundled FFmpeg lacks H.264 or AAC encoders"};
     await processOutput(ffprobe,["-version"],8000);
-    const webm=/(?:^|\n)\s*V\S*\s+libvpx-vp9\s/m.test(encoders) &&
-      /(?:^|\n)\s*A\S*\s+libopus\s/m.test(encoders);
-    availability={ready:true,engine:"bundled FFmpeg",
-      output:"fragmented MP4",webm};
+    availability=capabilityFromEncoders(encoders);
     return availability;
   }catch(error){
     return {ready:false,reason:String(error.message||error).slice(0,200)};
@@ -196,8 +190,14 @@ function serve(req,res) {
       "-b:v","0","-crf","33","-c:a","libopus","-b:a","160k",
       "-f","webm","pipe:1");
   }else{
-    args.push("-c:v","libx264","-preset","veryfast","-crf","23",
-      "-pix_fmt","yuv420p","-g","48","-c:a","aac","-b:a","160k",
+    // Prefer an LGPL-compatible OpenH264 build when supplied. libx264
+    // carries GPL obligations and must never be silently mandatory.
+    if(active.encoder==="libopenh264")
+      args.push("-c:v","libopenh264","-b:v","2400k");
+    else
+      args.push("-c:v","libx264","-preset","veryfast","-crf","23");
+    args.push("-pix_fmt","yuv420p","-g","48",
+      "-c:a","aac","-b:a","160k",
       "-movflags","+frag_keyframe+empty_moov+default_base_moof",
       "-frag_duration","1000000","-f","mp4","pipe:1");
   }
@@ -233,12 +233,10 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="mp4",audioIndex=0) {
+async function start(localPath,offset=0,format="auto",audioIndex=0) {
   const info=await probe(localPath);
-  if(format==="webm" && !(await status()).webm)
-    throw new Error("This bundled decoder cannot create WebM streams");
-  if(!["mp4","webm"].includes(format))
-    throw new Error("Unsupported streaming output format");
+  const available=await status();
+  const selectedFormat=chooseOutput(available,format);
   const target=selectedFile(localPath);
   const chosen=Number(audioIndex);
   const audioOrdinal=Number.isInteger(chosen)&&chosen>=0 &&
@@ -249,8 +247,9 @@ async function start(localPath,offset=0,format="mp4",audioIndex=0) {
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,position,format,audioOrdinal,process:null,response:null};
-  return {...info,position,
+  session={token,path:target,position,format:selectedFormat,
+    encoder:available.h264Encoder,audioOrdinal,process:null,response:null};
+  return {...info,position,format:selectedFormat,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }
 function onlyWindow(event) {

@@ -58,6 +58,11 @@
     "Included decoder output could not be played.":"Не удалось воспроизвести результат встроенного декодера.",
     "This media format could not be decoded.":"Не удалось декодировать этот формат медиа.",
     "Bundled native decoder":"Встроенный декодер",
+    "Bundled decoder cannot create the selected MP4 output":"Встроенный декодер не может создать выбранный формат МП4",
+    "Bundled decoder cannot create the selected WebM output":"Встроенный декодер не может создать выбранный формат ВебМ",
+    "Bundled decoder has no usable video/audio streaming output":"Во встроенном декодере нет доступного формата видеопотока или звука",
+    "Bundled decoder is unavailable":"Встроенный декодер недоступен",
+    "Unsupported streaming output format":"Неподдерживаемый формат видеопотока",
     "Preparing included codecs":"Подготовка встроенных кодеков",
     "Requested playback format":"Выбранный формат воспроизведения",
     "Actual playback method":"Применённый способ воспроизведения",
@@ -378,7 +383,8 @@
     if (translated === null && (m = /^Cannot read this subtitle track: (.+)$/.exec(plain)))
       translated = "Не удалось прочитать дорожку субтитров: " + m[1];
     if (translated === null && (m = /^Included codec playback failed: (.+)$/.exec(plain)))
-      translated = "Не удалось воспроизвести встроенным декодером: " + m[1];
+      translated = "Не удалось воспроизвести встроенным декодером: " +
+        (exact(m[1]) || m[1]);
     if (translated === null && (m = /^This MKV video codec is not supported: (.+)\.$/.exec(plain)))
       translated = "Этот видеокодек МКВ не поддерживается: " + m[1] + ".";
     if (translated === null && (m = /^Couldn't decode VobSub subtitles: (.+)$/.exec(plain)))

@@ -32,6 +32,7 @@ class CodecBundle:
         required=[
             self.sources/"codec-host.cjs",
             self.sources/"codec-preload.cjs",
+            self.sources/"codec-policy.cjs",
             self.bundle/"bin/ffmpeg",
             self.bundle/"bin/ffprobe",
             self.bundle/"CODECS_INCLUDED.txt",
@@ -51,6 +52,8 @@ class CodecBundle:
         self.extra={
             HOST:self.sources/"codec-host.cjs",
             PRELOAD:self.sources/"codec-preload.cjs",
+            "resources/app/desktop/codec-policy.cjs":
+                self.sources/"codec-policy.cjs",
         }
         for p in sorted(self.bundle.rglob("*")):
             if not p.is_file() or p.is_symlink():continue

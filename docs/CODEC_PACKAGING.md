@@ -26,6 +26,10 @@ The native Qt/libmpv prototype can probe uncommon explicitly selected formats an
 
 The Qt/libmpv prototype's TVmaze lookup code is a separate, optional metadata path and is not itself a codec, decoder or guarantee of playback. Media bytes stay local. The eventual approved standalone decoder must run inside the existing interface; it cannot be replaced by an alternative player window.
 
+## Codec output and redistribution policy
+
+A license-compatible baseline can use `libvpx-vp9` and `libopus` for WebM output without requiring GPL-linked `libx264`. H.264/AAC output is optional and must be present in the actual package inventory. When MP4/H.264 is explicitly chosen but no encoder is bundled, playback must report that format as unavailable, not silently switch output formats. **Automatic** mode may select WebM when MP4 is unavailable. WebM real-time transcoding can be CPU-intensive on the Surface Pro, and no performance guarantee is made before actual playback validation. Licenses, patent obligations and redistribution notices must match the shipped codec binaries.
+
 ## Actual native bundle inventory
 
 Native packaging source now copies build-provided `ffmpeg` and `ffprobe` executables into the portable bundle, recursively bundles their linked libraries, and records `CODECS_INCLUDED.txt`, `CONTAINERS_INCLUDED.txt` and `FFMPEG_CONFIGURATION.txt`. The user is not asked to install them. The inventory identifies the capabilities of a particular build, but still needs playback verification and integration underneath the approved Chromium-based interface.

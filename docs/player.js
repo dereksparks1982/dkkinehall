@@ -938,7 +938,8 @@
         current().codecRestart=false;
         current().codecAttempted=true;
         void codecPlayback.start(current(),0,true,
-          current().requestedFormat==="webm"?"webm":"mp4");
+          ["mp4","webm"].includes(current().requestedFormat)?
+          current().requestedFormat:"auto");
         return;
       }
       try { media.currentTime = 0; } catch (_) {}
@@ -1177,7 +1178,8 @@
       if(ordinal>=0)item.codecAudioIndex=ordinal;
     }
     return codecPlayback.start(item,at,Boolean(item.autoplayRequested),
-      item.requestedFormat==="webm"?"webm":"mp4");
+      ["mp4","webm"].includes(item.requestedFormat)?
+          item.requestedFormat:"auto");
   };
   const releaseCompatible = item => {
     if(item?.remuxAbort){
@@ -1836,7 +1838,8 @@
       state.stopped = false;
       if(codecPlayback?.isActive(completed)) {
         void codecPlayback.start(completed,0,true,
-          completed.requestedFormat==="webm"?"webm":"mp4",
+          ["mp4","webm"].includes(completed.requestedFormat)?
+          completed.requestedFormat:"auto",
           completed.codecAudioIndex||0);
       }else{
         try { media.currentTime = 0; } catch (_) {}
@@ -2116,7 +2119,8 @@
         write(store.audioPreferences,state.audioPreferences);
       }
       void codecPlayback.start(item,playbackSeconds(),!media.paused,
-        item.requestedFormat==="webm"?"webm":"mp4",ordinal);
+        ["mp4","webm"].includes(item.requestedFormat)?
+          item.requestedFormat:"auto",ordinal);
       return;
     }
     if (!mkvAudio || !mkvAudio.canAttempt(track)) return;
@@ -2302,7 +2306,8 @@
               write(store.audioPreferences,state.audioPreferences);
             }
             void codecPlayback.start(item,playbackSeconds(),!media.paused,
-              item.requestedFormat==="webm"?"webm":"mp4",index);
+              ["mp4","webm"].includes(item.requestedFormat)?
+          item.requestedFormat:"auto",index);
           },
           {checked:(item.codecAudioIndex||0)===index}
         ));

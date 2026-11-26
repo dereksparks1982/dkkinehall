@@ -16,8 +16,9 @@ separate license terms of the third-party runtime.
 ## Native codec components under development
 
 The planned standalone codec bridge can bundle independent FFmpeg, FFprobe,
-libavcodec/libavformat/libavutil and third-party codec libraries including
-libx264, libvpx and libopus. Actual redistribution rights depend on the
+libavcodec/libavformat/libavutil and third-party codec libraries such as
+libvpx and libopus. GPL-linked libx264 is optional, not a mandatory
+dependency of the standalone decoding bridge. Actual redistribution rights depend on the
 specific compiled binaries. Native packages must carry applicable third-party
 licenses plus accurate FFmpeg build flags and decoder/encoder inventories.
 DK Softworks' sale restrictions do not replace those third-party licenses.

@@ -36,7 +36,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
       try{await bridge.stop();}catch(_){}
     });
   };
-  async function start(item,offset=0,autoplay=true,format="mp4",
+  async function start(item,offset=0,autoplay=true,format="auto",
                        audioIndex=item?.codecAudioIndex||0){
     if(!item?.file||current()!==item)return false;
     const token=++generation;
@@ -55,6 +55,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
           duration:result.duration===null||result.duration===undefined?
             null:(Number.isFinite(Number(result.duration))?Number(result.duration):null)};
         item.playbackMethod="Bundled native decoder";
+        item.nativeOutputFormat=result.format||format;
         item.nativeAudioTracks=Array.isArray(result.audioTracks)?
           result.audioTracks:[];
         item.nativeSubtitleTracks=Array.isArray(result.subtitleTracks)?
@@ -109,7 +110,9 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
     const position=Math.max(0,Number.isFinite(limit)?
       Math.min(limit-0.25,Number(seconds)||0):Number(seconds)||0);
     const playing=!media.paused;
-    return start(item,position,playing,item.requestedFormat==="webm"?"webm":"mp4",
+    return start(item,position,playing,
+      ["mp4","webm"].includes(item.requestedFormat)?
+        item.requestedFormat:"auto",
       item.codecAudioIndex||0);
   };
   return {start,seek,stop,isActive,position,duration,offset};

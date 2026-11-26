@@ -151,6 +151,7 @@ def sync(root, codec_source=None):
                 assert b'codec-host.cjs' in archive.extractfile(
                     "./resources/app/desktop/library-host.cjs").read()
                 assert archive.extractfile("./resources/app/desktop/codec-host.cjs").read()
+                assert archive.extractfile("./resources/app/desktop/codec-policy.cjs").read()
                 assert archive.extractfile("./resources/app/bin/ffmpeg").read(4) == b"\x7fELF"
                 assert archive.extractfile("./resources/app/bin/ffprobe").read(4) == b"\x7fELF"
         new_sha = sha(updated)

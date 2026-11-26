@@ -2599,15 +2599,40 @@
     };
     const nodes=(root,name)=>Array.from(root.getElementsByTagNameNS("*",name));
     const first=(root,name)=>nodes(root,name)[0]?.textContent?.trim()||"";
+    const makeNetworkItem=(grant,name,audio)=>({kind:"network",networkToken:grant.token,key:"network:"+grant.token,
+      name:String(name||"Network media").slice(0,250),audio,src:grant.src,
+      embeddedSubtitles:[],embeddedAudio:[],embeddedVideo:[],chapters:[],mkvInspection:"not-mkv"});
+    const queuePage=async(serverId,entries)=>{
+      if(opening||!entries.length)return;
+      opening=true;const epoch=generation,staged=[];
+      const valid=()=>dlg.open&&epoch===generation;
+      try{
+        say("Adding network media to queue…");
+        for(const entry of entries){
+          if(!valid())return;
+          const grant=await bridge.networkGrant(serverId,entry.address);
+          staged.push(makeNetworkItem(grant,entry.name,entry.audio));
+          if(!valid())return;
+        }
+        // Publish only after every grant succeeded; partial failures or
+        // navigation cancel the entire batch and release staged grants.
+        state.queue.push(...staged);
+        staged.length=0;
+        renderQueue();updateButtons();
+        settingsDetails.open=false;dlg.close();
+      }catch(_){if(valid())say("Cannot add this page to the queue.");}
+      finally{
+        for(const item of staged)void bridge.networkRelease(item.networkToken).catch(()=>{});
+        opening=false;
+      }
+    };
     const addNetwork=async(serverId,address,name,audio=false)=>{
       if(opening)return;opening=true;const epoch=generation;
       try{
         say("Opening network media…");
         const grant=await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
-        const item={kind:"network",networkToken:grant.token,key:"network:"+grant.token,
-          name:String(name||"Network media").slice(0,250),audio,src:grant.src,
-          embeddedSubtitles:[],embeddedAudio:[],embeddedVideo:[],chapters:[],mkvInspection:"not-mkv"};
+        const item=makeNetworkItem(grant,name,audio);
         if(queueOnly.checked&&state.queue.length){state.queue.push(item);renderQueue();}
         else{
           const index=state.current<0?state.queue.length:state.current+1;
@@ -2668,6 +2693,7 @@
         if(!dlg.open||epoch!==generation)return;
         say(folder.name);
         results.append(makeButton(trail.length>1?"Parent folder":"Back to servers",()=>trail.length>1?void browse(ctx,trail.slice(0,-1),0):void showServers()));
+        const page=[],seenAddresses=new Set();
         for(const element of Array.from(doc.documentElement.children).slice(0,100)){
           const id=element.getAttribute("id"),name=first(element,"title").slice(0,250)||translate("Untitled");
           if(element.localName==="container"&&id!==null){
@@ -2675,11 +2701,25 @@
           }
           if(element.localName!=="item")continue;
           const cls=first(element,"class");
-          const resource=nodes(element,"res").find(r=>/^http-get:[^:]*:(video\/|audio\/|application\/octet-stream)/i.test(r.getAttribute("protocolInfo")||"")&&r.textContent.trim());
-          if(!resource||!/^object\.item\.(videoItem|audioItem)/i.test(cls))continue;
-          let address;try{address=new URL(resource.textContent.trim(),ctx.base).href;}catch(_){continue;}
-          results.append(makeButton("▶ "+name,()=>void addNetwork(ctx.id,address,name,/audioItem/i.test(cls))));
+          if(!/^object\.item\.(videoItem|audioItem)/i.test(cls))continue;
+          // DLNA items may offer several renditions. Prefer a resource
+          // Chromium reports as playable, never cross the server host.
+          const resources=nodes(element,"res").flatMap(r=>{
+            const match=/^http-get:[^:]*:((?:video\/|audio\/|application\/octet-stream)[^:]*):/i.exec(r.getAttribute("protocolInfo")||"");
+            if(!match||!r.textContent.trim())return [];
+            try{
+              const url=new URL(r.textContent.trim(),ctx.base);
+              if(!["http:","https:"].includes(url.protocol)||url.hostname!==new URL(ctx.control).hostname||url.username||url.password||url.hash)return [];
+              const support=media.canPlayType(match[1]);
+              return [{address:url.href,rank:support==="probably"?2:support==="maybe"?1:0}];
+            }catch(_){return [];}
+          }).sort((a,b)=>b.rank-a.rank);
+          if(!resources.length)continue;
+          const address=resources[0].address,audio=/audioItem/i.test(cls);
+          if(!seenAddresses.has(address)){page.push({address,name,audio});seenAddresses.add(address);}
+          results.append(makeButton("▶ "+name,()=>void addNetwork(ctx.id,address,name,audio)));
         }
+        if(page.length)results.prepend(makeButton("Add this page to queue",()=>void queuePage(ctx.id,page)));
         const count=Number(first(soap,"NumberReturned")),total=Number(first(soap,"TotalMatches"));
         if(start>0)results.append(makeButton("Previous page",()=>void browse(ctx,trail,Math.max(0,start-100))));
         if(count>0&&Number.isFinite(total)&&start+count<total)results.append(makeButton("Next page",()=>void browse(ctx,trail,start+count)));

@@ -80,6 +80,7 @@ async function operation(table,mode,action) {
 const get=(table,key)=>operation(table,"readonly",s=>s.get(key));
 const list=table=>operation(table,"readonly",s=>s.getAll());
 const put=(table,row)=>operation(table,"readwrite",s=>s.put(row));
+const erase=(table,key)=>operation(table,"readwrite",s=>s.delete(key));
 async function putBatch(table,rows){
   if(!rows.length)return;
   const db=await open();
@@ -167,7 +168,7 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
   // avoids repeatedly loading every film across different folders.
   const old=await folderEntries(folder.id);
   const existing=new Map(old.map(row=>[row.id,row]));
-  const seen=new Set(),pending=[];
+  const seen=new Set(),pending=[],newRows=[];
   const work=[{handle:folder.handle,path:"",depth:0}];
   let visits=0,added=0,updated=0,missing=0;
   let complete=true;
@@ -207,7 +208,8 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
           lastPlayed:previous?.lastPlayed||0,completed:previous?.completed||false
         };
         pending.push(row);
-        if(previous)updated++;else added++;
+        if(previous)updated++;
+        else {added++;newRows.push(row);}
         if(pending.length>=80){
           await putBatch("entries",pending.splice(0));
           onProgress({folder:folder.name,visits,added,updated,missing});
@@ -225,10 +227,46 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
   }
   if(pending.length)await putBatch("entries",pending);
   if(complete){
+    // Reconcile true renames without reading movie bytes: unchanged size
+    // AND modification time must uniquely match a missing original and a
+    // new discovery. Ambiguous duplicate files are never auto-merged.
     const vanished=old.filter(row=>!seen.has(row.id)&&!row.missing);
-    missing=vanished.length;
-    for(let i=0;i<vanished.length;i+=80)
-      await putBatch("entries",vanished.slice(i,i+80).map(row=>({...row,missing:true})));
+    const identity=row=>String(row.size)+":"+String(row.modified);
+    const oldMatches=new Map(),newMatches=new Map();
+    for(const row of vanished){
+      const key=identity(row);
+      oldMatches.set(key,[...(oldMatches.get(key)||[]),row]);
+    }
+    for(const row of newRows){
+      const key=identity(row);
+      newMatches.set(key,[...(newMatches.get(key)||[]),row]);
+    }
+    const renamedIds=new Set();
+    for(const [key,discovered] of newMatches){
+      const previous=oldMatches.get(key)||[];
+      if(previous.length!==1||discovered.length!==1)continue;
+      const from=previous[0],to=discovered[0];
+      const merged={...to,
+        position:from.position||0,duration:from.duration||0,
+        lastPlayed:from.lastPlayed||0,completed:from.completed||false,
+        renamedFrom:from.relative};
+      await put("entries",merged);
+      // An unambiguous rename is the same video, not a deleted movie.
+      // Remove only the superseded catalog row, never the media file.
+      await erase("entries",from.id);
+      const poster=await artwork(from.id);
+      if(poster?.blob){
+        await saveArtwork(to.id,poster.blob,poster.credit||"");
+        await erase("art",from.id);
+      }
+      renamedIds.add(from.id);
+      added--;updated++;
+    }
+    const trulyMissing=vanished.filter(row=>!renamedIds.has(row.id));
+    missing=trulyMissing.length;
+    for(let i=0;i<trulyMissing.length;i+=80)
+      await putBatch("entries",trulyMissing.slice(i,i+80)
+        .map(row=>({...row,missing:true})));
   }
   folder.lastScan=Date.now();
   folder.lastScanPartial=!complete;

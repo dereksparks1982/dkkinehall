@@ -16,6 +16,7 @@ function attach({screen,button,onResize=()=>{}}){
   const normalLimit=()=>{
     const width=availableWidth();
     const gap=Number.parseFloat(getComputedStyle(grid).columnGap)||19;
+    if(innerWidth<=970)return width;
     const sidebarWidth=305;
     return Math.max(Math.min(300,width),width-sidebarWidth-gap);
   };
@@ -47,8 +48,10 @@ function attach({screen,button,onResize=()=>{}}){
   let saved={};
   try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{};}catch(_){}
   let floating=false;
-  let dockWidth=Number(saved.dockWidth)||0;
-  expanded=Boolean(saved.expanded&&dockWidth&&grid&&sidebar);
+  // Standalone opens fully docked at the current column width every launch.
+  // Pixel widths from an older or smaller display must not shrink the default.
+  let dockWidth=nativeDock?0:Number(saved.dockWidth)||0;
+  expanded=Boolean(!nativeDock&&saved.expanded&&dockWidth&&grid&&sidebar);
   let floatWidth=Number(saved.floatWidth)||560;
   let floatHeight=Number(saved.floatHeight)||315;
   let left=Number.isFinite(saved.left)?saved.left:48;
@@ -56,7 +59,8 @@ function attach({screen,button,onResize=()=>{}}){
   const notify=()=>requestAnimationFrame(onResize);
   const save=()=>{
     try{localStorage.setItem(KEY,JSON.stringify({
-      dockWidth,floatWidth,floatHeight,left,top,floating,expanded
+      dockWidth:nativeDock?0:dockWidth,floatWidth,floatHeight,left,top,
+      floating:nativeDock?false:floating,expanded:nativeDock?false:expanded
     }));}catch(_){}
   };
   function layout(){
@@ -164,11 +168,15 @@ function attach({screen,button,onResize=()=>{}}){
       else if(expanded&&dockWidth<=limit)expanded=false;
       screen.classList.add("dk-sized");layout();
     });
-    edge.addEventListener("dblclick",event=>event.stopPropagation());
+    edge.addEventListener("dblclick",event=>{
+      event.stopPropagation();
+      if(floating)return;
+      dockWidth=0;expanded=false;screen.classList.remove("dk-sized");layout();save();
+    });
   }
   for(const element of [handle,corner])element.addEventListener("dblclick",e=>e.stopPropagation());
   window.addEventListener("resize",layout);
-  if(dockWidth||saved.floating)toggle(Boolean(saved.floating));
+  if(!nativeDock&&(dockWidth||saved.floating))toggle(Boolean(saved.floating));
   else layout();
   return {toggle,isFloating:()=>floating,layout};
 }

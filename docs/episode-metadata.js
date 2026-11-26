@@ -54,6 +54,8 @@
    const withoutTags=text.replace(/\s+(?:2160p|1080p|720p|480p|4k|uhd|hdr10?|dv|bluray|blu ray|brrip|bdrip|dvdrip|webrip|web dl|web rip|h26[45]|x26[45]|hevc|av1|ddp|dts|aac|ac3)(?:\b.*)?$/i,"").trim();
    const movie=/^(.+?)\s+((?:19|20)\d{2})(?:\s|$)/.exec(withoutTags);
    let title=movie?movie[1].trim():withoutTags;
+   // Collection labels are not part of the canonical film title.
+   title=title.replace(/^007\s+James\s+Bond\s*[:\-–—]?\s+/i,"").trim();
    if(title.length<2)return null;
    return {type:"movie",title:title.slice(0,120),year:movie?Number(movie[2]):null};
  }
@@ -143,6 +145,25 @@
      "/400x600bb$1");
    return allowedImage(large,"Apple");
  }
+ function detailText(value,max=4000){
+   return typeof value==="string"?value.replace(/\s+/g," ").trim().slice(0,max):"";
+ }
+ function detailNames(value){
+   const list=Array.isArray(value)?value:typeof value==="string"?value.split(","):[];
+   return [...new Set(list.map(v=>detailText(v,100)).filter(Boolean))].slice(0,24);
+ }
+ function movieDetails(row,provider){
+   const runtime=provider==="Apple"?Math.round(Number(row.trackTimeMillis)/60000):
+     parseInt(String(row.runtime||""),10);
+   return {
+     description:detailText(row.description||row.longDescription||row.shortDescription),
+     genres:detailNames(row.genres||row.genre||row.primaryGenreName),
+     cast:detailNames(row.cast||row.actors),
+     directors:detailNames(row.director||row.directors||(provider==="Apple"?row.artistName:null)),
+     runtime:Number.isFinite(runtime)&&runtime>0&&runtime<1500?runtime:null,
+     rating:detailText(row.imdbRating||row.contentAdvisoryRating,40)
+   };
+ }
  function pickAppleMovie(info,rows){
    const title=normalize(info.title);
    const candidates=(Array.isArray(rows)?rows:[]).filter(row=>{
@@ -158,24 +179,25 @@
      String(row.releaseDate||"").slice(0,4)===String(year)):[];
    const chosen=year?(dated[0]||(
      candidates.length===1&&!candidates[0].releaseDate?candidates[0]:null)):
-     candidates[0];
+     (candidates.length===1?candidates[0]:null);
    if(!chosen)return null;
    return {type:"movie",still:applePoster(chosen.artworkUrl100),series:null,
      title:chosen.trackName||info.title,year:Number(String(chosen.releaseDate||"").slice(0,4))||info.year,provider:"Apple",
+     details:movieDetails(chosen,"Apple"),
      credit:allowedCredit(chosen.trackViewUrl,"Apple")||"https://itunes.apple.com"};
  }
  function pickCinemetaMovie(info,metas){
    const title=normalize(info.title);
    const matches=(Array.isArray(metas)?metas:[]).filter(row=>
-     row&&normalize(row.name||"")===title &&
-     allowedImage(row.poster,"Cinemeta"));
+     row&&normalize(row.name||"")===title);
    const year=Number(info.year)||null;
    const sameYear=year?matches.filter(row=>String(row.year||"")===String(year)):[];
    const chosen=year?(sameYear[0]||(
-     matches.length===1&&!matches[0].year?matches[0]:null)):matches[0];
+     matches.length===1&&!matches[0].year?matches[0]:null)):(matches.length===1?matches[0]:null);
    if(!chosen)return null;
    const id=/^tt\d{6,11}$/.test(String(chosen.id||""))?chosen.id:null;
-   return {type:"movie",still:allowedImage(chosen.poster,"Cinemeta"),
+   return {type:"movie",still:allowedImage(chosen.poster,"Cinemeta")||(id?"https://images.metahub.space/poster/medium/"+id+"/img":null),
+     imdbId:id,details:movieDetails(chosen,"Cinemeta"),
      series:null,title:chosen.name||info.title,year:Number(String(chosen.year||"").slice(0,4))||info.year,provider:"Cinemeta",
      credit:id?"https://www.imdb.com/title/"+id+"/":null};
  }
@@ -184,7 +206,7 @@
                   appleSearch=typeof document!=="undefined"?appleJSONP:null,
                   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}){
    const searchTV=new Map(),episodesTV=new Map();
-   const searchTM=new Map(),searchApple=new Map(),searchCinema=new Map();
+   const searchTM=new Map(),searchApple=new Map(),searchCinema=new Map(),movieDetailCache=new Map();
    let appleGate=Promise.resolve(),lastAppleRequest=0;
    const queuedApple = url => {
      const task=appleGate.catch(()=>{}).then(async()=>{
@@ -327,6 +349,22 @@
      }
      return searchCinema.get(key);
    }
+   async function enrichMovie(data){
+     if(!data?.imdbId)return data;
+     const id=data.imdbId;
+     if(!movieDetailCache.has(id)){
+       movieDetailCache.set(id,request(CINEMETA+"/meta/movie/"+id+".json")
+         .then(body=>body?.meta?.id===id?body.meta:null));
+     }
+     const meta=await movieDetailCache.get(id);
+     if(!meta)return data;
+     const extra=movieDetails(meta,"Cinemeta");
+     const merged={...data.details};
+     for(const [key,value] of Object.entries(extra)){
+       if(Array.isArray(value)?value.length:value)merged[key]=value;
+     }
+     return {...data,details:merged,still:allowedImage(meta.poster,"Cinemeta")||data.still};
+   }
    async function appleMovie(info){
      const key=normalize(info.title)+":"+(info.year||"");
      if(!searchApple.has(key)){
@@ -363,7 +401,8 @@
        data.still?{url:data.still,kind:"Thumb"}:
        data.series?{url:data.series,kind:"Thumb"}:null;
      return picked?{url:picked.url,kind:picked.kind,provider:data.provider,
-       credit:data.credit,title:data.title,year:data.year||null,
+       credit:data.credit,title:data.title,year:data.year||null,details:data.details,
+       seriesUrl:data.series||null,
        fallbackUrl:data.series&&data.series!==picked.url?data.series:null}:null;
    }
    async function find(filename,options={}){
@@ -379,8 +418,11 @@
          if(tm)return tm;
        }
        if(!excluded.has("Cinemeta")){
-         const cinema=choose(await cinemetaMovie(info));
+         let data=await cinemetaMovie(info);
+         if(options.details&&data)data=await enrichMovie(data);
+         const cinema=choose(data);
          if(cinema)return cinema;
+         if(options.details&&data)return {title:data.title,year:data.year,provider:data.provider,credit:data.credit,details:data.details,url:null};
        }
        return excluded.has("Apple")?null:choose(await appleMovie(info));
      }
@@ -407,7 +449,7 @@
      return null;
    }
    function clear(){
-     searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();searchCinema.clear();
+     searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();searchCinema.clear();movieDetailCache.clear();
    }
    return {find,episodeTitle,clear};
  }

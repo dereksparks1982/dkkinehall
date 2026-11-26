@@ -8,6 +8,8 @@
 
 ## v0.9.3 installed update
 
+**Resize handle:** In the standalone docked player, the original grip is positioned at the bottom-right edge of the entire player panel, beneath the video, playback controls and media information. Dragging resizes the panel width while retaining the video aspect ratio. Floating-player resizing and fullscreen behavior remain unchanged.
+
 **Playback settings:** The standalone settings panel has a red × in its upper-right corner to close the panel and return focus to the existing gear. No playback icon artwork or application branding changes.
 
 For updates to an existing installation, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It reuses locally installed FFmpeg/FFprobe; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Player, Library and Scan Library use matching header button dimensions.

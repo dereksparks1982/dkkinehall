@@ -8,6 +8,8 @@
 
 ## v0.9.3 installed update
 
+**Approved chapter markers:** The standalone player removes the separate Chapters button and picker. Actual embedded chapter starts appear as thin white 1.5 × 5 px ticks inside the existing gold seek bar, with chapter name/time on hover and click-to-seek. MKV parsing and native FFprobe chapter data are merged without duplicates, including Original playback mode. Files with no readable chapter metadata show no markers. The hosted Web App retains its existing chapter controls.
+
 **Approved folder controls:** The Player sidebar uses a two-by-two grid of equal-sized buttons: Choose folder and Reopen folder on the first row, Forget folder and white Scan Library on the second. The three folder controls have brown backgrounds, gold borders and gold lettering. Reopen and Forget remain visible but disabled without a saved folder. Scan Library is removed from the Player header; the Library Home header remains unchanged.
 
 **Continue Watching:** Standalone library selections reuse the existing queue entry by library ID or native file identity, with an unambiguous file fingerprint fallback for manually opened files. Repeated selections are serialized, do not append duplicate entries, and resume the selected movie without rearranging the existing queue. Stop preserves the unfinished source position for Continue Watching; pressing Play directly after Stop still restarts the movie. Existing duplicate entries are not automatically deleted.

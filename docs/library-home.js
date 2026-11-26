@@ -58,8 +58,7 @@ const metadataFilename=row=>row.kind==="tv"&&
   row.series+".S"+String(row.season).padStart(2,"0")+
     "E"+String(row.episode).padStart(2,"0")+
     row.filename.slice(row.filename.lastIndexOf(".")):
-  row.kind==="movie"&&row.title&&row.year?
-    row.title.replace(/^(?:James\s+Bond\s+007|007\s+James\s+Bond)\s*[:\-–—]?\s+/i,"")+" ("+row.year+").mkv":row.filename;
+  row.filename;
 const mediaName=row=>row.kind==="tv"?
   row.series+" · "+formatCode(row)+
   (row.episodeTitle?" · "+row.episodeTitle:""):

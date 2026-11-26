@@ -1096,15 +1096,15 @@ html.dk-standalone .dk-eq-band output{
 }
 
 
-/* Approved standalone right-click palette. Stable section identifiers,
-   not translated captions, determine colour. All states retain geometry. */
+/* Standalone context menu: varied stable colours, no adjacent brown
+   top-level buttons even when Chapters is omitted. Hover is outline only. */
 html.dk-standalone .player-context-menu>.context-section-toggle[data-menu-section="Playback"]{
-  --dk-menu-fill:var(--dk-russian-red,#dc3942);--dk-menu-ink:#fff;--dk-menu-border:var(--dk-russian-red,#ef6268);
+  --dk-menu-fill:var(--dk-russian-red,#D52B1E);--dk-menu-ink:#fff;--dk-menu-border:var(--dk-russian-red,#D52B1E);
 }
-html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-section="Playback format"],[data-menu-section="Speed"],[data-menu-section="Picture"]){
+html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-section="Playback format"],[data-menu-section="Speed"]){
   --dk-menu-fill:#e2b956;--dk-menu-ink:#23171a;--dk-menu-border:#f2ce76;
 }
-html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-section="Subtitles"],[data-menu-section="Audio tracks"]),
+html.dk-standalone .player-context-menu>.context-section-toggle:is([data-menu-section="Subtitles"],[data-menu-section="Chapters"]),
 html.dk-standalone .player-context-menu>.dk-menu-information{
   --dk-menu-fill:#fff;--dk-menu-ink:#23171a;--dk-menu-border:#e7e2e2;
 }
@@ -1117,13 +1117,15 @@ html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-inf
   border-radius:var(--dk-button-radius);
   outline:none;box-shadow:none;
 }
-html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information):is(:hover,:active,:focus-visible,[aria-expanded="true"]){
+html.dk-standalone .player-context-menu>button:is(.context-section-toggle,.dk-menu-information):is(:hover,:active,:focus-visible,[aria-expanded="true"]){
   background:var(--dk-menu-fill,#462a25);color:var(--dk-menu-ink,#e2b956);
-  border-color:var(--dk-menu-border,#a58039);
-  box-shadow:inset 0 0 0 1px rgba(70,42,37,.4);
+  border-color:var(--dk-menu-border,#a58039);box-shadow:none;
 }
-html.dk-standalone .player-context-menu>:is(.context-section-toggle,.dk-menu-information):focus-visible{
-  outline:2px solid currentColor;outline-offset:-4px;
+html.dk-standalone .player-context-menu button:is(.context-section-toggle,.dk-menu-information,.context-item):not(:disabled):is(:hover,:focus-visible){
+  outline:2px solid currentColor;outline-offset:-4px;box-shadow:none;
+}
+html.dk-standalone .player-context-menu .context-section-items button.context-item:not(:disabled):is(:hover,:active,:focus-visible){
+  background:var(--dk-button-bg);color:#fff;
 }
 html.dk-standalone .player-context-menu>.context-section-toggle::after{color:currentColor}
 html.dk-standalone .dk-audio-settings .dk-picture-adjustment input:disabled{

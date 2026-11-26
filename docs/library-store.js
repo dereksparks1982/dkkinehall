@@ -524,6 +524,17 @@ async function resolvePlaybackEntry(file,preferredId=null){
   const live=matches.filter(row=>row.source==="native"&&!row.missing);
   return live.length===1?live[0]:matches.length===1?matches[0]:null;
 }
+async function setContinueHidden(id,hidden=true){
+  const db=await open();let saved=false;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction("entries","readwrite"),object=tx.objectStore("entries");
+    const request=object.get(id);
+    request.onsuccess=()=>{const row=request.result;if(!row)return;object.put({...row,continueHidden:!!hidden});saved=true;};
+    tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Could not update Continue Watching"));
+  });
+  if(saved)changed({progress:true,id});
+  return saved;
+}
 async function updateProgress(id,position,duration,completed=false){
   // One read/write transaction prevents overlapping updates from separate
   // library/player windows clobbering a newer playback position.
@@ -603,7 +614,7 @@ async function saveArtwork(id,blob,credit=""){
 return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,reconcileNative,emptyTrash,removeEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setContinueHidden,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

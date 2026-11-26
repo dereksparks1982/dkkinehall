@@ -86,7 +86,17 @@ async function putBatch(table,rows){
   const db=await open();
   await new Promise((resolve,reject)=>{
     const tx=db.transaction(table,"readwrite"),s=tx.objectStore(table);
-    for(const row of rows)s.put(row);
+    for(const row of rows){
+      if(table!=="entries"){s.put(row);continue;}
+      // A scan may have started before the latest playback update.
+      // Preserve live history from within this same write transaction.
+      const request=s.get(row.id);
+      request.onsuccess=()=>{
+        const live=request.result;
+        s.put(live?{...row,position:live.position||0,duration:live.duration||0,
+          lastPlayed:live.lastPlayed||0,completed:!!live.completed}:row);
+      };
+    }
     tx.oncomplete=resolve;
     tx.onabort=()=>reject(tx.error||new Error("Library save failed"));
   });
@@ -400,7 +410,11 @@ async function reconcileNative(){
       const combine=()=>{
         if(++count!==2||!a.result||!b.result||b.result.missing)return;
         const from=a.result,to=b.result;
-        const recent=(from.lastPlayed||0)>(to.lastPlayed||0)?from:to;
+        let recent=(from.lastPlayed||0)>(to.lastPlayed||0)?from:to;
+        // A newly created zero-progress row is not evidence of completion.
+        const other=recent===from?to:from;
+        if(!recent.completed&&!(Number(recent.position)>2)&&
+          !other.completed&&Number(other.position)>2)recent=other;
         const updated={...to,position:recent.position||0,duration:recent.duration||to.duration||0,
           lastPlayed:recent.lastPlayed||0,completed:!!recent.completed};
         if(from.metadataVerified&&!to.metadataVerified){
@@ -491,9 +505,11 @@ async function updateProgress(id,position,duration,completed=false){
       const total=Number.isFinite(length)&&length>0?length:row.duration||0;
       // Never classify a stopped or just-opened short video as finished.
       // Completion requires a positive playback position near the end.
+      const standalone=typeof window!=="undefined"&&Boolean(window.DKLibraryBridge?.internalPages);
+      if(standalone&&!completed&&(!Number.isFinite(seconds)||progress<=2))return;
       const finishWindow=Math.min(12,total*0.05);
-      const done=Boolean(completed)||
-        (total>0&&progress>0&&progress>=Math.max(1,total-finishWindow));
+      const done=Boolean(completed)||(!standalone&&
+        (total>0&&progress>0&&progress>=Math.max(1,total-finishWindow)));
       object.put({...row,position:done?0:progress,duration:total,
         lastPlayed:Date.now(),completed:done});
       saved=true;

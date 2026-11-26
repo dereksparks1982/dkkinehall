@@ -745,3 +745,7 @@ html.dk-desktop-fullscreen body {
 .dk-window-nav{white-space:nowrap}
 .dk-window-nav svg{flex:none}
 #returnToLibrary.dk-window-nav{min-width:127px}
+
+/* Equal-sized desktop header navigation controls, including Scan Library. */
+#showPlayer.dk-window-nav,#returnToLibrary.dk-window-nav,.library-tools:has(#showPlayer) #scanLibrary{box-sizing:border-box;flex:0 0 auto;width:127px;min-width:127px;height:46px;min-height:46px;padding:10px 12px;white-space:nowrap}
+html[lang="ru"] #showPlayer.dk-window-nav,html[lang="ru"] #returnToLibrary.dk-window-nav,html[lang="ru"] .library-tools:has(#showPlayer) #scanLibrary{width:180px;min-width:180px}

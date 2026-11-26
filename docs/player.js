@@ -1615,6 +1615,11 @@
     await openLocalFiles("restore");
   });
   byId("openEmpty").addEventListener("click", () => { void openLocalFiles("open"); });
+  if(window.DKLibraryBridge?.nativeLibrary&&window.DKLibraryBridge?.showLibrary){
+    const button=byId("returnToLibrary");
+    button.classList.remove("ghost");button.classList.add("primary","dk-window-nav");
+    button.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5v15M9 5v15M14 5v15M18 5l3 14"/></svg><span>Library</span>';
+  }
   byId("returnToLibrary").addEventListener("click",()=>{
     if(window.DKLibraryBridge?.showLibrary) {
       void window.DKLibraryBridge.showLibrary();

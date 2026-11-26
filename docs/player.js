@@ -222,6 +222,7 @@
     byId("restoreHint").hidden = true;
   };
   const rememberSelectedMedia = item => {
+    if(item.file?.dvdToken)return; // Session-only disc selections do not replace the last local file.
     if (item.handle) {
       write(store.lastMedia, {kind: "file", name: item.name, key: item.key,libraryId:item.libraryId||null});
       updateStoredHandle(item.handle);
@@ -346,7 +347,7 @@
       if(item.libraryId)void catalog.updateProgress(item.libraryId,position,duration,completed).catch(()=>{});
       return;
     }
-    if(!item.file||item.audio)return;
+    if(!item.file||item.audio||item.file.dvdToken)return;
     item.historyWrites=(item.historyWrites||Promise.resolve()).catch(()=>{}).then(async()=>{
       const id=item.libraryId||item.file.nativeId;
       if(id&&await catalog.updateProgress(id,position,duration,completed)){
@@ -368,7 +369,7 @@
     if(state.stopped)return;
     const item = current();
     const duration=playbackDuration(),position=playbackSeconds();
-    if (!item || !Number.isFinite(duration) || duration <= 0) return;
+    if (!item || item.file?.dvdToken || !Number.isFinite(duration) || duration <= 0) return;
     if(window.DKLibraryBridge?.internalPages){
       // Never overwrite saved progress with an initializing decoder clock.
       if(!item.historyReady||media.readyState<2||media.seeking||
@@ -871,7 +872,7 @@
       let entries=usable?getChapterEntries().filter(ch=>ch.startTime>0&&ch.startTime<length):[];
       // Zero and the end of the video are implicit boundaries, not ticks.
       // Never persist synthetic chapters or mix them with embedded ones.
-      if(usable&&!item.audio&&!entries.length){
+      if(usable&&!item.audio&&!item.file?.dvdToken&&!entries.length){
         entries=Array.from({length:9},(_,i)=>({
           startTime:length*(i+1)/10,text:"Virtual chapter",virtual:true,number:i+2
         }));
@@ -1200,7 +1201,7 @@
     item.codecActive = false;
     item.codecRestart = false;
     item.compatPending = false;
-    item.requestedFormat = playbackSettings.format;
+    item.requestedFormat = item.file?.dvdToken?"auto":playbackSettings.format;
     item.deinterlaceMode=standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
     item.smoothingMode=standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
@@ -1218,7 +1219,7 @@
       /\.mkv$/i.test(item.name) && !!item.file && !item.file.nativeVirtual;
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     media.removeAttribute("crossorigin");
-    if (needsRemux || cannotConvert) {
+    if (item.file?.dvdToken || needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");
     } else {
@@ -1251,6 +1252,16 @@
     status("");
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
+    if(item.file?.dvdToken){
+      const epoch=item.playbackEpoch;
+      item.deinterlacePending=true;
+      void tryNativeCodec(item).then(ok=>{
+        if(current()!==item||item.playbackEpoch!==epoch)return;
+        item.deinterlacePending=false;
+        if(!ok&&!state.stopped)status("DVD title could not be played.");
+      });
+      return;
+    }
     const proceedNormal=()=>{
     // Standalone only: a playable picture does not prove audio is decodable.
     // Probe before normal playback; the web edition has no native bridge.
@@ -1544,7 +1555,7 @@
           artData.nativeSrc:URL.createObjectURL(file), handle,
         path, folderArtwork: posterMap.get(path) || null,
         size: file.size, mime: file.type || "",
-        key: "file:" + file.name + ":" + file.size + ":" + file.lastModified,
+        key: file.dvdToken||("file:" + file.name + ":" + file.size + ":" + file.lastModified),
         embeddedSubtitles: [], embeddedAudio: [], embeddedVideo: [], mkvInspection: "not-mkv"};
       newItems.push(item);
       if(item.libraryId&&Number(artData?.libraryPosition)>2 &&
@@ -2314,6 +2325,51 @@
     section.append(title,label,select,note);
     byId("playerSettingsPanel").append(section);window.DKLocale?.apply();
   }
+  if(window.DKLibraryBridge?.internalPages&&window.DKCodecBridge?.selectDVD&&settingsDetails){
+    const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
+    const title=document.createElement("strong");title.textContent="DVD playback";
+    const numberField=(id,text,max)=>{
+      const label=document.createElement("label");label.htmlFor=id;label.textContent=text;
+      const select=document.createElement("select");select.id=id;
+      for(let value=1;value<=max;value++){
+        const option=document.createElement("option");option.value=String(value);option.textContent=String(value);select.append(option);
+      }
+      section.append(label,select);return select;
+    };
+    section.append(title);
+    const titleNumber=numberField("dvdTitleNumber","DVD title",99);
+    const chapterNumber=numberField("dvdChapterNumber","Start chapter",999);
+    const angleNumber=numberField("dvdAngleNumber","DVD angle",9);
+    const buttons=[];let choosing=false;
+    for(const [kind,text] of [["drive","Open DVD drive…"],["iso","Open DVD image…"],["folder","Open DVD folder…"]]){
+      const button=document.createElement("button");button.type="button";button.className="btn small";button.textContent=text;
+      buttons.push(button);section.append(button);
+      button.addEventListener("click",async()=>{
+        if(choosing)return;
+        choosing=true;buttons.forEach(b=>b.disabled=true);
+        try{
+          status("Checking DVD support and selected title…");
+          const result=await window.DKCodecBridge.selectDVD(kind,Number(titleNumber.value),
+            Number(chapterNumber.value),Number(angleNumber.value),window.DKLocale?.get()==="ru"?"ru":"en");
+          if(!result){status("");return;}
+          if(result.unavailable){status("DVD playback backend is unavailable in this installation.");return;}
+          if(result.noDrive){status("No optical DVD drive found.");return;}
+          if(!result.id||typeof result.name!=="string")return;
+          const file=Object.freeze({nativeVirtual:true,dvdToken:result.id,name:result.name,
+            size:0,lastModified:0,type:"video/mpeg",webkitRelativePath:""});
+          // Same queue and video element; the placeholder is never loaded as a URL.
+          addFiles([file],[],"open",{nativeSrc:"about:blank"});
+          const index=state.queue.findIndex(item=>item.key===result.id);
+          if(index>=0&&index!==state.current)load(index,true);
+          settingsDetails.open=false;
+        }catch(_){status("Cannot open this DVD title. Check the disc, title, chapter and angle.");}
+        finally{choosing=false;buttons.forEach(b=>b.disabled=false);}
+      });
+    }
+    const note=document.createElement("p");note.className="helper";
+    note.textContent="DVD title playback requires a compatible decoder. Menus and disc subtitles are not supported yet. Disc selections are session-only.";
+    section.append(note);byId("playerSettingsPanel").append(section);window.DKLocale?.apply();
+  }
   // Frame stepping uses actual source presentation timestamps. Pause before
   // seeking; do not substitute guessed 24/30-fps offsets when unavailable.
   let stepFrame=null;
@@ -2335,7 +2391,7 @@
     let busy=false;
     const refresh=()=>{
       const item=current();
-      previous.disabled=next.disabled=busy||!localCodecBridge?.adjacentFrame||!item?.file||item.audio||
+      previous.disabled=next.disabled=busy||!localCodecBridge?.adjacentFrame||!item?.file||item.file.dvdToken||item.audio||
         state.stopped||!Number.isFinite(playbackDuration())||playbackDuration()<=0||!media.videoWidth;
     };
     stepFrame=async direction=>{

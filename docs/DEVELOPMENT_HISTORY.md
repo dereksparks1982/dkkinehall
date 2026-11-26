@@ -359,3 +359,7 @@ Native standalone language preference is persisted in the existing user profile 
 ### Show in folder
 
 Standalone library context menu opens the selected movie or individual episode in the system file manager via native file identity and root validation. Local files are not modified. Missing entries cannot be revealed; reconnect or rescan. The menu is bilingual. Source only; verify native file-manager selection on Ubuntu.
+
+### Local speech recognition and catalogue controls
+
+Added source for selected-audio FFmpeg extraction, Whisper.cpp timestamped SRT generation, private bounded transcript caching, cancellation, display/export and Voiceover fallback. Separate runtime/model provisioning and actual verification remain outstanding. Corrected Bond collection/year parsing and stale catalogue titles using actual filenames. Added right-click Continue Watching dismissal with saved resume retained. No files renamed, deleted, downloaded, compiled or tested.

@@ -287,7 +287,7 @@
   const codecPlayback = window.DKCodecPlayback?.attach({
     media,bridge:localCodecBridge,current,
     onStatus:(message,good)=>status(message,good),
-    onClockChanged:()=>updateTime(),
+    onClockChanged:()=>{updateTime();updateChapterMarkers();},
     onChaptersChanged:()=>updateChapterMarkers(),
     onTracksChanged:()=>updateSubtitleStatus(),
     onOffsetChanged:(item,at)=>{
@@ -732,8 +732,8 @@
   const queueHover = window.DKQueueHover && window.DKQueueHover.create({
     makeVideo: () => document.createElement("video")
   });
-  // Real chapter metadata only. Native chapter cues and MKV chapter atoms
-  // are combined without assuming timestamps or episode runtimes.
+  // Native chapter cues and embedded metadata take priority. The standalone
+  // timeline divides videos without usable chapter boundaries into ten sections.
   const chapterPicker = byId("chapterPicker");
   // Fullscreen and float mode move only #screen; keep the visible chapter
   // selector inside that surface so it remains accessible in both modes.
@@ -749,6 +749,7 @@
     byId("chapters").remove();
     chapterPicker.remove();
     byId("seek").after(chapterMarkers);
+    byId("languageSelect").addEventListener("change",()=>queueMicrotask(updateChapterMarkers));
   }
   const getChapterEntries = () => {
     const item = current();
@@ -772,9 +773,16 @@
   const updateChapterMarkers = () => {
     if(standaloneChapters){
       const item=current(),length=playbackDuration();
-      const entries=item&&!state.stopped&&Number.isFinite(length)&&length>0?
-        getChapterEntries().filter(ch=>ch.startTime<length):[];
-      const signature=JSON.stringify([length,entries]);
+      const usable=Boolean(item&&!state.stopped&&Number.isFinite(length)&&length>0);
+      let entries=usable?getChapterEntries().filter(ch=>ch.startTime>0&&ch.startTime<length):[];
+      // Zero and the end of the video are implicit boundaries, not ticks.
+      // Never persist synthetic chapters or mix them with embedded ones.
+      if(usable&&!item.audio&&!entries.length){
+        entries=Array.from({length:9},(_,i)=>({
+          startTime:length*(i+1)/10,text:"Virtual chapter",virtual:true,number:i+2
+        }));
+      }
+      const signature=JSON.stringify([length,entries,window.DKLocale?.get()]);
       if(item===chapterMarkerItem&&signature===chapterMarkerSignature)return;
       chapterMarkerItem=item;chapterMarkerSignature=signature;
       chapterMarkers.replaceChildren();
@@ -783,7 +791,9 @@
         marker.type="button";marker.className="dk-chapter-marker";
         marker.style.left=(100*chapter.startTime/length)+"%";
         const raw=String(chapter.text||"Chapter");
-        const label=raw.replace(/^Chapter(?=\s|$)/,window.DKLocale?.t("Chapter")||"Chapter");
+        const label=chapter.virtual?
+          (window.DKLocale?.t("Virtual chapter")||"Virtual chapter")+" "+chapter.number:
+          raw.replace(/^Chapter(?=\s|$)/,window.DKLocale?.t("Chapter")||"Chapter");
         marker.title=label+" · "+time(chapter.startTime);
         marker.setAttribute("aria-label",marker.title);
         marker.addEventListener("pointerdown",event=>event.stopPropagation());

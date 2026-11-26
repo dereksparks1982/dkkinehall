@@ -70,6 +70,9 @@
   const standaloneDeinterlace=Boolean(window.DKLibraryBridge?.internalPages&&window.DKCodecBridge?.probe);
   const savedDeinterlace=standaloneDeinterlace?read(deinterlaceKey,"off"):"off";
   let deinterlacePreference=["off","auto","on"].includes(savedDeinterlace)?savedDeinterlace:"off";
+  const smoothingKey="dk-kinehall.smoothing.v1";
+  const savedSmoothing=standaloneDeinterlace?read(smoothingKey,"off"):"off";
+  let smoothingPreference=["off","auto","60","120"].includes(savedSmoothing)?savedSmoothing:"off";
   let reapplyCurrentFormat = null;
   const playbackFormatInput = byId("playbackFormat");
   if(window.DKCodecBridge?.exportVideo){
@@ -1200,6 +1203,8 @@
     item.requestedFormat = playbackSettings.format;
     item.deinterlaceMode=standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
+    item.smoothingMode=standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
+    item.activeSmoothing=0;
     item.deinterlacePending=false;
     item.playbackMethod = (item.compatSrc && item.requestedFormat === "auto")
       ? "Cached lossless remux" : "Original source";
@@ -1300,7 +1305,7 @@
     // Inspect field-order metadata before electing a native filtered stream.
     // Off and Original preserve the old path; Auto never transcodes solely
     // for progressive/unknown metadata. On explicitly forces the filter.
-    if(item.deinterlaceMode!=="off"&&item.file&&codecPlayback){
+    if((item.deinterlaceMode!=="off"||item.smoothingMode!=="off")&&item.file&&codecPlayback){
       const epoch=item.playbackEpoch;
       const valid=()=>current()===item&&item.playbackEpoch===epoch&&!state.stopped;
       item.deinterlacePending=true;
@@ -1310,11 +1315,17 @@
           const info=await localCodecBridge.probe(item.file);
           if(!valid())return;
           mergeChapters(item,info.chapters);
-          const needed=info.hasVideo&&(item.deinterlaceMode==="on"||
-            ["tt","bb","tb","bt"].includes(info.fieldOrder));
-          if(needed){
-            status("Preparing deinterlaced video…");
+          const deinterlaceNeeded=info.hasVideo&&(item.deinterlaceMode==="on"||
+            item.deinterlaceMode==="auto"&&["tt","bb","tb","bt"].includes(info.fieldOrder));
+          const target=item.smoothingMode==="auto"?(info.autoSmoothing?60:0):Number(item.smoothingMode)||0;
+          const smoothingNeeded=info.hasVideo&&target>0&&info.sourceFps>0&&info.sourceFps<target-0.5;
+          if(deinterlaceNeeded||smoothingNeeded){
+            status(smoothingNeeded?"Preparing motion interpolation…":"Preparing deinterlaced video…");
             filtered=await tryNativeCodec(item);
+            if(!filtered&&valid()&&smoothingNeeded&&deinterlaceNeeded){
+              item.smoothingMode="off";item.codecAttempted=false;
+              filtered=await tryNativeCodec(item);
+            }
           }
         }catch(_){}
         if(!valid())return;
@@ -1322,6 +1333,7 @@
         if(filtered)return;
         // Failed/unsupported filter must not prevent ordinary playback.
         item.deinterlaceMode="off";
+        item.smoothingMode="off";
         item.codecAttempted=false;
         proceedNormal();
       })();
@@ -2283,6 +2295,24 @@
     section.append(title,label,select,note);
     byId("playerSettingsPanel").append(section);
     window.DKLocale?.apply();
+  }
+  if(standaloneDeinterlace&&settingsDetails){
+    const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
+    const title=document.createElement("strong");title.textContent="Video smoothing";
+    const label=document.createElement("label");label.htmlFor="smoothingMode";label.textContent="Motion interpolation";
+    const select=document.createElement("select");select.id="smoothingMode";
+    for(const [value,text] of [["off","Off"],["auto","Automatic"],["60","60 FPS"],["120","120 FPS"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=text;select.append(option);
+    }
+    select.value=smoothingPreference;
+    select.addEventListener("change",()=>{
+      smoothingPreference=select.value;write(smoothingKey,smoothingPreference);
+      status("Video smoothing preference applies the next time a video opens.",true);
+    });
+    const note=document.createElement("p");note.className="helper";
+    note.textContent="Automatic uses conservative hardware and video limits. 60 and 120 FPS can be demanding. Original playback bypasses interpolation. Changes apply when a video next opens.";
+    section.append(title,label,select,note);
+    byId("playerSettingsPanel").append(section);window.DKLocale?.apply();
   }
   // Frame stepping uses actual source presentation timestamps. Pause before
   // seeking; do not substitute guessed 24/30-fps offsets when unavailable.

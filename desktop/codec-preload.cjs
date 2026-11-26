@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld("DKCodecBridge",{
       Number.isInteger(audioIndex)?audioIndex:0,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off",
       ["auto","60","120"].includes(smoothing)?smoothing:"off");
   },
+  identifySpeakers:(file,audioIndex,ticket)=>{
+    const name=localPath(file);
+    if(!name)return Promise.reject(new Error("A local file must be selected"));
+    return ipcRenderer.invoke("dk-library:speaker-identify",name,Number(audioIndex),Number(ticket));
+  },
   recognizeSpeech:(file,language,audioIndex,ticket)=>{
     const name=localPath(file);
     if(!name)return Promise.reject(new Error("A local file must be selected"));

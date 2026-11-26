@@ -43,7 +43,7 @@
        .replace(/[\s:–—-]+$/,"").trim();
      if(series.length>=2&&season<=99&&episode>=1&&episode<=999)
        return {type:"episode",series,season,episode,year,
-         episodeTitle:episodeTitle?episodeTitle.slice(0,140):null};
+         ...(episodeTitle?{episodeTitle:episodeTitle.slice(0,140)}:{})};
      return null;
    }
    const withoutTags=text.replace(/\s+(?:2160p|1080p|720p|480p|4k|uhd|hdr10?|dv|bluray|blu ray|brrip|bdrip|dvdrip|webrip|web dl|web rip|h26[45]|x26[45]|hevc|av1|ddp|dts|aac|ac3)(?:\b.*)?$/i,"").trim();

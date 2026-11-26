@@ -11,6 +11,7 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
+  metadataRequest:(url,kind)=>libIpc.invoke("dk-library:metadata-request",String(url),String(kind)),
   onLibrarySelection:callback=>subscribe("dk-library:selection",callback),
   requestScan:()=>libIpc.invoke("dk-library:request-scan"),
   onScanRequest:callback=>subscribe("dk-library:scan-request",callback),

@@ -15,9 +15,9 @@ let mode=storedMode(),selectedSeries=null,selectedSeason=null;
 let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
 const imageUrls=new Set();
-const imageQueue=[],activeArtwork=new Set();
+const imageQueue=[],activeArtwork=new Map();
 let artworkBusy=0;
-const MAX_LOOKUPS=2,ARTWORK_LIMIT=110;
+const MAX_LOOKUPS=2,ARTWORK_LIMIT=1200;
 let networkArtworkCount=0;
 let legacyResume={};
 try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
@@ -117,8 +117,14 @@ function findLocalArtworkFolder(folder,relative){
       current=await current.getDirectoryHandle(segment,{create:false});
       dirs.push(current);
     }
+    const stem=String(relative.split("/").at(-1)||"").replace(/\.[^.]+$/,"");
     for(const dir of dirs.reverse()){
-      for(const name of ["poster.jpg","poster.png","folder.jpg","folder.png","cover.jpg","cover.png"]){
+      for(const name of [
+        stem+".jpg",stem+".png",stem+".webp",
+        stem+"-poster.jpg",stem+"-poster.png",
+        "poster.jpg","poster.png","folder.jpg","folder.png",
+        "cover.jpg","cover.png"
+      ]){
         try{
           const file=await(await dir.getFileHandle(name,{create:false})).getFile();
           if(/^image\/(jpeg|png|webp)$/.test(file.type)&&file.size<3*1024*1024)
@@ -159,16 +165,27 @@ async function findArtwork(row,id){
   }catch(_){return null;}
 }
 async function pumpArtwork(){
-  while(artworkBusy<MAX_LOOKUPS&&imageQueue.length){
-    const task=imageQueue.shift();
-    if(task.epoch!==renderEpoch||!task.box.isConnected)continue;
-    if(activeArtwork.has(task.id))continue;
-    activeArtwork.add(task.id);
+  while(imageQueue.length){
+    const task=imageQueue[0];
+    if(task.epoch!==renderEpoch||!task.box.isConnected){
+      imageQueue.shift();continue;
+    }
+    const ongoing=activeArtwork.get(task.id);
+    if(ongoing){
+      ongoing.views.push(imageQueue.shift());
+      continue;
+    }
+    if(artworkBusy>=MAX_LOOKUPS)break;
+    imageQueue.shift();
+    const request={views:[task]};
+    activeArtwork.set(task.id,request);
     artworkBusy++;
     (async()=>{
       try{
         const blob=await findArtwork(task.row,task.id);
-        if(blob&&task.epoch===renderEpoch&&task.box.isConnected){
+        if(!blob)return;
+        for(const view of request.views){
+          if(view.epoch!==renderEpoch||!view.box.isConnected)continue;
           const url=URL.createObjectURL(blob);
           imageUrls.add(url);
           const image=create("img");
@@ -176,7 +193,7 @@ async function pumpArtwork(){
           image.alt="";
           image.loading="lazy";
           image.decoding="async";
-          task.box.prepend(image);
+          view.box.prepend(image);
         }
       }catch(_){}
       finally{

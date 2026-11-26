@@ -10,7 +10,7 @@ The `native/` Qt/libmpv code is a **codec-capable prototype**, not an approved r
 
 - Start in a separate **Library Home** window. The existing Chromium player opens as a second window, not a replacement. Preserve the exact player background, approved icons and styles.
 - **Movies / TV Shows only**. Continue Watching above the entire selected collection; TV series group by title with season/episode drilldown. No music library, no Recently Added and **no media server**.
-- Cache folder handles and catalog records in IndexedDB, plus optional local/online artwork blobs. Video files never enter the cache. Remember playing position and completed status between application launches.
+- Cache folder handles and catalog records in IndexedDB, plus optional local/online artwork blobs. Scans use folder-specific database indexes; poster requests are deduplicated across Continue Watching and the TV series collection. Video files never enter the cache. Remember playing position and completed status between application launches.
 - Visible manual **Scan Library**: inspect saved folders, add/update changed files, mark missing files without deleting history, show progress and allow cancel. Startup loads cached catalog immediately and later performs one bounded check with no permission prompts.
 - Pinned upstream source integrations are documented at `third_party/SOURCES.md`. Use LGPL-oriented libmpv SDK builds and retain third-party licenses. Jellyfin Desktop/FFmpeg and the not-yet-Linux Electron mpv addon are reference-only.
 - All new native-window and library code is **source-level and not installed, compiled or playback-verified**; never mark the release gate complete on source commits alone.

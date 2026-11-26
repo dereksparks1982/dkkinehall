@@ -144,6 +144,9 @@ async function removeFolder(id) {
   changed({folders:true,entries:true});
 }
 async function entries(){return list("entries");}
+async function folderEntries(folderId){
+  return operation("entries","readonly",s=>s.index("folderId").getAll(folderId));
+}
 async function item(id){return get("entries",id);}
 function yieldControl(){return new Promise(resolve=>setTimeout(resolve,0));}
 async function checkReadPermission(folder,allowPrompt=false){
@@ -160,7 +163,9 @@ async function checkReadPermission(folder,allowPrompt=false){
 async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
   if(!await checkReadPermission(folder,manual))
     return {folder:folder.name,needsPermission:true,added:0,updated:0,missing:0};
-  const old=(await entries()).filter(row=>row.folderId===folder.id);
+  // Use the folder index, not the complete library, for each scan. This
+  // avoids repeatedly loading every film across different folders.
+  const old=await folderEntries(folder.id);
   const existing=new Map(old.map(row=>[row.id,row]));
   const seen=new Set(),pending=[];
   const work=[{handle:folder.handle,path:"",depth:0}];
@@ -254,17 +259,29 @@ async function openFile(row,{requestPermission=false}={}){
   return {file,handle};
 }
 async function updateProgress(id,position,duration,completed=false){
-  const row=await item(id);
-  if(!row)return;
-  const seconds=Number(position),length=Number(duration);
-  const progress=Number.isFinite(seconds)?Math.max(0,seconds):row.position||0;
-  const total=Number.isFinite(length)&&length>0?length:row.duration||0;
-  const done=completed||(total>0&&progress>=Math.max(0,total-12));
-  // Explicit rewatches clear the completed state once playback advances.
-  // The saved position is never a duplicate of the underlying video file.
-  await put("entries",{...row,position:done?0:progress,duration:total,
-    lastPlayed:Date.now(),completed:done});
-  changed({progress:true,id});
+  // One read/write transaction prevents overlapping updates from separate
+  // library/player windows clobbering a newer playback position.
+  const db=await open();
+  let saved=false;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction("entries","readwrite");
+    const object=tx.objectStore("entries");
+    const request=object.get(id);
+    request.onsuccess=()=>{
+      const row=request.result;
+      if(!row)return;
+      const seconds=Number(position),length=Number(duration);
+      const progress=Number.isFinite(seconds)?Math.max(0,seconds):row.position||0;
+      const total=Number.isFinite(length)&&length>0?length:row.duration||0;
+      const done=Boolean(completed)||(total>0&&progress>=Math.max(0,total-12));
+      object.put({...row,position:done?0:progress,duration:total,
+        lastPlayed:Date.now(),completed:done});
+      saved=true;
+    };
+    tx.oncomplete=resolve;
+    tx.onabort=()=>reject(tx.error||new Error("Playback history could not be saved"));
+  });
+  if(saved)changed({progress:true,id});
 }
 async function artwork(id){return get("art",id);}
 async function saveArtwork(id,blob,credit=""){

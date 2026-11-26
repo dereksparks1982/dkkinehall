@@ -1,6 +1,6 @@
 # DK Voiceover — offline translated movie speech
 
-Approved 2026-11-26. Standalone DK Kinehall only. This is a planned major feature inspired by translated-video voiceovers, not an integration with Yandex's proprietary service. No implementation or model installation yet. Preserve the original Chromium player and all existing settings, audio tracks, subtitle translation and controls.
+Approved 2026-11-26. Standalone DK Kinehall only. This is a planned major feature inspired by translated-video voiceovers, not an integration with Yandex's proprietary service. First-stage source added; no runtime or model installation yet. Preserve the original Chromium player and all existing settings, audio tracks, subtitle translation and controls.
 
 ## Required behavior
 
@@ -33,3 +33,7 @@ Approved 2026-11-26. Standalone DK Kinehall only. This is a planned major featur
 10. Acceptance: actual English/Russian movie clips, male/female voice options, multiple speakers, noisy music, silence, long movies, seeking, track switching, native transcode/direct playback, cancellation, cache reuse, exports, offline operation, licenses, and Surface Pro CPU/RAM/disk use. No source commit alone establishes dubbing quality or runtime availability.
 
 See [master roadmap](ROADMAP.md), [subtitle translation](SUBTITLE_TRANSLATION_ROADMAP.md), and [codec packaging](CODEC_PACKAGING.md). Current work remains source-only; no compile, tests, model downloads or terminal commands unless authorized.
+
+## First-stage implementation status (2026-11-26)
+
+The new standalone Voiceover settings category starts an explicitly requested local job using the selected original text subtitle track and English/Russian translation direction. It reuses the local translation runtime and expects separately provisioned compatible sherpa-onnx Python modules and single-speaker VITS voice assets under translation-runtime/voices/en and /ru (READY.json, model.onnx, tokens.txt and espeak-ng-data). No installer, audited model selection, dependency locking or verified speech runtime is supplied in this build. Native job limits are 6000 cues, three hours of cue timeline, two CPU threads and bounded output, with stage progress, cancellation, temporary-file cleanup and exclusive new-file WAV export. Speech is fitted to available cue intervals with bounded speed adjustment; lines that cannot fit are skipped and flagged rather than cut off. This is separate audio generation/export, not live translated movie playback. Original audio, movie files and subtitles are unchanged. ASR, diarization, voice selection, native seeking integration, persistent cache, mixing and full acceptance are still outstanding.

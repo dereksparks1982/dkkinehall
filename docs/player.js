@@ -2501,6 +2501,32 @@
     const angleNumber=numberField("dvdAngleNumber","DVD angle",9);
     const dvdDialog=document.createElement("dialog");dvdDialog.className="dk-dvd-dialog";
     const buttons=[];let choosing=false;
+    const openDiscResult=result=>{
+      if(!result?.id||typeof result.name!=="string")return false;
+      const file=Object.freeze({nativeVirtual:true,dvdToken:result.id,dvdTitle:result.title,
+        dvdChapter:result.chapter,dvdAngle:result.angle,name:result.name,
+        size:0,lastModified:0,type:"video/mpeg",webkitRelativePath:""});
+      addFiles([file],[],"open",{nativeSrc:"about:blank"});
+      const index=state.queue.findIndex(item=>item.key===result.id);
+      if(index>=0&&index!==state.current)load(index,true);
+      settingsDetails.open=false;if(dvdDialog.open)dvdDialog.close();
+      return true;
+    };
+    const change=document.createElement("button");change.type="button";change.className="btn small";
+    change.textContent="Play selected title on current disc";change.hidden=true;
+    buttons.push(change);section.append(change);
+    change.addEventListener("click",async()=>{
+      const item=current();
+      if(choosing||!item?.file?.dvdToken||!window.DKCodecBridge.changeDVD)return;
+      choosing=true;buttons.forEach(b=>b.disabled=true);
+      try{
+        status("Checking DVD support and selected title…");
+        const result=await window.DKCodecBridge.changeDVD(item.file.dvdToken,Number(titleNumber.value),
+          Number(chapterNumber.value),Number(angleNumber.value));
+        if(current()===item)openDiscResult(result);
+      }catch(_){status("Cannot open this DVD title. Check the disc, title, chapter and angle.");}
+      finally{choosing=false;buttons.forEach(b=>b.disabled=false);}
+    });
     for(const [kind,text] of [["drive","Open DVD drive…"],["iso","Open DVD image…"],["folder","Open DVD folder…"]]){
       const button=document.createElement("button");button.type="button";button.className="btn small";button.textContent=text;
       buttons.push(button);section.append(button);
@@ -2514,14 +2540,7 @@
           if(!result){status("");return;}
           if(result.unavailable){status("DVD playback backend is unavailable in this installation.");return;}
           if(result.noDrive){status("No optical DVD drive found.");return;}
-          if(!result.id||typeof result.name!=="string")return;
-          const file=Object.freeze({nativeVirtual:true,dvdToken:result.id,name:result.name,
-            size:0,lastModified:0,type:"video/mpeg",webkitRelativePath:""});
-          // Same queue and video element; the placeholder is never loaded as a URL.
-          addFiles([file],[],"open",{nativeSrc:"about:blank"});
-          const index=state.queue.findIndex(item=>item.key===result.id);
-          if(index>=0&&index!==state.current)load(index,true);
-          settingsDetails.open=false;if(dvdDialog.open)dvdDialog.close();
+          openDiscResult(result);
         }catch(_){status("Cannot open this DVD title. Check the disc, title, chapter and angle.");}
         finally{choosing=false;buttons.forEach(b=>b.disabled=false);}
       });
@@ -2538,6 +2557,13 @@
     window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="disc"){deferStartup=false;settingsDetails.open=false;openDVD.click();}});
     openDVD.addEventListener("click",()=>{
       if(dvdDialog.open)return;
+      const file=current()?.file;
+      change.hidden=!file?.dvdToken||!window.DKCodecBridge.changeDVD;
+      if(file?.dvdToken){
+        titleNumber.value=String(file.dvdTitle||1);
+        chapterNumber.value=String(file.dvdChapter||1);
+        angleNumber.value=String(file.dvdAngle||1);
+      }
       section.hidden=false;dvdDialog.prepend(section);dvdDialog.showModal();
     });
     closeDVD.addEventListener("click",()=>{if(!choosing)dvdDialog.close();});

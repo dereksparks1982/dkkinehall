@@ -28,6 +28,8 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Local Library Home (new source; release not verified)
 
+**v0.9.3 standalone navigation:** The Library header has a red Player button immediately before Scan Library. The Player header has a red Library button of the original width in place of Library Home. Each button focuses the other window; Player opens the original player if closed and does not reload an open player. Labels use the existing English/Russian localization. Hosted navigation and approved application icons are unchanged. Source-level navigation verification does not establish installed window behavior.
+
 **Standalone automatic discovery:** No folder selection is required. On startup
 DK Kinehall loads its saved collection immediately, then performs one bounded
 scan of the user's home and connected volumes mounted under `/media/$USER`,

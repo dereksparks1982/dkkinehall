@@ -38,6 +38,7 @@ def launcher_entry(binary, icon, app_dir):
         "Icon=" + str(icon),
         "Terminal=false",
         "Categories=AudioVideo;Video;Audio;Player;",
+        "MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;video/mpeg;video/x-ms-wmv;video/mp2t;video/ogg;",
         "StartupNotify=true",
         "StartupWMClass=dk-kinehall",
         "",

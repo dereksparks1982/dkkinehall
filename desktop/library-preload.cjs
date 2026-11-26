@@ -3,7 +3,21 @@
  * No arbitrary shell, file-write or raw ipcRenderer exposure.
  */
 const {contextBridge:libContextBridge,ipcRenderer:libIpc}=require("electron");
+const subscribe=(channel,callback)=>{
+  if(typeof callback!=="function")return ()=>{};
+  const listener=(_event,value)=>callback(value);
+  libIpc.on(channel,listener);
+  return ()=>libIpc.removeListener(channel,listener);
+};
 const nativeLibrary=Object.freeze({
+  internalPages:true,
+  onLibrarySelection:callback=>subscribe("dk-library:selection",callback),
+  requestScan:()=>libIpc.invoke("dk-library:request-scan"),
+  onScanRequest:callback=>subscribe("dk-library:scan-request",callback),
+  setScanState:value=>libIpc.invoke("dk-library:scan-state",Boolean(value)),
+  onScanState:callback=>subscribe("dk-library:scan-state",callback),
+  setFullscreen:value=>libIpc.invoke("dk-library:player-fullscreen",Boolean(value)),
+  onFullscreenChanged:callback=>subscribe("dk-library:fullscreen-state",callback),
   nativeLibrary:true,
   externalSelection:()=>libIpc.invoke("dk-library:external-selection"),
   onExternalReady:callback=>{

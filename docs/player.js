@@ -2559,6 +2559,7 @@
     const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
     const results=document.createElement("div");results.className="dk-network-results";
     const url=document.createElement("input");url.type="url";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
+    const serverURL=document.createElement("input");serverURL.type="url";serverURL.placeholder="http://192.168.1.10:8200/rootDesc.xml";serverURL.setAttribute("aria-label","Media server description URL");
     const queueLabel=document.createElement("label"),queueOnly=document.createElement("input");
     const queueText=document.createElement("span");queueText.textContent="Add to queue only";
     queueOnly.type="checkbox";queueLabel.append(queueOnly,queueText);
@@ -2601,12 +2602,26 @@
           const button=makeButton(label,()=>void openServer(server));
           results.append(button);
         }
+        // Fetch display names in bounded parallel groups, never delaying
+        // the initial clickable addresses.
+        const buttons=Array.from(results.children);
+        for(let start=0;start<servers.length;start+=3){
+          if(!dlg.open||epoch!==generation)break;
+          await Promise.all(servers.slice(start,start+3).map(async(server,i)=>{
+            try{
+              const info=await bridge.networkDescription(server.id);
+              const name=first(parse(info.xml),"friendlyName");
+              const button=buttons[start+i];
+              if(name&&button&&dlg.open&&epoch===generation)button.textContent=name.slice(0,180)+" ("+new URL(server.location).host+")";
+            }catch(_){}
+          }));
+        }
       }catch(_){if(dlg.open&&epoch===generation)say("Network discovery failed.");}
     };
-    const openServer=async server=>{
+    const openServer=async (server,provided=null)=>{
       const epoch=++generation;results.replaceChildren();say("Reading media server…");
       try{
-        const info=await bridge.networkDescription(server.id);
+        const info=provided||await bridge.networkDescription(server.id);
         if(!dlg.open||epoch!==generation)return;
         const description=parse(info.xml);
         const service=nodes(description,"service").find(s=>/^urn:schemas-upnp-org:service:ContentDirectory:[1-4]$/.test(first(s,"serviceType")));
@@ -2651,9 +2666,19 @@
         void addNetwork(null,address.href,name,/\.(mp3|flac|wav|m4a|aac|opus|ogg)$/i.test(name));
       }catch(_){say("Enter a valid network media URL.");}
     });
+    const manual=makeButton("Connect to media server",async()=>{
+      if(!bridge.networkRegister)return;
+      const epoch=++generation;results.replaceChildren();say("Reading media server…");
+      try{
+        const server=await bridge.networkRegister(serverURL.value.trim());
+        if(dlg.open&&epoch===generation)await openServer(server,server);
+      }catch(_){if(dlg.open&&epoch===generation)say("Cannot read this media server.");}
+    });
     const discover=makeButton("Find DLNA servers",()=>void showServers());
     const close=makeButton("Close",()=>dlg.close());
-    dlg.append(heading,note,discover,url,direct,queueLabel,message,results,close);
+    dlg.append(heading,note,discover);
+    if(bridge.networkRegister)dlg.append(serverURL,manual);
+    dlg.append(url,direct,queueLabel,message,results,close);
     document.body.append(dlg);
     const open=()=>{if(!dlg.open){results.replaceChildren();say("");dlg.showModal();window.DKLocale?.apply();}};
     dlg.addEventListener("close",()=>{generation++;results.replaceChildren();});

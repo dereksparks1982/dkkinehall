@@ -491,7 +491,7 @@
   };
   // PGS graphics occupy the actual picture rectangle, not the black bars.
   // Keep the image aligned on resize/fullscreen and when picture-fit changes.
-  let pictureGeometry=null, setPictureFit=null;
+  let pictureGeometry=null, setPictureFit=null, refreshPictureProfile=null;
   const positionPgsOverlay = () => {
     if (!pgsCanvas || !media.videoWidth || !media.videoHeight) return;
     const box = media.getBoundingClientRect();
@@ -1191,6 +1191,7 @@
     media.pause();
     state.current = index;
     const item = current();
+    refreshPictureProfile?.();
     // Restore this file’s remembered subtitle offset immediately, including
     // for non-MKV files before any subtitle track is loaded.
     updateSubtitleDelayControls();
@@ -2142,6 +2143,35 @@
       {id:"sharpness",label:"Sharpness",min:0,max:100,step:1,neutral:0,unit:"%"}
     ];
     const saved=read(key,{})||{},values={},controls=new Map();
+    const presetKey="dk-kinehall.picture-presets.v1",perMediaKey="dk-kinehall.picture-per-media.v1";
+    const builtins={
+      original:[100,100,100,0,1,0],
+      dark:[115,100,100,0,1.35,0],
+      veryDark:[130,95,100,0,1.55,0],
+      bright:[85,105,100,0,.85,0],
+      classic:[105,110,85,0,1.1,0],
+      animation:[105,110,125,0,1.05,10],
+      soft:[100,90,95,0,1,0],
+      monochrome:[100,110,0,0,1,0]
+    };
+    const names={original:"Original",dark:"Dark cinema",veryDark:"Very dark scenes",bright:"Overexposed picture",classic:"Classic films",animation:"Vivid animation",soft:"Soft picture",monochrome:"Black and white"};
+    let custom=read(presetKey,null);const perMedia=read(perMediaKey,{})||{};
+    const validValues=source=>Object.fromEntries(specs.map((spec,i)=>{
+      const value=Array.isArray(source)?source[i]:source?.[spec.id];
+      return [spec.id,value!=null&&Number.isFinite(Number(value))?Math.min(spec.max,Math.max(spec.min,Number(value))):spec.neutral];
+    }));
+    let defaultValues=validValues(saved),localOverride=false;
+    const mediaProfileKey=scope=>{
+      const item=current();if(!item||item.kind!=="file"||item.file?.dvdToken)return null;
+      if(scope==="series"){
+        const parsed=window.DKMediaMetadata?.parseFilename(item.metadataFilename||item.name);
+        return parsed?.type==="episode"?"series:"+String(parsed.series).toLowerCase():null;
+      }
+      return "video:"+(item.libraryId||item.key);
+    };
+    const persistPicture=()=>{
+      if(!localOverride||sharedSettingsEditing){defaultValues={...values};write(key,defaultValues);localOverride=false;}
+    };
     for(const spec of specs){
       const n=Number(saved[spec.id]);
       values[spec.id]=saved[spec.id]!=null&&Number.isFinite(n)?
@@ -2166,6 +2196,35 @@
     const section=document.createElement("section");
     section.id="pictureEnhancements";section.className="player-settings-section dk-picture-settings";
     const title=document.createElement("strong");title.textContent="Picture enhancements";section.append(title);
+    const presetLabel=document.createElement("label");presetLabel.htmlFor="picturePreset";presetLabel.textContent="Picture preset";
+    const preset=document.createElement("select");preset.id="picturePreset";
+    const refreshPreset=()=>{
+      const choices=[...Object.entries(names),...(Array.isArray(custom)?[["saved","My custom preset"]]:[]),["custom","Custom"]];
+      const signature=JSON.stringify(choices);
+      if(preset.dataset.signature!==signature){
+        preset.replaceChildren(...choices.map(([id,name])=>{const o=document.createElement("option");o.value=id;o.textContent=window.DKLocale?.t(name)||name;return o;}));
+        preset.dataset.signature=signature;
+      }
+      const match=Object.entries(builtins).find(([,entry])=>specs.every((spec,i)=>Math.abs(values[spec.id]-entry[i])<0.001));
+      const savedMatch=Array.isArray(custom)&&specs.every((spec,i)=>Math.abs(values[spec.id]-custom[i])<0.001);
+      preset.value=match?.[0]||(savedMatch?"saved":"custom");
+    };
+    const saveCustom=document.createElement("button");saveCustom.type="button";saveCustom.className="btn small";saveCustom.textContent="Save custom picture preset";
+    saveCustom.id="saveCustomPicture";
+    const profileActions=document.createElement("div");profileActions.className="dk-picture-profile-actions";profileActions.dataset.mediaOnly="true";
+    const profileButtons=[];
+    for(const [scope,label] of [["video","Remember picture for this video"],["series","Remember picture for this series"]]){
+      const button=document.createElement("button");button.type="button";button.className="btn small";button.textContent=label;
+      button.addEventListener("click",()=>{const id=mediaProfileKey(scope);if(!id)return;perMedia[id]={...values};const ids=Object.keys(perMedia);if(ids.length>500)ids.slice(0,ids.length-500).forEach(k=>delete perMedia[k]);write(perMediaKey,perMedia);localOverride=true;status("Picture preference saved.",true);});
+      profileActions.append(button);profileButtons.push([scope,button]);
+    }
+    const clearProfile=document.createElement("button");clearProfile.type="button";clearProfile.className="btn small";clearProfile.textContent="Use default picture for this video";
+    clearProfile.addEventListener("click",()=>{
+      for(const scope of ["video","series"]){const id=mediaProfileKey(scope);if(id)delete perMedia[id];}
+      write(perMediaKey,perMedia);localOverride=false;Object.assign(values,defaultValues);applyPicture();
+    });
+    profileActions.append(clearProfile);
+    section.append(presetLabel,preset,saveCustom);
     const applyPicture=()=>{
       const filters=[];
       if(values.brightness!==100)filters.push("brightness("+values.brightness+"%)");
@@ -2184,6 +2243,8 @@
       // A neutral picture uses no filter at all. Do not alter overlays,
       // controls or artwork, and do not force CPU copies of each video frame.
       media.style.filter=filters.length?filters.join(" "):"";
+      refreshPreset();for(const [scope,button] of profileButtons)button.disabled=!mediaProfileKey(scope);
+      clearProfile.disabled=!mediaProfileKey("video");
       for(const spec of specs){
         const entry=controls.get(spec.id);
         if(!entry)continue;
@@ -2201,19 +2262,35 @@
         values[spec.id]=Math.min(spec.max,Math.max(spec.min,Number(input.value)));
         applyPicture();
       });
-      input.addEventListener("change",()=>write(key,values));
+      input.addEventListener("change",persistPicture);
       row.append(label,output,input);section.append(row);
     }
     const reset=document.createElement("button");
     reset.type="button";reset.className="btn small dk-picture-reset";reset.textContent="Reset picture";
     reset.addEventListener("click",()=>{
       for(const spec of specs)values[spec.id]=spec.neutral;
-      applyPicture();write(key,values);
+      applyPicture();persistPicture();
     });
     const note=document.createElement("p");note.className="helper";
     note.textContent="Picture adjustments affect playback only, not the original video or exported file.";
-    section.append(reset,note);
+    preset.addEventListener("change",()=>{
+      const next=preset.value==="saved"?custom:builtins[preset.value];if(!next)return;
+      Object.assign(values,validValues(next));applyPicture();persistPicture();
+    });
+    saveCustom.addEventListener("click",()=>{
+      const entry=specs.map(spec=>values[spec.id]);
+      if(Array.isArray(custom))custom.splice(0,custom.length,...entry);
+      else custom=entry;
+      write(presetKey,entry);refreshPreset();preset.value="saved";status("Picture preset saved.",true);
+    });
+    const applyMediaProfile=()=>{
+      const row=perMedia[mediaProfileKey("video")]||perMedia[mediaProfileKey("series")];
+      localOverride=!!row;Object.assign(values,row?validValues(row):defaultValues);applyPicture();
+    };
+    section.append(reset,note,profileActions);
     byId("playerSettingsPanel").append(section);
+    refreshPictureProfile=applyMediaProfile;
+    byId("languageSelect").addEventListener("change",()=>{delete preset.dataset.signature;queueMicrotask(refreshPreset);});
     applyPicture();
     window.DKLocale?.apply();
   }
@@ -4228,7 +4305,7 @@
       if(!node.dataset.sharedSetting)node.dataset.sharedSetting="shared-"+(++sequence);
       controlMap.set(node.dataset.sharedSetting,node);return node.dataset.sharedSetting;
     };
-    const available=node=>!exclude.has(node.id)&&!(node.id==="picture-geometry-x"||node.id==="picture-geometry-y");
+    const available=node=>!exclude.has(node.id)&&!node.closest("[data-media-only]")&&!(node.id==="picture-geometry-x"||node.id==="picture-geometry-y");
     const snapshot=language=>{
       if(language==="en"||language==="ru"){
         if(window.DKLocale?.get()!==language){window.DKLocale?.set(language);byId("languageSelect")?.dispatchEvent(new Event("change",{bubbles:true}));}
@@ -4257,6 +4334,7 @@
           }
           copy.toggleAttribute("disabled",node.disabled);
         });
+        clone.querySelectorAll(".dk-picture-profile-actions").forEach(node=>node.remove());
         return clone.outerHTML;
       });
     };

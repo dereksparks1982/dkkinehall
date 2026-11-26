@@ -7,6 +7,10 @@ const {ipcMain,BrowserWindow,app,dialog,shell}=require("electron");
 const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
+const crypto=require("node:crypto");
+const {fileURLToPath}=require("node:url");
+const VERSION="0.9.1";
+let externalSelection=null;
 let installed=false,home=null,player=null,playerFile=null;
 let scanController=null,scanPromise=null;
 function onlyPlayer(event){
@@ -23,7 +27,7 @@ function allowed(event){
 function installedWindow(){
   return player&&!player.isDestroyed();
 }
-function openPlayer(id) {
+function openPlayer(id,external=false) {
   if(!home||home.isDestroyed())throw new Error("Library window was closed");
   if(typeof id!=="string"||id.length<1||id.length>500||id.includes("\0"))
     throw new Error("Invalid library selection");
@@ -66,19 +70,46 @@ function openPlayer(id) {
     // library process. Keep the bridge optional until bundled binaries exist.
     if(fs.existsSync(path.join(app.getAppPath(),"desktop","codec-host.cjs")))
       require("./codec-host.cjs").install(player);
-    player.on("closed",()=>{player=null;});
+    player.on("page-title-updated",event=>{event.preventDefault();player?.setTitle("DK Kinehall v"+VERSION);});
+    player.setTitle("DK Kinehall v"+VERSION);
+    player.on("closed",()=>{player=null;externalSelection=null;});
   }
   player.show();
   player.focus();
   // Each library selection replaces playback in this SAME second window;
   // the library window remains open and independent.
-  return player.loadFile(playerFile,{query:{libraryItem:id}}).then(()=>true);
+  return player.loadFile(playerFile,{query:external?{externalItem:id}:{libraryItem:id}}).then(()=>true);
+}
+async function openExternal(argv,cwd){
+  for(const arg of argv.slice(1)){
+    if(typeof arg!=="string"||arg.startsWith("-"))continue;
+    try{
+      const target=arg.startsWith("file://")?fileURLToPath(arg):path.resolve(cwd,arg);
+      const id=native.fileIdentity(target);
+      const opened=await native.openVideo(id,target);
+      if(!home||home.isDestroyed())return false;
+      const token=crypto.randomBytes(24).toString("hex");
+      externalSelection={token,row:{id,nativePath:target,filename:opened.name,
+        size:opened.size,modified:opened.modified},opened};
+      await openPlayer(token,true);
+      return true;
+    }catch(_){/* Skip non-media arguments or paths outside allowed roots. */}
+  }
+  return false;
 }
 function install(originalWindow,originalPlayer){
   if(installed)return;
   if(!originalWindow?.webContents||typeof originalPlayer!=="string")
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
+  if(!app.requestSingleInstanceLock()){app.quit();return;}
+  app.on("second-instance",(_event,argv,cwd)=>{void openExternal(argv,cwd);});
+  ipcMain.handle("dk-library:external-selection",(event,token)=>{
+    if(!onlyPlayer(event)||!externalSelection||externalSelection.token!==token)throw Error("External selection rejected");
+    const selected=externalSelection;externalSelection=null;
+    return {row:selected.row,opened:selected.opened};
+  });
+  void openExternal(process.argv,process.cwd());
   ipcMain.handle("dk-library:open-player",(event,id)=>{
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);

@@ -749,3 +749,18 @@ html.dk-desktop-fullscreen body {
 /* Equal-sized desktop header navigation controls, including Scan Library. */
 #showPlayer.dk-window-nav,#returnToLibrary.dk-window-nav,.library-tools:has(#showPlayer) #scanLibrary{box-sizing:border-box;flex:0 0 auto;width:127px;min-width:127px;height:46px;min-height:46px;padding:10px 12px;white-space:nowrap}
 html[lang="ru"] #showPlayer.dk-window-nav,html[lang="ru"] #returnToLibrary.dk-window-nav,html[lang="ru"] .library-tools:has(#showPlayer) #scanLibrary{width:180px;min-width:180px}
+
+/* Standalone gold trim and approved header button dimensions. */
+html.dk-standalone{--dk-gold:#e2b956;--dk-antique:#a58039}
+.dk-standalone .brandname,.dk-standalone .section-heading h1,.dk-standalone .section-heading h2,.dk-standalone .sidebar-top h2,.dk-standalone .library-series-detail h2{color:var(--dk-gold)}
+.dk-standalone .topbar{border-bottom:1px solid var(--dk-antique);padding-bottom:12px}
+.dk-standalone .library-tabs button[aria-selected="true"]{border-color:var(--dk-gold)}
+.dk-standalone .library-poster{border-color:var(--dk-antique)}
+.dk-standalone .library-card:hover .library-poster,.dk-standalone .library-card:focus-visible .library-poster{border-color:var(--dk-gold);box-shadow:0 0 0 2px #e2b95655}
+.dk-standalone .library-progress>span{background:var(--dk-gold)}
+.dk-standalone .screen .controls .icon-btn:not(.remove),.dk-standalone .screen .controls .player-bar-settings>summary{color:var(--dk-gold)}
+.dk-standalone .screen .controls .range{accent-color:var(--dk-gold)}
+.dk-standalone .divider,.dk-standalone .now-playing{border-color:var(--dk-antique)}
+.dk-standalone .dk-scan.btn{background:#fff;color:#23171a;border-color:#e7e2e2;font-weight:700;box-sizing:border-box;flex:0 0 auto;width:127px;min-width:127px;height:46px;min-height:46px;padding:10px 12px;white-space:nowrap}
+.dk-standalone .dk-scan.btn:hover{background:#f0e8db;color:#23171a}
+html.dk-standalone[lang="ru"] .dk-scan.btn{width:180px;min-width:180px}

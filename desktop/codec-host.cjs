@@ -111,7 +111,7 @@ async function probe(localPath) {
   const work=(async()=>{
   const stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json","-i",file
   ],30000);
   const json=JSON.parse(stdout);
@@ -126,6 +126,7 @@ async function probe(localPath) {
     startTime:Number.isFinite(Number(json.format?.start_time))?Number(json.format.start_time):0,
     videoCodec:String(video?.codec_name||""),
     videoPixelFormat:String(video?.pix_fmt||""),
+    fieldOrder:["progressive","tt","bb","tb","bt"].includes(video?.field_order)?video.field_order:"unknown",
     videoStreamIndex:hasVideo?video.index:null,
     width:Number(video?.width)||null,height:Number(video?.height)||null,
     audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
@@ -254,6 +255,7 @@ function serve(req,res) {
     "-ss",String(active.position),"-i",active.path,
     ...(active.hasVideo?["-map","0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
+  if(active.deinterlace)args.push("-vf","bwdif=mode=send_frame:parity=auto:deint="+(active.deinterlace==="on"?"all":"interlaced"),"-fps_mode","passthrough");
   if(active.format==="webm") {
     if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
     if(active.hasAudio)args.push("-c:a","libopus","-b:a","160k","-ac","2");
@@ -323,7 +325,7 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false) {
+async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off") {
   const info=await probe(localPath);
   const available=await status();
   const target=selectedFile(localPath);
@@ -333,16 +335,21 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const position=Math.max(0,Math.min(
     Number.isFinite(Number(offset))?Number(offset):0,
     info.duration===null?24*60*60:Math.max(0,info.duration-(frameStep===true?0.001:0.5))));
-  const copyVideo=info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
+  const filterMode=info.hasVideo&&(deinterlace==="on"||deinterlace==="auto"&&["tt","bb","tb","bt"].includes(info.fieldOrder))?deinterlace:null;
+  if(filterMode){
+    const filters=await processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000);
+    if(!/\bbwdif\s+V->V\b/.test(filters))throw Error("Bundled decoder does not include the deinterlacing filter");
+  }
+  const copyVideo=!filterMode&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
-    copyVideo:selectedFormat==="mp4"&&copyVideo,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,
     process:null,response:null};
-  return {...info,position,format:selectedFormat,
+  return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }
 function onlyWindow(event) {
@@ -490,10 +497,10 @@ function install(win,contents=win?.webContents) {
     if(!onlyWindow(event))throw new Error("Rejected subtitle request");
     return subtitleVtt(await resolveSource(localPath,checkVideo),index);
   });
-  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep)=>{
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return start(await resolveSource(localPath,checkVideo),
-      offset,format,audioIndex,frameStep===true);
+      offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off");
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

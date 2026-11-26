@@ -4,6 +4,8 @@
 
 **DK Kinehall (ДК Кинехолл)** is a free media player from **DK Softworks** for watching movies, television episodes, and listening to music from your own device.
 
+**Approved button design:** All standalone command buttons, playback controls, queue actions, tabs and selectors use the same rounded solid button family. Primary actions remain red, Scan Library white, and secondary actions dark burgundy with gold accents. Icon artwork and media-card layout remain unchanged.
+
 ## v0.9.3 installed update
 
 For updates to an existing installation, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It reuses locally installed FFmpeg/FFprobe; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Player, Library and Scan Library use matching header button dimensions.

@@ -5,6 +5,8 @@
  */
 const {contextBridge,ipcRenderer,webUtils}=require("electron");
 const localPath=file=>{
+  if(typeof file?.dvdToken==="string"&&/^dvd:[a-f0-9]{48}$/.test(file.dvdToken))
+    return {kind:"dvd",id:file.dvdToken};
   // Main verifies this discovered file's ID, path and library scope.
   if(file?.nativeVirtual===true)
     return {kind:"native",id:file.nativeId,path:file.nativePath};
@@ -14,6 +16,8 @@ const localPath=file=>{
 };
 contextBridge.exposeInMainWorld("DKCodecBridge",{
   status:()=>ipcRenderer.invoke("dk-codec:status"),
+  selectDVD:(kind,title,chapter,angle,language)=>ipcRenderer.invoke("dk-codec:dvd-select",
+    kind,Number(title),Number(chapter),Number(angle),language==="ru"?"ru":"en"),
   exportVideo:language=>ipcRenderer.invoke("dk-codec:export",language==="ru"?"ru":"en"),
   probe:file=>{
     const name=localPath(file);

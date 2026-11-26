@@ -1201,17 +1201,18 @@ html.dk-standalone{
   --dk-button-red:var(--dk-russian-red);
   --dk-button-red-border:var(--dk-russian-red);
 }
-/* Approved white settings button, red gear only, in either language. */
-html.dk-standalone .screen .controls .player-bar-settings>summary,
-html.dk-standalone .screen .controls .player-bar-settings>summary:is(:hover,:active),
-html.dk-standalone .screen .controls .player-bar-settings[open]>summary{
-  background-color:#fff;color:var(--dk-russian-red);border-color:var(--dk-antique);
+/* Approved white settings button, red gear only, in either language.
+   Match the actual summary classes to outrank the shared transport palette. */
+html.dk-standalone .screen .controls .player-bar-settings>summary.icon-btn.player-tool-button,
+html.dk-standalone .screen .controls .player-bar-settings>summary.icon-btn.player-tool-button:is(:hover,:active,:focus,:focus-visible),
+html.dk-standalone .screen .controls .player-bar-settings[open]>summary.icon-btn.player-tool-button{
+  background-color:#fff;color:var(--dk-russian-red,#D52B1E);border-color:var(--dk-antique);
 }
-html.dk-standalone .screen .controls .player-bar-settings>summary:is(:hover,:active),
-html.dk-standalone .screen .controls .player-bar-settings[open]>summary{
+html.dk-standalone .screen .controls .player-bar-settings>summary.icon-btn.player-tool-button:is(:hover,:active),
+html.dk-standalone .screen .controls .player-bar-settings[open]>summary.icon-btn.player-tool-button{
   box-shadow:inset 0 0 0 1px #a5803966;
 }
-html.dk-standalone .screen .controls .player-bar-settings>summary:focus-visible{
+html.dk-standalone .screen .controls .player-bar-settings>summary.icon-btn.player-tool-button:focus-visible{
   outline:2px solid currentColor;outline-offset:-4px;
 }
 html.dk-standalone .language-select{

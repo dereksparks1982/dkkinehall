@@ -993,6 +993,7 @@
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
     item.compatAttempted = false;
     item.codecAttempted = false;
+    item.nativeAlternateAttempted = false;
     item.codecActive = false;
     item.codecRestart = false;
     item.compatPending = false;
@@ -1043,7 +1044,7 @@
     // Standalone only: a playable picture does not prove audio is decodable.
     // Probe before normal playback; the web edition has no native bridge.
     if (codecPlayback && window.DKCodecBridge?.probe && item.file &&
-        !item.audio && item.requestedFormat === "auto") {
+        item.requestedFormat === "auto") {
       const epoch=item.playbackEpoch;
       const stillCurrent=()=>current()===item && item.playbackEpoch===epoch && !state.stopped;
       void window.DKCodecBridge.probe(item.file).then(async info=>{
@@ -1052,7 +1053,8 @@
         const ordinal=preferred?.mode==="mkv"?
           (item.embeddedAudio||[]).findIndex(t=>t.number===preferred.number):0;
         const codec=info.audioTracks?.[Math.max(0,ordinal)]?.codec||info.audioCodec||"";
-        if(/^(ac3|eac3|dts|truehd|mlp)$/i.test(codec)){
+        if(info.hasVideo===false&&info.hasAudio){item.audio=true;screen.classList.add("audio");}
+        if(/^(ac3|eac3|dts|truehd|mlp|wma\w*|ape|alac|atrac\w*|cook|amr_\w+|speex|tta|wavpack)$/i.test(codec)){
           item.codecAudioIndex=Math.max(0,ordinal);
           if(await tryNativeCodec(item))return;
           if(!stillCurrent())return;
@@ -1950,7 +1952,10 @@
     const code = media.error.code;
     const item=current();
     if(codecPlayback?.isActive(item)){
-      status("Included decoder output could not be played.");return;
+      if(!item.nativeAlternateAttempted&&item.requestedFormat==="auto"){
+        void codecPlayback.retryAlternate(item).then(ok=>{if(!ok&&current()===item)status("Included decoder output could not be played.");});
+      }else status("Included decoder output could not be played.");
+      return;
     }
     if((code===3||code===4)&&item?.file && /\.mkv$/i.test(item.name) &&
        !item.compatAttempted && item.requestedFormat !== "original" &&

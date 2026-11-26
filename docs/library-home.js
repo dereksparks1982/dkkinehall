@@ -653,6 +653,7 @@ function connect(){
     document.documentElement.classList.add("dk-standalone");
     const labels=()=>{$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
     labels();$("languageSelect").addEventListener("change",()=>queueMicrotask(labels));
+    $("scanLibrary").classList.remove("primary","ghost");
     $("scanLibrary").classList.add("dk-scan");
     nativeBridge.onScanRequest(()=>void scan(true));
   }

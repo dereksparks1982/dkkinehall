@@ -3942,24 +3942,26 @@
         () => { setPlaybackPosition(cue.startTime); });
     }
 
-    addMenuHeading("Picture");
-    addMenuItem("Fit full picture", () => {
-      if(setPictureFit)setPictureFit("fit");else{screen.classList.remove("fit-cover");syncPgsOverlay();}
-    }, {checked: !screen.classList.contains("fit-cover")});
-    addMenuItem("Fill frame (crop edges)", () => {
-      if(setPictureFit)setPictureFit("fill");else{screen.classList.add("fit-cover");syncPgsOverlay();}
-    }, {checked: screen.classList.contains("fit-cover")});
-    addMenuItem(document.fullscreenElement ? "Exit fullscreen" : "Fullscreen",
-      () => { void toggleFullscreen(); });
-    addMenuItem("Picture in picture", () => byId("pip").click(),
-      {disabled: byId("pip").hidden});
-
-    // Direct actions, not deeply nested rows. Reuse the actual settings
-    // category so picture presets, scopes and slider values stay in sync.
-    activeMenuSection = contextMenu;
+    // Standalone: one entry opens the real picture settings category.
+    // Preserve the hosted menu and all of its original shortcuts.
     if(openPictureAdjustments){
-      addMenuItem("Picture adjustments",()=>openPictureAdjustments(),{disabled:!current()||current().audio||state.stopped}).classList.add("dk-menu-picture-adjustments");
+      activeMenuSection=contextMenu;
+      addMenuItem("Picture Settings",()=>openPictureAdjustments(),
+        {disabled:!current()||current().audio||state.stopped}).classList.add("dk-menu-picture-adjustments");
+    }else{
+      addMenuHeading("Picture");
+      addMenuItem("Fit full picture", () => {
+        if(setPictureFit)setPictureFit("fit");else{screen.classList.remove("fit-cover");syncPgsOverlay();}
+      }, {checked: !screen.classList.contains("fit-cover")});
+      addMenuItem("Fill frame (crop edges)", () => {
+        if(setPictureFit)setPictureFit("fill");else{screen.classList.add("fit-cover");syncPgsOverlay();}
+      }, {checked: screen.classList.contains("fit-cover")});
+      addMenuItem(document.fullscreenElement ? "Exit fullscreen" : "Fullscreen",
+        () => { void toggleFullscreen(); });
+      addMenuItem("Picture in picture", () => byId("pip").click(),
+        {disabled: byId("pip").hidden});
     }
+    activeMenuSection=contextMenu;
     addMenuItem("Media information", openMediaInfo).classList.add("dk-menu-information");
   };
   // If Matroska inspection finishes while the Subtitles section is open,
@@ -4903,8 +4905,29 @@
       byId("smoothingMode")?.closest(".player-settings-section"),
       byId("audioEnhancementsEnabled")?.closest(".player-settings-section")
     ].filter(Boolean);
+    // Window actions from the old Picture context menu belong here too.
+    // They are local player actions, not global Library preferences.
+    const pictureDisplay=document.createElement("section");
+    pictureDisplay.className="player-settings-section dk-picture-settings";
+    pictureDisplay.id="pictureDisplayActions";
+    const displayTitle=document.createElement("strong");
+    displayTitle.textContent="Display mode";
+    const fullAction=document.createElement("button"),pipAction=document.createElement("button");
+    fullAction.type=pipAction.type="button";fullAction.className=pipAction.className="btn small";
+    const syncDisplayActions=()=>{
+      fullAction.textContent=isFullscreen()?"Exit fullscreen":"Fullscreen";
+      pipAction.textContent="Picture in picture";
+      pipAction.disabled=byId("pip").hidden||byId("pip").disabled;
+      window.DKLocale?.apply();
+    };
+    fullAction.addEventListener("click",()=>{settingsDetails.open=false;void toggleFullscreen();});
+    pipAction.addEventListener("click",()=>{settingsDetails.open=false;byId("pip").click();});
+    pictureDisplay.append(displayTitle,fullAction,pipAction);panel.append(pictureDisplay);
+    settingsDetails.addEventListener("toggle",()=>{if(settingsDetails.open)syncDisplayActions();});
+    document.addEventListener("fullscreenchange",syncDisplayActions);
+    syncDisplayActions();
     const categoryFor=section=>section.id==="voiceoverSettings"?"voiceover":section.id==="networkSettings"?"network":section.id==="dvdSettings"?"disc":section===globalSubtitles||section.classList.contains("dk-translation")||section.contains(byId("subtitleTrackSelect"))?"subtitles":section.classList.contains("dk-audio-settings")?"audio":section.contains(byId("playbackFormat"))?"playback":section.classList.contains("dk-picture-settings")?"picture":"general";
-    const categories=[["playback","Playback"],["picture","Picture"],["audio","Audio"],["subtitles","Subtitles"],["voiceover","Voiceover"],["disc","DVD & Disc"],["network","Network"],["general","General"]];
+    const categories=[["playback","Playback"],["picture","Picture Settings"],["audio","Audio"],["subtitles","Subtitles"],["voiceover","Voiceover"],["disc","DVD & Disc"],["network","Network"],["general","General"]];
     const nav=document.createElement("div");nav.className="dk-settings-category-nav";
     const heading=document.createElement("strong");heading.textContent="Settings";nav.append(heading);
     const sections=Array.from(panel.querySelectorAll(":scope > .player-settings-section"));

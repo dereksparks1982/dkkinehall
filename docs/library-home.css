@@ -4,19 +4,19 @@
 .library-tools{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
 .library-tabs{display:flex;align-items:center;gap:8px;margin:4px 0 14px}
 .library-tabs button{min-width:150px;padding:12px 24px;min-height:44px;
-  border:1px solid rgba(235,116,89,.25);color:#c6b8c0;font-weight:800;
+  border:1px solid rgba(var(--dk-russian-red-rgb,235,116,89),.25);color:#c6b8c0;font-weight:800;
   background:rgba(18,13,19,.86);border-radius:11px}
-.library-tabs button[aria-selected="true"]{background:#9a252e;
-  color:#fff;border-color:#fc626a}
-.library-tabs button:hover{background:#68202a;color:#fff}
-.library-status{font-size:.84rem;min-height:26px;color:#d9babe;margin-bottom:15px}
-.library-status.error{color:#ff9299}
+.library-tabs button[aria-selected="true"]{background:var(--dk-russian-red,#9a252e);
+  color:#fff;border-color:var(--dk-russian-red,#fc626a)}
+.library-tabs button:hover{background:var(--dk-russian-red-deep,#68202a);color:#fff}
+.library-status{font-size:.84rem;min-height:26px;color:var(--dk-russian-red-muted,#d9babe);margin-bottom:15px}
+.library-status.error{color:var(--dk-russian-red,#ff9299)}
 .library-section{margin-bottom:29px}
 .library-section .section-heading h2{font-size:clamp(1.15rem,2.4vw,1.45rem)}
 .library-section .section-heading p{font-size:.8rem;color:#bcaab3}
 .library-continue{display:grid;grid-auto-flow:column;
   grid-auto-columns:minmax(170px,240px);gap:13px;overflow-x:auto;
-  padding:3px 2px 12px;scrollbar-color:#79363e transparent;min-height:150px}
+  padding:3px 2px 12px;scrollbar-color:var(--dk-russian-red-trim,#79363e) transparent;min-height:150px}
 .library-continue:empty::before{content:"Nothing to resume yet";
   font-size:.9rem;color:#b49fa8;padding:28px 8px}
 html[lang="ru"] .library-continue:empty::before{content:"Пока нечего продолжать"}
@@ -26,15 +26,15 @@ html[lang="ru"] .library-continue:empty::before{content:"Пока нечего �
   border:0;background:transparent;color:var(--text);
   text-align:left;padding:0;cursor:pointer}
 .library-card:hover .library-poster,.library-card:focus-visible .library-poster{
-  border-color:#f35b65;box-shadow:0 0 0 2px rgba(242,76,89,.28)}
+  border-color:var(--dk-russian-red,#f35b65);box-shadow:0 0 0 2px rgba(var(--dk-russian-red-rgb,242,76,89),.28)}
 .library-poster{position:relative;width:100%;aspect-ratio:2/3;
   overflow:hidden;display:flex;align-items:center;justify-content:center;
-  border-radius:12px;border:1px solid rgba(229,112,94,.3);
+  border-radius:12px;border:1px solid rgba(var(--dk-russian-red-rgb,229,112,94),.3);
   background:linear-gradient(145deg,#271016,#0c0c13 78%);transition:border-color .15s}
 .library-poster img{position:absolute;inset:0;width:100%;height:100%;
   object-fit:cover;display:block}
 .library-poster .library-poster-placeholder{display:flex;align-items:center;
-  justify-content:center;flex-direction:column;gap:9px;color:#ab777f;
+  justify-content:center;flex-direction:column;gap:9px;color:var(--dk-russian-red-muted,#ab777f);
   font-size:1.8rem;pointer-events:none}
 .library-poster-placeholder small{font-size:.66rem;color:#b29aa2;font-weight:600}
 .library-card-title{display:-webkit-box;overflow:hidden;overflow-wrap:anywhere;
@@ -51,7 +51,7 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 .library-continue .library-poster img{object-fit:cover}
 .library-progress{position:absolute;bottom:0;left:0;right:0;
   height:5px;background:#140c10bb}
-.library-progress>span{display:block;background:#ed444c;height:100%}
+.library-progress>span{display:block;background:var(--dk-russian-red,#ed444c);height:100%}
 .library-continue .library-card-title{font-size:.8rem}
 .library-continue .library-poster-placeholder{font-size:1.3rem}
 .library-season-row{display:flex;align-items:center;gap:10px;margin:12px 0 20px}
@@ -76,14 +76,14 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 /* Native right-click file management, visually aligned with the original
  * crimson player context menus. No other menus or icons are changed. */
 .library-context-menu{position:fixed;z-index:3000;min-width:205px;
-  background:#1c1016;border:1px solid #9b424c;
+  background:#1c1016;border:1px solid var(--dk-russian-red-trim,#9b424c);
   border-radius:9px;box-shadow:0 14px 40px #0009;padding:6px}
 .library-context-menu[hidden]{display:none}
 .library-context-menu button{display:block;width:100%;min-height:40px;
-  border:0;border-radius:6px;background:transparent;color:#ffd5d7;
+  border:0;border-radius:6px;background:transparent;color:var(--dk-russian-red-muted,#ffd5d7);
   text-align:left;font-size:.87rem;font-weight:700;padding:7px 12px}
 .library-context-menu button:hover,.library-context-menu button:focus-visible{
-  background:#7c2029;color:white}
+  background:var(--dk-russian-red-deep,#7c2029);color:white}
 .library-tools button[hidden],#addFirstFolder[hidden]{display:none}
 
 /* Movie metadata is displayed only on demand; leave the grid unchanged. */
@@ -94,6 +94,6 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 .dk-movie-details dl{display:grid;grid-template-columns:max-content 1fr;gap:10px 18px;margin:20px 0 0}
 .dk-movie-details dt{color:#e2b956;font-weight:700}
 .dk-movie-details dd{margin:0;overflow-wrap:anywhere}
-.dk-movie-details-close{position:absolute;right:12px;top:12px;width:32px;height:32px;border:1px solid #f4515c;border-radius:8px;background:#351419;color:#ff515d;font-size:25px;font-weight:800;line-height:1}
-.dk-movie-details-close:hover{background:#b92430;color:white}
+.dk-movie-details-close{position:absolute;right:12px;top:12px;width:32px;height:32px;border:1px solid var(--dk-russian-red,#f4515c);border-radius:8px;background:#351419;color:var(--dk-russian-red,#ff515d);font-size:25px;font-weight:800;line-height:1}
+.dk-movie-details-close:hover{background:var(--dk-russian-red,#b92430);color:white}
 .library-context-menu button[hidden]{display:none!important}

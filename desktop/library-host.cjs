@@ -1552,6 +1552,44 @@ function install(originalWindow,originalPlayer){
     return native.localArtwork(id,filePath,{
       series:Boolean(series),kind:kind==="tv"?"tv":"movie"});
   });
+  ipcMain.handle("dk-library:check-catalog-paths",(event,rows)=>{
+    if(!allowed(event))throw Error("Catalog status request rejected");
+    return native.checkCatalogPaths(rows);
+  });
+  let fileInfoBusy=false;
+  ipcMain.handle("dk-library:file-info",async(event,id,filePath)=>{
+    if(!allowed(event))throw Error("File information request rejected");
+    const {target,stat}=await native.checkVideo(id,filePath);
+    const result={filename:path.basename(target),path:target,size:stat.size,
+      extension:path.extname(target).slice(1).toUpperCase(),streams:[],probeStatus:"unavailable"};
+    if(!probeAvailable||fileInfoBusy)return result;
+    fileInfoBusy=true;
+    try{
+      const data=await new Promise(resolve=>{
+        let child;
+        try{child=spawn(probeBin,["-v","error","-protocol_whitelist","file,pipe",
+          "-show_entries","format=format_name,duration:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,channels,channel_layout:stream_tags=language:stream_disposition=attached_pic",
+          "-of","json","-i",target],{shell:false,stdio:["ignore","pipe","ignore"],
+          env:{...process.env,LD_LIBRARY_PATH:path.join(app.getAppPath(),"lib")+path.delimiter+(process.env.LD_LIBRARY_PATH||"")}});}
+        catch(_){resolve(null);return;}
+        let output="",done=false;
+        const finish=value=>{if(done)return;done=true;clearTimeout(timer);resolve(value);};
+        const abort=()=>{child.kill("SIGKILL");finish(null);};
+        const timer=setTimeout(abort,10000);
+        child.stdout.on("data",chunk=>{if(done)return;output+=chunk;if(output.length>256*1024)abort();});
+        child.on("error",()=>finish(null));
+        child.on("close",code=>{if(code!==0){finish(null);return;}try{finish(JSON.parse(output));}catch(_){finish(null);}});
+      });
+      if(data){
+        result.format=String(data.format?.format_name||"");
+        result.duration=Number(data.format?.duration)||null;
+        result.streams=(Array.isArray(data.streams)?data.streams:[]).filter(stream=>
+          ["video","audio","subtitle"].includes(stream.codec_type)&&!Number(stream.disposition?.attached_pic));
+        result.probeStatus="ok";
+      }else result.probeStatus="failed";
+      return result;
+    }finally{fileInfoBusy=false;}
+  });
   ipcMain.handle("dk-library:show-in-folder",async(event,id,filePath)=>{
     if(!allowed(event))throw Error("File location request rejected");
     const {target}=await native.checkVideo(id,filePath);

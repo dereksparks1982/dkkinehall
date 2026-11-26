@@ -14,6 +14,8 @@ Play local media directly in your web browser, with the familiar DK Kinehall int
 
 DK Kinehall also has a standalone Linux edition that uses the **same web player interface** in its own bundled Chromium window. It does not require you to install a separate browser. Keep the included `_internal` runtime alongside the **DK Kinehall** executable. Media and subtitle support still depends on the codecs available to that bundled player.
 
+The updater registers the **approved DK cinema emblem** as the Linux app and dock icon and places a **DK Kinehall.desktop** launcher beside the original executable. The original Chromium player is preserved.
+
 The two editions are separate. The Web App remains available regardless of changes to the standalone version.
 
 ## Features

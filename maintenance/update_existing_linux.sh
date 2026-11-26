@@ -53,8 +53,9 @@ for resource in index.html player.js player.css mkv-tracks.js \
     exit 1
   fi
 done
-if [[ ! -f "$WORK/repo/maintenance/sync_original_runtime.py" ]]; then
-  echo "ERROR: Chromium runtime synchronizer is missing." >&2
+if [[ ! -f "$WORK/repo/maintenance/sync_original_runtime.py" ||
+      ! -f "$WORK/repo/maintenance/install_linux_icon.py" ]]; then
+  echo "ERROR: Chromium synchronizer or desktop icon installer is missing." >&2
   exit 1
 fi
 
@@ -67,5 +68,8 @@ echo "Updating existing web resources and Chromium runtime..."
 cp -a -- "$WORK/repo/docs/." "$APP/docs/"
 python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP"
 
-echo "SUCCESS: Existing DK Kinehall updated from GitHub main."
+echo "Registering the approved DK Kinehall icon for Ubuntu and the executable..."
+python3 "$WORK/repo/maintenance/install_linux_icon.py" "$APP"
+
+echo "SUCCESS: Existing DK Kinehall updated from GitHub main, with approved icon."
 echo "Backup: $BACKUP"

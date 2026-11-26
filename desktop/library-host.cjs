@@ -422,14 +422,16 @@ function showPage(page,remember=true){
   else home.webContents.focus();
   return true;
 }
-async function openPlayer(id,external=false){
+async function openPlayer(id,external=false,settingsOnly=false){
   if(!home||home.isDestroyed())throw Error("Library window was closed");
   const nav=id===null&&!external;
   if(!nav&&(typeof id!=="string"||id.length<1||id.length>500||id.includes("\0")))
     throw Error("Invalid library selection");
   if(installedWindow()){
     if(playerLoading)await playerLoading;
+    if(settingsOnly)return true;
     showPage("player");
+    if(nav)player.webContents.send("dk-library:activate-player");
     if(external)player.webContents.send("dk-library:external-ready");
     else if(!nav)player.webContents.send("dk-library:selection",id);
     return true;
@@ -459,12 +461,12 @@ async function openPlayer(id,external=false){
   });
   if(fs.existsSync(path.join(appRoot,"desktop","codec-host.cjs")))
     require("./codec-host.cjs").install(home,view.webContents);
-  const options=nav?{}:{query:external?{externalItem:id}:{libraryItem:id}};
+  const options=settingsOnly?{query:{settingsOnly:"1"}}:nav?{}:{query:external?{externalItem:id}:{libraryItem:id}};
   playerLoading=view.webContents.loadFile(playerFile,options);
   try{
     await playerLoading;
     if(home.isDestroyed())return false;
-    showPage("player");
+    if(!settingsOnly)showPage("player");
     view.webContents.send("dk-library:scan-state",scanActive);
     view.webContents.send("dk-library:maintenance-status",{action:metadataRefreshing?"refresh":"trash",busy:maintenanceBusy,done:0,total:0});
     return true;
@@ -617,6 +619,22 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:metadata-request",(event,url,kind)=>{
     if(!allowed(event))throw Error("Metadata request rejected");
     return metadataRequest(url,kind);
+  });
+  // Use the existing persistent Player renderer as the sole settings owner.
+  // Library requests are limited to its explicit shared settings API, never
+  // renderer-provided JavaScript, selectors or localStorage keys.
+  ipcMain.handle("dk-library:settings-open",async(event,language)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("Settings request rejected");
+    await openPlayer(null,false,true);
+    if(!installedWindow()||activePage!=="library")throw Error("Settings unavailable");
+    return player.webContents.executeJavaScript("window.DKSharedSettings.snapshot("+JSON.stringify(language==="ru"?"ru":"en")+")");
+  });
+  ipcMain.handle("dk-library:settings-change",async(event,id,action,value)=>{
+    if(!allowed(event)||activePage!=="library"||!installedWindow()||
+       typeof id!=="string"||!/^shared-\d+$/.test(id)||!["change","click"].includes(action)||
+       !(typeof value==="boolean"||typeof value==="string"&&value.length<=200||value===null))
+      throw Error("Settings request rejected");
+    return player.webContents.executeJavaScript("window.DKSharedSettings.change("+[id,action,value].map(v=>JSON.stringify(v)).join(",")+")");
   });
   ipcMain.handle("dk-library:show-player",event=>{
     if(!allowed(event))throw new Error("Library navigation rejected");

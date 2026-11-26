@@ -279,6 +279,9 @@
     const plain = text.trim();
     let translated = exact(plain);
     let m;
+    // Subtitle delay labels also update while switching English/Russian.
+    if (translated === null && /^[+−-]?\d+(?:\.\d+)? s$/.test(plain))
+      translated = plain.replace(/ s$/, " с");
     if (translated === null && (m = /^(\d+) items?$/.exec(plain)))
       translated = m[1] + " " + russianPlural(m[1], "файл", "файла", "файлов");
     if (translated === null && (m = /^Added (\d+) files? to the queue\.$/.exec(plain)))

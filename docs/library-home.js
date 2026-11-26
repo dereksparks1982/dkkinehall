@@ -130,7 +130,7 @@ function createCard(row,{landscape=false,series=false}={}){
   card.type="button";
   card.dataset.libraryId=row.id;
   card.dataset.displayRole=series?"series":landscape?"resume":"entry";
-  const box=coverShell(landscape);
+  const box=coverShell(landscape&&!nativeBridge);
   const title=create("span","library-card-title",
     series?row.series:row.kind==="tv"?
       (landscape?row.series+" · "+formatCode(row):formatCode(row)):
@@ -1007,6 +1007,26 @@ function connect(){
     if(event.key!=="dkmedia.web.resume.v1")return;
     scheduleHistoryRefresh();
   });
+  if(nativeBridge){
+    const collection=$("libraryCollection"),resume=$("continueWatching");
+    const matchResumeCards=()=>{
+      if(!collection||!resume)return;
+      const style=getComputedStyle(collection);
+      // Auto-fill retains empty tracks; the first computed track therefore
+      // matches actual poster widths even with a sparse collection.
+      const track=/^([\d.]+)px(?:\s|$)/.exec(style.gridTemplateColumns);
+      if(track&&Number(track[1])>0){
+        resume.style.setProperty("--dk-library-card-width",track[1]+"px");
+        resume.style.setProperty("--dk-library-card-gap",style.columnGap);
+      }
+    };
+    if(typeof ResizeObserver==="function"){
+      const observer=new ResizeObserver(matchResumeCards);observer.observe(collection);
+    }
+    window.addEventListener("resize",matchResumeCards);
+    matchResumeCards();
+    requestAnimationFrame(matchResumeCards);
+  }
   void render().then(()=>{
     recordNavigation();
     // Render saved posters immediately. A bounded, one-shot rescan is

@@ -179,7 +179,8 @@ async function adjacentFrame(localPath,position,direction){
       return {target,sample:Number.isFinite(next)&&next>target?
         target+Math.min(0.005,(next-target)/2):target};
     };
-    if(frameCache?.key===key){
+    if(frameCache?.key===key&&frameCache.times[0]<=position+0.00025&&
+       frameCache.times.at(-1)>position){
       const result=select(frameCache.times);
       if(result)return result;
     }
@@ -197,7 +198,11 @@ async function adjacentFrame(localPath,position,direction){
         .filter(value=>Number.isFinite(value)&&value>=-0.00025)
         .map(value=>Math.max(0,value)))].sort((a,b)=>a-b);
       frameCache={key,times};
-      const result=select(times);
+      // If a bounded probe did not reach the playhead, do not mistake
+      // its final decoded frame for the current one.
+      const reachesPlayhead=times.at(-1)>=position-0.00025||
+        (info.duration!==null&&end>=info.duration&&position<=info.duration&&times.length>0);
+      const result=reachesPlayhead?select(times):null;
       if(result)return result;
       if(begin===0)break;
     }

@@ -1,9 +1,13 @@
 # Offline subtitle translation (v0.9.3 roadmap)
 
-Planned, not shipped. Keep the existing player gear, subtitle toggle, icons and UI. Desktop only.
+**Offline translation foundation (standalone, v0.9.3):** Playback settings now provide English → Russian and Russian → English translation of a selected text subtitle track, progress, cancellation, and restoration of original text. A restricted native worker uses local CTranslate2 and SentencePiece assets only, with 32-line batches, two CPU threads, bounded input and no download or online API code. Existing cue timestamps and line breaks are retained; translated styling is plain text. Translation is manually initiated and applied after completion. Changing media or tracks, stopping, or rebuilding a native-transcoded subtitle track invalidates the translation. Image subtitles, automatic translation during playback, and export remain pending.
+
+**Runtime packaging is not complete:** the worker requires a trusted local Python environment with compatible CTranslate2 and SentencePiece modules at Electron's userData/translation-runtime/bin/python3, and direct bilingual model directories at userData/translation-runtime/models/en-ru and ru-en, each containing model/model.bin (and its required configuration/vocabulary files), source.model and target.model. These models must be compatible with the worker's unprefixed encoder-decoder tokenization contract. No model or engine is installed by this update. Model availability is a filesystem check, not a runtime validation. Pin versions, audit code and model redistribution terms separately, package verified assets, and verify on the standalone Linux target before declaring support shipped.
+
+Remaining roadmap: keep the existing player gear, subtitle toggle, icons and UI. Desktop only.
 
 - Explicit source/target selection, initially English ↔ Russian. Native text subtitle tracks and external SRT/VTT first.
-- Evaluate a pinned, redistributable offline engine and language model (Argos Translate or OPUS-MT); audit code/model licenses separately. Bundle verified runtime/model assets, never silently download or use an online service.
+- Evaluate pinned, redistributable bilingual models compatible with the CTranslate2/SentencePiece worker; audit code/model licenses separately. Bundle verified runtime/model assets, never silently download or use an online service.
 - Translate text ahead of playback in bounded batches, preserve cue timing and line breaks, and invalidate work on file/track changes. Preserve original subtitles as fallback, including when seeking or translation fails.
 - Optional bilingual display and SRT export, and an opt-in local cache keyed by source text, languages and model version.
 - Image subtitles (PGS/VobSub) need separate OCR and are deferred until text translation is reliable.

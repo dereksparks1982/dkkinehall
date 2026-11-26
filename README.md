@@ -257,3 +257,12 @@ Next priority: video smoothing. Master roadmap updated. Source-only changes; no 
 ### Approved replacement transport symbols
 
 The standalone six-button transport uses compact SVG symbols matching the approved reference. Play/Pause switches between circled play and pause; previous/next and stop use outlines; the ten-second rewind/forward use filled double triangles. No playback actions or application/launcher icons changed. Hosted playback retains its prior symbols. Runtime appearance remains unverified. Next feature: video smoothing.
+
+
+### Standalone history and default player size repairs
+
+Continue Watching retains unfinished entries above two seconds, including unavailable media until their storage is reconnected. Existing legacy resume positions remain a fallback. The standalone player ignores zero/uninitialized/seeking clocks and waits for resume positioning before updating history; completion requires the actual ended event. Native source transitions suspend stale-clock writes. Scan batch transactions preserve the current row's playback fields instead of stale snapshots, and native duplicate reconciliation does not prefer an accidental zero over meaningful unfinished progress. No database deletion, version reset or profile replacement. Previously lost or overwritten entries cannot be guaranteed recoverable; actual local history must be checked after installation.
+
+The standalone player opens docked at the full width of its left grid column, ignoring stale saved pixel widths and expanded/floating startup state. Up Next retains its existing column. Manual drag sizing and expansion remain available during the session, and double-clicking the right resize edge restores automatic width. Floating dimensions and position are retained. Float/Dock is solid white with dark text; Russian settings gear is red with a white icon. English gear retains its previous styling. No changes to other controls, approved SVGs, app icons or background.
+
+Source-only repair build, v0.9.3. Runtime acceptance pending; next new feature remains video smoothing.

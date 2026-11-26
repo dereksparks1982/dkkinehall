@@ -2500,11 +2500,25 @@
     const chapterNumber=numberField("dvdChapterNumber","Start chapter",999);
     const angleNumber=numberField("dvdAngleNumber","DVD angle",9);
     const dvdDialog=document.createElement("dialog");dvdDialog.className="dk-dvd-dialog";
+    const discInfo=document.createElement("p");discInfo.className="helper";section.append(discInfo);
+    let knownTitles=[];
+    const fillNumbers=(select,max,selected)=>{
+      const options=[];
+      for(let i=1;i<=max;i++){const option=document.createElement("option");option.value=String(i);option.textContent=String(i);options.push(option);}
+      select.replaceChildren(...options);select.value=String(Math.max(1,Math.min(max,Number(selected)||1)));
+    };
+    const updateDiscFields=(chapter=1,angle=1)=>{
+      const entry=knownTitles.find(row=>row.title===Number(titleNumber.value));
+      fillNumbers(chapterNumber,entry?.chapters||999,chapter);
+      fillNumbers(angleNumber,entry?.angles||9,angle);
+    };
+    titleNumber.addEventListener("change",()=>updateDiscFields());
+
     const buttons=[];let choosing=false;
     const openDiscResult=result=>{
       if(!result?.id||typeof result.name!=="string")return false;
       const file=Object.freeze({nativeVirtual:true,dvdToken:result.id,dvdTitle:result.title,
-        dvdChapter:result.chapter,dvdAngle:result.angle,name:result.name,
+        dvdChapter:result.chapter,dvdAngle:result.angle,dvdTitles:Array.isArray(result.titles)?result.titles:[],name:result.name,
         size:0,lastModified:0,type:"video/mpeg",webkitRelativePath:""});
       addFiles([file],[],"open",{nativeSrc:"about:blank"});
       const index=state.queue.findIndex(item=>item.key===result.id);
@@ -2559,11 +2573,11 @@
       if(dvdDialog.open)return;
       const file=current()?.file;
       change.hidden=!file?.dvdToken||!window.DKCodecBridge.changeDVD;
-      if(file?.dvdToken){
-        titleNumber.value=String(file.dvdTitle||1);
-        chapterNumber.value=String(file.dvdChapter||1);
-        angleNumber.value=String(file.dvdAngle||1);
-      }
+      knownTitles=Array.isArray(file?.dvdTitles)?file.dvdTitles:[];
+      fillNumbers(titleNumber,knownTitles.length||99,file?.dvdTitle||1);
+      updateDiscFields(file?.dvdChapter||1,file?.dvdAngle||1);
+      discInfo.textContent=knownTitles.length?(window.DKLocale?.get()==="ru"?"Разделов на диске: ":"Disc titles: ")+knownTitles.length:"";
+      window.DKLocale?.apply();
       section.hidden=false;dvdDialog.prepend(section);dvdDialog.showModal();
     });
     closeDVD.addEventListener("click",()=>{if(!choosing)dvdDialog.close();});

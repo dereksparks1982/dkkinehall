@@ -1246,6 +1246,7 @@
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
     item.compatAttempted = false;
     item.codecAttempted = false;
+    item.sourceVideoExpected=false;
     item.nativeAlternateAttempted = false;
     item.codecActive = false;
     item.codecRestart = false;
@@ -1326,7 +1327,21 @@
         const ordinal=preferred?.mode==="mkv"?
           (item.embeddedAudio||[]).findIndex(t=>t.number===preferred.number):0;
         const codec=info.audioTracks?.[Math.max(0,ordinal)]?.codec||info.audioCodec||"";
-        if(info.hasVideo===false&&info.hasAudio){item.audio=true;screen.classList.add("audio");}
+        item.sourceVideoExpected=info.hasVideo===true;
+        if(item.sourceVideoExpected){item.audio=false;screen.classList.remove("audio");}
+        else if(info.hasVideo===false&&info.hasAudio){item.audio=true;screen.classList.add("audio");}
+        // Chromium can accept an audio track while ignoring an unsupported
+        // picture track. Route known non-browser video codecs to FFmpeg.
+        const videoCodec=String(info.videoCodec||"").toLowerCase();
+        const nativeVideo=item.sourceVideoExpected&&videoCodec&&
+          (!["h264","vp8","vp9","av1","theora"].includes(videoCodec)||
+           videoCodec==="h264"&&info.videoPixelFormat&&!/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat));
+        if(nativeVideo){
+          item.codecAudioIndex=Math.max(0,ordinal);
+          if(await tryNativeCodec(item))return;
+          if(!stillCurrent())return;
+          status("Included video decoder unavailable.");
+        }
         if(/^(ac3|eac3|dts|truehd|mlp|wma\w*|ape|alac|atrac\w*|cook|amr_\w+|speex|tta|wavpack)$/i.test(codec)){
           item.codecAudioIndex=Math.max(0,ordinal);
           if(await tryNativeCodec(item))return;
@@ -1517,7 +1532,7 @@
     if(window.DKMkvMP4?.eligible(info,item.file)) return retryAsMP4(item);
     return false;
   };
-  const tryNativeCodec = async item => {
+  const tryNativeCodec = async (item,overridePosition=null) => {
     if(!codecPlayback||!item?.file||item.codecAttempted ||
        item.requestedFormat==="original" ||
        current()!==item||state.stopped)return false;
@@ -1529,7 +1544,8 @@
       applyVolume();
     }
     const resume=Number(state.resume[item.key]||0);
-    const at=Number.isFinite(resume)&&resume>0?resume:
+    const at=overridePosition!==null&&Number.isFinite(overridePosition)?Math.max(0,overridePosition):
+      Number.isFinite(resume)&&resume>0?resume:
       (Number.isFinite(media.currentTime)?Math.max(0,media.currentTime):0);
     const preferred=state.audioPreferences[item.key];
     if(preferred?.mode==="mkv") {
@@ -2943,6 +2959,16 @@
     updateChapterMarkers();
   });
   media.addEventListener("timeupdate", () => {
+    const item=current();
+    if(item?.sourceVideoExpected&&item.file&&item.requestedFormat==="auto"&&
+       !state.stopped&&!media.paused&&!media.seeking&&!item.codecAttempted&&
+       !item.deinterlacePending&&!codecPlayback?.isActive(item)&&
+       media.readyState>=2&&media.currentTime>1&&!media.videoWidth){
+      // Audio-only success never fires the media error handler.
+      const at=media.currentTime;
+      void tryNativeCodec(item,at).then(ok=>{if(!ok&&current()===item)status("Video decoder unavailable for this file.");});
+      return;
+    }
     updateTime();
     syncPgsOverlay();
     const now = Date.now();

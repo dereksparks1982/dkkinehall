@@ -656,12 +656,33 @@ function install(originalWindow,originalPlayer){
   });
   // The native app discovers the local filesystem directly. The renderer
   // receives small metadata records, never video bytes or root access.
+  // Optional packaged FFprobe. No system installation or binary download.
+  const probeBin=path.join(app.getAppPath(),"bin","ffprobe");
+  let probeAvailable=false;
+  try{fs.accessSync(probeBin,fs.constants.X_OK);probeAvailable=true;}catch(_){}
+  const probeLibraryVideo=(file,signal)=>new Promise(resolve=>{
+    let child;try{child=spawn(probeBin,["-v","error","-select_streams","v","-show_entries","stream=codec_type:stream_disposition=attached_pic:format=duration","-of","json","-i",file],{
+      shell:false,stdio:["ignore","pipe","ignore"],env:{...process.env,LD_LIBRARY_PATH:path.join(app.getAppPath(),"lib")+path.delimiter+(process.env.LD_LIBRARY_PATH||"")}
+    });}catch(_){resolve(null);return;}
+    let done=false,output="";
+    const finish=result=>{if(done)return;done=true;clearTimeout(timer);signal?.removeEventListener("abort",abort);resolve(result);};
+    const abort=()=>{child.kill("SIGKILL");finish(null);};
+    const timer=setTimeout(abort,2500);
+    signal?.addEventListener("abort",abort,{once:true});if(signal?.aborted)abort();
+    child.stdout.on("data",chunk=>{output+=chunk;if(output.length>65536)abort();});
+    child.on("error",()=>finish(null));
+    child.on("close",code=>{
+      if(code!==0){finish(null);return;}
+      try{const info=JSON.parse(output);finish(Array.isArray(info.streams)&&info.streams.some(stream=>stream.codec_type==="video"&&!Number(stream.disposition?.attached_pic)));}
+      catch(_){finish(null);}
+    });
+  });
   ipcMain.handle("dk-library:discover",async(event,manual=false)=>{
     if(!allowed(event))throw Error("Native discovery rejected");
     if(scanPromise)return scanPromise;
     scanController=new AbortController();
     scanPromise=native.discover({
-      manual:Boolean(manual),signal:scanController.signal,
+      manual:Boolean(manual),signal:scanController.signal,probe:probeAvailable?probeLibraryVideo:null,
       onProgress:p=>{
         if(home&&!home.isDestroyed())
           home.webContents.send("dk-library:scan-progress",p);

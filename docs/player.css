@@ -1157,3 +1157,17 @@ html.dk-standalone .screen .controls .transport :is(#previous,#rewind10,#playPau
 html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .seek-ten-icon text{
   fill:currentColor;
 }
+
+
+/* Compact vector transport glyphs from the approved reference. The
+   existing hit area, gold trim, and responsive button size are unchanged. */
+html.dk-standalone .screen .controls .transport .dk-transport-glyph{
+  display:block;width:20px;height:20px;flex:none;pointer-events:none;
+}
+html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .dk-transport-glyph{
+  width:17px;height:17px;
+}
+@media(max-width:640px){
+  html.dk-standalone .screen .controls .transport .dk-transport-glyph{width:18px;height:18px}
+  html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .dk-transport-glyph{width:15px;height:15px}
+}

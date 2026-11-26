@@ -354,16 +354,25 @@ async function ingestNative(scan){
     if(!info)continue;
     seen.add(file.id);
     const previous=old.get(file.id);
+    // A provider label must not preserve an obviously wrong title/year
+    // once the original filename has been classified correctly.
+    const normalized=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").toLowerCase().trim();
+    const validMovie=info.kind==="movie"&&previous?.kind==="movie"&&previous.movieMetadataVerified&&
+      normalized(previous.title)===normalized(info.title)&&(!info.year||!previous.year||Number(previous.year)===Number(info.year));
+    const staleMovie=info.kind==="movie"&&previous?.movieMetadataVerified&&!validMovie;
     const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
       previous.season===info.season&&previous.episode===info.episode&&
-      (previous.movieMetadataVerified||previous.title===info.title);
+      !staleMovie&&(validMovie||previous.title===info.title)&&(!info.year||Number(previous.year)===Number(info.year));
     if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing&&!previous.libraryExcluded)continue;
     changes.push({...previous,...info,
       // A verified metadata provider title survives unchanged film contents.
       episodeTitle:previous?.kind===info.kind&&previous?.metadataVerified?
         previous.episodeTitle:info.episodeTitle,
-      title:info.kind==="movie"&&previous?.movieMetadataVerified?previous.title:info.title,
-      year:info.kind==="movie"&&previous?.movieMetadataVerified?previous.year:info.year,
+      title:validMovie?previous.title:info.title,
+      year:validMovie?(info.year||previous.year):info.year,
+      movieMetadataVerified:!!validMovie,
+      movieDetails:validMovie?previous.movieDetails:null,
+      movieProvider:validMovie?previous.movieProvider:null,
       metadataVerified:previous?.kind===info.kind&&Boolean(previous?.metadataVerified),
       id:file.id,source:"native",nativePath:file.nativePath,
       nativeRoot:file.root,filename:file.filename,relative:file.relative,

@@ -4498,7 +4498,7 @@
     if(!bridge?.internalPages||!bridge.generateVoiceover)return;
     const group=document.createElement("div");
     group.className="player-settings-section dk-voiceover";group.id="voiceoverSettings";
-    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option><option value="en-ar">English → Arabic</option><option value="ar-en">Arabic → English</option><option value="ru-ar">Russian → Arabic</option><option value="ar-ru">Arabic → Russian</option><option value="auto">Detect source (English, Russian or Arabic)</option><option value="auto-en">Detect source → English</option><option value="auto-ru">Detect source → Russian</option><option value="auto-ar">Detect source → Arabic</option></select><label for="dkVoiceProfile">Voice profile</label><select id="dkVoiceProfile"><option value="default">Default voice</option><option value="male">Male voice (optional model)</option><option value="female">Female voice (optional model)</option><option value="speakers">Speaker-aware voices (optional models)</option></select><div class="dk-voiceover-cache" id="dkSpeakerSettings" hidden><p class="helper">Identify speakers in clips up to 60 minutes. Assign a voice to each anonymous speaker; voices are not matched by gender.</p><button class="btn small" type="button" id="dkIdentifySpeakers" disabled>Identify speakers</button><span class="helper" id="dkSpeakerStatus" role="status" aria-live="polite"></span><div id="dkSpeakerAssignments"></div></div><span class="helper" id="dkVoiceDetected" role="status" aria-live="polite"></span><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
+    group.innerHTML='<strong>DK Voiceover</strong><p class="helper">Generate translated speech from original text subtitles or recognize dialogue from the movie locally.</p><label for="dkVoiceDirection">Translation direction</label><select id="dkVoiceDirection"><option value="en-ru">English → Russian</option><option value="ru-en">Russian → English</option><option value="en-ar">English → Arabic</option><option value="ar-en">Arabic → English</option><option value="ru-ar">Russian → Arabic</option><option value="ar-ru">Arabic → Russian</option><option value="auto">Detect source (English, Russian or Arabic)</option><option value="auto-en">Detect source → English</option><option value="auto-ru">Detect source → Russian</option><option value="auto-ar">Detect source → Arabic</option></select><label for="dkVoiceProfile">Voice profile</label><select id="dkVoiceProfile"><option value="default">Default voice</option><option value="male">Male voice (optional model)</option><option value="female">Female voice (optional model)</option><option value="speakers">Speaker-aware voices (optional models)</option></select><div class="dk-voiceover-cache" id="dkSpeakerSettings" hidden><p class="helper">Identify speakers in clips up to 60 minutes. Assign a voice to each anonymous speaker; voices are not matched by gender.</p><button class="btn small" type="button" id="dkIdentifySpeakers" disabled>Identify speakers</button><span class="helper" id="dkSpeakerStatus" role="status" aria-live="polite"></span><div id="dkSpeakerAssignments"></div></div><span class="helper" id="dkVoiceDetected" role="status" aria-live="polite"></span><button class="btn small" type="button" id="dkSpeechGenerate" disabled>Generate subtitles from audio</button><button class="btn small" type="button" id="dkSpeechExport" disabled>Save generated subtitles</button><label><input type="checkbox" id="dkVoiceProgressive"> Play generated audio while synthesis continues</label><p class="helper">Unfinished audio uses the original soundtrack until generated speech becomes available.</p><button class="btn small" type="button" id="dkVoiceGenerate" disabled>Generate voiceover</button><button class="btn small" type="button" id="dkVoiceCancel" disabled>Cancel voiceover</button><label><input type="checkbox" id="dkVoiceEnabled" disabled> Enable voiceover</label><label for="dkVoiceOriginal">Original audio level</label><input type="range" id="dkVoiceOriginal" min="0" max="100" step="5" value="35"><output id="dkVoiceOriginalValue">35%</output><label for="dkVoiceLevel">Voiceover volume</label><input type="range" id="dkVoiceLevel" min="0" max="100" step="5" value="100"><output id="dkVoiceLevelValue">100%</output><p class="helper">Original audio is reduced, not separated from the music and effects.</p><button class="btn small" type="button" id="dkVoiceExport" disabled>Export voiceover audio</button><span class="helper" id="dkVoiceStatus" role="status" aria-live="polite"></span><progress id="dkVoiceProgress" max="100" value="0"></progress><output id="dkVoicePercent">0%</output>';
     byId("playerSettingsPanel").append(group);
     // Cache management remains usable even without installed speech models.
     const cacheControls=document.createElement("div");
@@ -4542,8 +4542,12 @@
     let speechReady=false,generated=null,recognizing=false,jobAudio=null;
     let availablePairs=new Set(),speakerReady=false,speakerState=null,analyzing=false;
     let voiceGain=null,voicePlaying=false,videoWaiting=false,voiceEpoch=0,playPending=false;
+    let sourceEpoch=0,loadedSegment=null,pendingSegment=null,segmentOffset=0,graphReady=false;
     const voice=new Audio();voice.crossOrigin="anonymous";voice.preload="metadata";
-    const enabled=byId("dkVoiceEnabled"),original=byId("dkVoiceOriginal"),level=byId("dkVoiceLevel");
+    const enabled=byId("dkVoiceEnabled"),original=byId("dkVoiceOriginal"),level=byId("dkVoiceLevel"),progressive=byId("dkVoiceProgressive");
+    const progressiveKey="dk-kinehall.voiceover-progressive.v1";
+    progressive.checked=read(progressiveKey,false)===true;
+    progressive.addEventListener("change",()=>write(progressiveKey,progressive.checked));
     const mixKey="dk-kinehall.voiceover-mix.v1",mix=read(mixKey,{})||{};
     const percentValue=(value,fallback)=>Number.isFinite(Number(value))&&value!=null?Math.max(0,Math.min(100,Number(value))):fallback;
     original.value=String(percentValue(mix.original,35));level.value=String(percentValue(mix.level,100));
@@ -4570,25 +4574,60 @@
     };
     const stopVoice=(clear=false)=>{
       voiceEpoch++;playPending=false;voicePlaying=false;voice.pause();
-      if(clear){enabled.checked=false;voice.removeAttribute("src");voice.load();}
+      if(clear){enabled.checked=false;sourceEpoch++;loadedSegment=null;pendingSegment=null;segmentOffset=0;graphReady=false;voice.removeAttribute("src");voice.load();}
       applyVolume();
     };
     const fallback=()=>{
       stopVoice(true);setStatus("Voiceover playback failed; original audio restored.");refreshVoiceover();
     };
+    const selectSegment=position=>{
+      if(!result)return null;
+      if(result.complete)return {key:"full",index:null,offset:0};
+      const index=Math.floor(position/30),duration=result.chunks?.get(index);
+      if(!Number.isFinite(duration)||position>=index*30+duration)return null;
+      return {key:"chunk-"+index,index,offset:index*30};
+    };
+    const loadVoiceSegment=async(segment)=>{
+      const selected=result,epoch=++sourceEpoch;
+      stopVoice();pendingSegment=segment.key;loadedSegment=null;
+      voice.removeAttribute("src");voice.load();
+      try{
+        const src=await bridge.voiceoverSource(selected.ticket,segment.index);
+        if(epoch!==sourceEpoch||result!==selected||!enabled.checked)return;
+        pendingSegment=null;loadedSegment=segment.key;segmentOffset=segment.offset;
+        voice.src=src;voice.load();syncVoice(true);
+      }catch(_){
+        if(epoch!==sourceEpoch)return;
+        pendingSegment=null;loadedSegment=null;
+        // A revoked/failed partial segment must not interrupt original playback.
+        fallback();
+      }
+    };
     const syncVoice=(force=false)=>{
-      if(!enabled.checked||!result||result.item!==current()||state.stopped||media.paused||media.ended||media.seeking||videoWaiting){
+      if(!enabled.checked||!graphReady||!result||result.item!==current()||state.stopped||media.paused||media.ended||media.seeking||videoWaiting){
         if(voicePlaying||playPending||!voice.paused)stopVoice();
         return;
       }
       const position=Number(playbackSeconds());
-      if(!Number.isFinite(position)||voice.readyState<1)return;
-      if(!Number.isFinite(voice.duration)||position>=voice.duration){
+      if(!Number.isFinite(position)||position<0)return;
+      const segment=selectSegment(position);
+      if(!segment){
+        if(voicePlaying||playPending||!voice.paused)stopVoice();
+        if(pendingSegment!==null){sourceEpoch++;pendingSegment=null;}
+        return;
+      }
+      if(loadedSegment!==segment.key){
+        if(pendingSegment!==segment.key)void loadVoiceSegment(segment);
+        return;
+      }
+      if(voice.readyState<1)return;
+      const relative=position-segmentOffset;
+      if(!Number.isFinite(voice.duration)||relative<0||relative>=voice.duration){
         if(voicePlaying||playPending||!voice.paused)stopVoice();
         return;
       }
       try{
-        if(force||Math.abs(voice.currentTime-position)>.35)voice.currentTime=Math.max(0,position);
+        if(force||Math.abs(voice.currentTime-relative)>.35)voice.currentTime=Math.max(0,relative);
         voice.playbackRate=media.playbackRate;
       }catch(_){fallback();return;}
       if(voice.paused&&!playPending){
@@ -4602,7 +4641,7 @@
     enabled.addEventListener("change",async()=>{
       if(!enabled.checked){stopVoice(true);return;}
       if(!result||!bridge.voiceoverSource||!ensureVolumeBoost()){fallback();return;}
-      const selected=result,epoch=++voiceEpoch;
+      const selected=result,epoch=++sourceEpoch;
       try{
         const context=volumeAudioGraph.context;
         if(!voiceGain){
@@ -4611,10 +4650,9 @@
           source.connect(voiceGain);voiceGain.connect(context.destination);
         }
         await context.resume();
-        const src=await bridge.voiceoverSource(selected.ticket);
-        if(epoch!==voiceEpoch||result!==selected||!enabled.checked)return;
-        voice.src=src;voice.load();syncVoice(true);
-      }catch(_){if(epoch===voiceEpoch)fallback();}
+        if(epoch!==sourceEpoch||result!==selected||!enabled.checked)return;
+        graphReady=true;syncVoice(true);
+      }catch(_){if(epoch===sourceEpoch)fallback();}
     });
     original.addEventListener("input",updateMix);level.addEventListener("input",updateMix);
     for(const event of ["pause","seeking","ended","emptied","waiting","stalled"]){
@@ -4629,11 +4667,11 @@
     media.addEventListener("timeupdate",()=>syncVoice());
     media.addEventListener("ratechange",()=>syncVoice(true));
     voice.addEventListener("loadedmetadata",()=>syncVoice(true));
-    voice.addEventListener("playing",()=>{if(enabled.checked&&!media.paused&&!media.seeking&&!videoWaiting){voicePlaying=true;applyVolume();}else voice.pause();});
+    voice.addEventListener("playing",()=>{const segment=selectSegment(Number(playbackSeconds()));if(enabled.checked&&segment?.key===loadedSegment&&!media.paused&&!media.seeking&&!videoWaiting){voicePlaying=true;applyVolume();}else voice.pause();});
     voice.addEventListener("waiting",()=>{voicePlaying=false;applyVolume();});
     voice.addEventListener("pause",()=>{voicePlaying=false;applyVolume();});
     voice.addEventListener("ended",()=>{voicePlaying=false;applyVolume();});
-    voice.addEventListener("error",()=>{if(enabled.checked)fallback();});
+    voice.addEventListener("error",()=>{if(enabled.checked&&loadedSegment!==null&&voice.getAttribute("src"))fallback();});
     updateMix();
     const speechButton=byId("dkSpeechGenerate"),speechExport=byId("dkSpeechExport");
     const localMovie=()=>{const item=current();return !!(item?.file&&item.kind==="file"&&!item.audio&&!item.file.dvdToken&&!state.stopped);};
@@ -4753,10 +4791,10 @@
       speechExport.disabled=!validGenerated()||busy||exporting;
       cancel.disabled=!busy;
       exportButton.disabled=!result||busy||exporting||result.item!==current();
-      direction.disabled=busy||exporting||cacheBusy;profile.disabled=direction.disabled;
+      direction.disabled=busy||exporting||cacheBusy;profile.disabled=direction.disabled;progressive.disabled=direction.disabled;
       if(cacheBusy){generate.disabled=true;speechButton.disabled=true;speechExport.disabled=true;exportButton.disabled=true;}
       updateCacheButton();
-      enabled.disabled=!result||busy||exporting||result.item!==current()||!bridge.voiceoverSource;
+      enabled.disabled=!result||exporting||result.item!==current()||!bridge.voiceoverSource||(!result.complete&&!result.chunks?.size);
     };
     resetVoiceover=()=>{
       stopVoice(true);videoWaiting=false;generated=null;speakerState=null;jobAudio=null;refreshDetected();renderSpeakers();speakerMessage("");
@@ -4786,7 +4824,14 @@
       setStatus(data.stage==="extract"?"Extracting movie audio…":data.stage==="cached"?"Using saved subtitles.":data.stage==="detect"?"Detecting spoken language locally…":"Recognizing dialogue locally…");
     });
     bridge.onVoiceoverProgress?.(data=>{
-      if(!busy||recognizing||data.ticket!==ticket||!data.total)return;
+      if(!busy||recognizing||data.ticket!==ticket)return;
+      if(data.stage==="chunk"){
+        if(result?.ticket===ticket&&!result.complete&&Number.isInteger(data.index)&&data.index>=0&&data.index<360&&Number.isFinite(data.duration)&&data.duration>0&&data.duration<=30){
+          result.chunks.set(data.index,data.duration);refreshVoiceover();syncVoice();
+        }
+        return;
+      }
+      if(!data.total)return;
       const fraction=data.done/data.total;
       setProgress(Math.min(100,data.stage==="translation"?fraction*35:data.stage==="complete"?100:35+fraction*65));
       setStatus(data.stage==="translation"?"Translating dialogue…":"Generating speech…");
@@ -4845,11 +4890,15 @@
         if(!pair||!availablePairs.has(pair)){setStatus("The detected translation direction is not installed.");setProgress(0);return;}
         setProgress(0);setStatus("Translating dialogue…");
         const prepared=profile.value==="speakers"?assignVoices(rows):rows;
-        const info=await bridge.generateVoiceover(pair,prepared,job,profile.value);
+        const incremental=progressive.checked;
+        if(incremental)result={item,ticket:job,complete:false,chunks:new Map()};
+        const info=await bridge.generateVoiceover(pair,prepared,job,profile.value,incremental);
         if(job!==ticket||current()!==item){await bridge.discardVoiceover();return;}
-        result={item,ticket:job};setProgress(100);
+        if(result?.ticket===job){result.complete=true;syncVoice(true);}
+        else result={item,ticket:job,complete:true,chunks:new Map()};
+        setProgress(100);
         setStatus(info.cached?(info.skipped?"Cached voiceover ready; some lines could not fit their timing.":"Cached voiceover audio ready."):(info.skipped?"Voiceover ready; some lines could not fit their timing.":"Voiceover audio ready."));
-      }catch(_){if(job===ticket){setStatus("Voiceover generation failed; original playback unchanged.");setProgress(0);}}
+      }catch(_){if(job===ticket){stopVoice(true);result=null;setStatus("Voiceover generation failed; original playback unchanged.");setProgress(0);}}
       finally{busy=false;refreshVoiceover();void refreshCache();}
     });
     exportButton.addEventListener("click",async()=>{

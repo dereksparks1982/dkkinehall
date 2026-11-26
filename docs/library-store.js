@@ -202,6 +202,9 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
            previous.modified===file.lastModified&&!previous.missing)continue;
         const row={
           ...(previous||{}),...info,id,folderId:folder.id,relative,
+          // Verified titles survive a file timestamp or size change.
+          episodeTitle:previous?.metadataVerified?
+            previous.episodeTitle:info.episodeTitle,
           filename:file.name,size:file.size,modified:file.lastModified,
           missing:false,updatedAt:Date.now(),
           position:previous?.position||0,duration:previous?.duration||0,
@@ -249,6 +252,9 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
       const merged={...to,
         position:from.position||0,duration:from.duration||0,
         lastPlayed:from.lastPlayed||0,completed:from.completed||false,
+        episodeTitle:from.metadataVerified?
+          from.episodeTitle:to.episodeTitle,
+        metadataVerified:from.metadataVerified||false,
         renamedFrom:from.relative};
       await put("entries",merged);
       // An unambiguous rename is the same video, not a deleted movie.
@@ -311,7 +317,11 @@ async function updateProgress(id,position,duration,completed=false){
       const seconds=Number(position),length=Number(duration);
       const progress=Number.isFinite(seconds)?Math.max(0,seconds):row.position||0;
       const total=Number.isFinite(length)&&length>0?length:row.duration||0;
-      const done=Boolean(completed)||(total>0&&progress>=Math.max(0,total-12));
+      // Never classify a stopped or just-opened short video as finished.
+      // Completion requires a positive playback position near the end.
+      const finishWindow=Math.min(12,total*0.05);
+      const done=Boolean(completed)||
+        (total>0&&progress>0&&progress>=Math.max(1,total-finishWindow));
       object.put({...row,position:done?0:progress,duration:total,
         lastPlayed:Date.now(),completed:done});
       saved=true;
@@ -320,6 +330,31 @@ async function updateProgress(id,position,duration,completed=false){
     tx.onabort=()=>reject(tx.error||new Error("Playback history could not be saved"));
   });
   if(saved)changed({progress:true,id});
+}
+async function updateMetadata(id,{episodeTitle}={}){
+  // Only verified metadata (from an actual provider result) is written.
+  // Use a read/write transaction so a simultaneous playback-position save
+  // cannot be overwritten by an older copy of a catalog record.
+  const title=typeof episodeTitle==="string"?episodeTitle.trim().slice(0,180):"";
+  if(!title)return false;
+  const db=await open();
+  let changedRow=false;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction("entries","readwrite");
+    const s=tx.objectStore("entries");
+    const request=s.get(id);
+    request.onsuccess=()=>{
+      const row=request.result;
+      if(!row||row.kind!=="tv"||
+         (row.episodeTitle===title && row.metadataVerified))return;
+      s.put({...row,episodeTitle:title,metadataVerified:true});
+      changedRow=true;
+    };
+    tx.oncomplete=resolve;
+    tx.onabort=()=>reject(tx.error||new Error("Episode metadata save failed"));
+  });
+  if(changedRow)changed({metadata:true,id});
+  return changedRow;
 }
 async function artwork(id){return get("art",id);}
 async function saveArtwork(id,blob,credit=""){
@@ -331,7 +366,7 @@ async function saveArtwork(id,blob,credit=""){
 }
 return Object.freeze({
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
-  checkReadPermission,openFile,updateProgress,artwork,saveArtwork,onChange,
+  checkReadPermission,openFile,updateProgress,updateMetadata,artwork,saveArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

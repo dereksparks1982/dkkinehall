@@ -21,6 +21,8 @@ const imageQueue=[],activeArtwork=new Map();
 let artworkBusy=0;
 const MAX_LOOKUPS=2,ARTWORK_LIMIT=1200;
 let networkArtworkCount=0;
+let networkTitleCount=0;
+const TITLE_LOOKUP_LIMIT=400;
 let legacyResume={};
 try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
 catch(_){legacyResume={};}
@@ -44,8 +46,11 @@ const mediaName=row=>row.kind==="tv"?
   row.series+" · "+formatCode(row)+
   (row.episodeTitle?" · "+row.episodeTitle:""):
   row.title+(row.year?" ("+row.year+")":"");
-const artId=row=>row.kind==="tv"?
-  "tv:"+String(row.series||"").normalize("NFKC").toLowerCase():row.id;
+// Series posters and episode stills are DIFFERENT artwork records. The
+// previous shared TV key made every episode display the series poster.
+const artId=(row,series=false)=>row.kind==="tv"&&series?
+  "tv-series:"+String(row.series||"").normalize("NFKC").toLowerCase():
+  row.id;
 const cleanImageUrls=()=>{
   for(const url of imageUrls)try{URL.revokeObjectURL(url);}catch(_){}
   imageUrls.clear();
@@ -107,10 +112,10 @@ function createCard(row,{landscape=false,series=false}={}){
   });
   // Artwork requests are on-demand and bounded; never fetch every poster
   // or hold all image data in memory when a 25,000-file library opens.
-  imageQueue.push({id:artId(row),row,box,epoch:renderEpoch});
+  imageQueue.push({id:artId(row,series),row,series,box,epoch:renderEpoch});
   return card;
 }
-function findLocalArtworkFolder(folder,relative){
+function findLocalArtworkFolder(folder,relative,series=false){
   const parent=relative.split("/").slice(0,-1).filter(Boolean);
   return async function(){
     let current=folder.handle;
@@ -121,13 +126,18 @@ function findLocalArtworkFolder(folder,relative){
     }
     const stem=String(relative.split("/").at(-1)||"").replace(/\.[^.]+$/,"");
     for(const dir of dirs.reverse()){
-      for(const name of [
+      const episodeNames=[
         stem+".jpg",stem+".png",stem+".webp",
-        stem+"-poster.jpg",stem+"-poster.png",
+        stem+"-still.jpg",stem+"-still.png",stem+"-still.webp"
+      ];
+      const posterNames=[
         "poster.jpg","poster.png","poster.webp",
         "folder.jpg","folder.png","folder.webp",
         "cover.jpg","cover.png","cover.webp"
-      ]){
+      ];
+      // Series views should never use a nearby individual episode still.
+      const candidates=series?posterNames:[...episodeNames,...posterNames];
+      for(const name of candidates){
         try{
           const file=await(await dir.getFileHandle(name,{create:false})).getFile();
           if(/^image\/(jpeg|png|webp)$/.test(file.type)&&file.size<3*1024*1024)
@@ -138,13 +148,25 @@ function findLocalArtworkFolder(folder,relative){
     return null;
   };
 }
-async function findArtwork(row,id){
+async function findArtwork(row,id,series=false){
+  // Episode titles and stills are independent. A cached local poster must
+  // not suppress title retrieval. Only visible episodes are requested,
+  // and successful titles are persisted to IndexedDB once.
+  if(row.kind==="tv"&&!series&&!row.metadataVerified&&
+     artworkFinder?.episodeTitle&&navigator.onLine&&
+     networkTitleCount<TITLE_LOOKUP_LIMIT){
+    networkTitleCount++;
+    try{
+      const verified=await artworkFinder.episodeTitle(row.filename);
+      if(verified)await store.updateMetadata(row.id,{episodeTitle:verified});
+    }catch(_){}
+  }
   const cache=await store.artwork(id);
   if(cache?.blob)return cache.blob;
   const folder=folders.find(x=>x.id===row.folderId);
   if(folder?.handle){
     try{
-      const local=await findLocalArtworkFolder(folder,row.relative)();
+      const local=await findLocalArtworkFolder(folder,row.relative,series)();
       if(local){
         await store.saveArtwork(id,local,"Local folder");
         return local;
@@ -156,7 +178,15 @@ async function findArtwork(row,id){
   networkArtworkCount++;
   try{
     const result=await artworkFinder.find(row.filename);
-    const url=row.kind==="tv"?(result?.fallbackUrl||result?.url):result?.url;
+    // Episode cards use episode stills; the series grid uses series art.
+    const url=row.kind==="tv"&&series?
+      (result?.fallbackUrl||result?.url):result?.url;
+    if(row.kind==="tv"&&!series&&
+       typeof result?.title==="string"&&result.title.trim()&&
+       typeof store.updateMetadata==="function"){
+      void store.updateMetadata(row.id,{episodeTitle:result.title.trim().slice(0,180)})
+        .catch(()=>{});
+    }
     if(!url||!/^https:\/\//.test(url))return null;
     const response=await fetch(url,{credentials:"omit",mode:"cors",cache:"force-cache"});
     if(!response.ok)return null;
@@ -185,7 +215,7 @@ async function pumpArtwork(){
     artworkBusy++;
     (async()=>{
       try{
-        const blob=await findArtwork(task.row,task.id);
+        const blob=await findArtwork(task.row,task.id,task.series);
         if(!blob)return;
         for(const view of request.views){
           if(view.epoch!==renderEpoch||!view.box.isConnected)continue;
@@ -347,14 +377,22 @@ async function scan(manual=false){
       result.updated+=row.updated||0;
       result.missing+=row.missing||0;
       result.permissions+=row.needsPermission?1:0;
+      result.partial+=row.complete===false?1:0;
       return result;
-    },{added:0,updated:0,missing:0,permissions:0});
+    },{added:0,updated:0,missing:0,permissions:0,partial:0});
     await render();
-    status("Scan finished: "+counts.added+" added, "+counts.updated+
-      " updated, "+counts.missing+" unavailable."+
-      (counts.permissions?" "+counts.permissions+" folder(s) need permission.":""),
-      "Проверка завершена: добавлено "+counts.added+", обновлено "+
-      counts.updated+", недоступно "+counts.missing+".");
+    const partial=counts.partial+counts.permissions;
+    status((partial?"Scan incomplete: ":"Scan finished: ")+
+      counts.added+" added, "+counts.updated+" updated, "+
+      counts.missing+" unavailable."+
+      (counts.permissions?" "+counts.permissions+" folder(s) need permission.":"")+
+      (counts.partial?" "+counts.partial+" folder(s) reached scan limits or had read errors.":""),
+      (partial?"Проверка не завершена: ":"Проверка завершена: ")+
+      "добавлено "+counts.added+", обновлено "+
+      counts.updated+", недоступно "+counts.missing+"."+
+      (counts.permissions?" Требуется разрешение на доступ к папкам.":"")+
+      (counts.partial?" Есть ошибки чтения или достигнут предел проверки.":""),
+      partial>0);
   }catch(error){
     status(controller.signal.aborted?"Scan stopped.":"Scan failed: "+error.message,
       controller.signal.aborted?"Проверка остановлена.":"Ошибка проверки.",true);
@@ -396,10 +434,11 @@ function connect(){
     selectedSeason=Number(event.target.value);visibleCount=72;void render();
   });
   store.onChange(event=>{
-    if(scanning||(!event.progress&&!event.folders&&!event.entries))return;
+    if(scanning||(!event.progress&&!event.folders&&!event.entries&&!event.metadata))return;
     // Keep the video smooth on low-memory Surface Pro hardware. Playback
     // history still commits to IndexedDB; repaint only when Home is active.
-    if(event.progress && (document.hidden||!document.hasFocus())){
+    if((event.progress||event.metadata) &&
+       (document.hidden||!document.hasFocus())){
       deferredProgress=true;
       return;
     }

@@ -1715,6 +1715,9 @@
     if (mkvAudio) mkvAudio.stop();
     delete state.resume[item.key];
     write(store.resume, state.resume);
+    if(item.libraryId&&window.DKLibraryStore)
+      void window.DKLibraryStore.updateProgress(item.libraryId,0,playbackDuration(),false)
+        .catch(()=>{});
     state.stopped = true;
     try { media.currentTime = 0; } catch (_) {}
     screen.classList.add("empty", "stopped");

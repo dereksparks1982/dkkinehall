@@ -1,5 +1,5 @@
 "use strict";
-/* TV queue regression: distinct show / SxxExx / episode-title lines.
+/* TV queue regression: show on line one, SxxExx and episode title together on line two.
    Internal artwork still resolves using unmodified source filenames.
    Installed icons and GNOME launchers must survive every updater run. */
 const assert = require("node:assert/strict");
@@ -22,9 +22,11 @@ new Function(artwork);
 assert.ok(player.includes('title.textContent = displayName;'));
 assert.ok(player.includes('source.textContent = episodeCode;'));
 assert.ok(player.includes('episodeName.className = "item-episode-name";'));
-assert.ok(player.includes('labels.append(source, episodeName);'),
-  "Episode title must be its own THIRD ROW, not appended to SxxExx");
-assert.ok(!player.includes('source.append(episodeName);'));
+assert.ok(player.includes('source.append(episodeName);'),
+  "Episode name must follow SxxExx inside the SECOND row");
+assert.ok(player.includes('labels.append(source);'),
+  "Series title stays on line one, with episode details below");
+assert.ok(!player.includes('labels.append(source, episodeName);'));
 assert.ok(css.includes('.queue li[data-queue-episode="1"] .item-meta{'));
 assert.ok(css.includes('.queue .item-episode-name{'));
 assert.ok(artwork.includes("finder.episodeTitle(name)"));
@@ -53,5 +55,5 @@ const resolver=meta.create({
   assert.equal(requests.length,2,"TVmaze show/episode responses are cached");
   assert.ok(requests.every(url=>!url.includes(".mkv")),
     "Only title and episode metadata, never local filename, go to TVmaze");
-  console.log("PASS: three TV label rows, true episode title, full-filename artwork, icons untouched");
+  console.log("PASS: two TV label rows, true episode title, full-filename artwork, icons untouched");
 })().catch(error=>{console.error(error);process.exitCode=1});

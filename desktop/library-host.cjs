@@ -552,7 +552,7 @@ async function generateASR(event,source,language,audioIndex,ticket){
     const wavStat=fs.statSync(wav);
     if(wavStat.size<44||wavStat.size>ASR_LIMIT*32000+1024*1024)throw Error("Audio extraction exceeds limit");
     asrProgress(event,job,"recognize",15);
-    await asrProcess(job,runtime.cli,["-m",runtime.model,"-f",wav,"-l",language,"-t","2","-osrt","-of",output,"-pp"],
+    await asrProcess(job,runtime.cli,["-m",runtime.model,"-f",wav,"-l",language,"-t","2","-ng","-osrt","-of",output,"-pp"],
       4*60*60*1000,line=>{
         const match=/progress\s*=\s*(\d+)%/i.exec(line);
         if(match)asrProgress(event,job,"recognize",15+Number(match[1])*.84);

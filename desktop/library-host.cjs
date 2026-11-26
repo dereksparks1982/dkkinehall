@@ -6,6 +6,88 @@ const path=require("node:path");
 const fs=require("node:fs");
 const {fileURLToPath}=require("node:url");
 const VERSION="0.9.3";
+// Local-only CTranslate2/SentencePiece worker. No model fetcher, shell or
+// caller-controlled executable/path. Only a trusted separately provisioned
+// runtime and direct bilingual models in the application's data directory.
+const {spawn}=require("node:child_process");
+let translationJob=null;
+const translationWorker=String.raw`
+import json, sys
+from pathlib import Path
+import ctranslate2
+import sentencepiece as spm
+root=Path(sys.argv[1])
+source=spm.SentencePieceProcessor(model_file=str(root/"source.model"))
+target=spm.SentencePieceProcessor(model_file=str(root/"target.model"))
+engine=ctranslate2.Translator(str(root/"model"),device="cpu",inter_threads=1,intra_threads=2)
+lines=json.load(sys.stdin)
+output=[]
+for start in range(0,len(lines),32):
+    batch=lines[start:start+32]
+    tokens=[source.encode(line,out_type=str) for line in batch]
+    if any(len(row)>512 for row in tokens):
+        raise ValueError("Subtitle line exceeds model input limit")
+    results=engine.translate_batch(tokens,beam_size=2,max_input_length=512,max_decoding_length=512)
+    output.extend(target.decode(row.hypotheses[0]) for row in results)
+    print(json.dumps({"done":len(output)},ensure_ascii=False),flush=True)
+print(json.dumps({"lines":output},ensure_ascii=False),flush=True)
+`;
+function translationPaths(pair){
+  if(!["en-ru","ru-en"].includes(pair))throw Error("Unsupported translation direction");
+  const root=path.join(app.getPath("userData"),"translation-runtime");
+  const python=path.join(root,"bin","python3");
+  const model=path.join(root,"models",pair);
+  const ready=[python,path.join(model,"model","model.bin"),path.join(model,"source.model"),path.join(model,"target.model")].every(p=>fs.existsSync(p));
+  return {python,model,ready};
+}
+function cancelTranslation(){
+  if(translationJob){translationJob.child.kill("SIGKILL");}
+}
+function translateLocal(event,pair,lines){
+  const runtime=translationPaths(pair);
+  if(!runtime.ready)throw Error("Offline translation runtime or language model is missing");
+  if(translationJob)throw Error("Translation already running");
+  if(!Array.isArray(lines)||!lines.length||lines.length>12000||
+    lines.some(line=>typeof line!=="string"||!line.trim()||line.length>1000)||
+    Buffer.byteLength(JSON.stringify(lines),"utf8")>2*1024*1024)
+      throw Error("Invalid subtitle translation input");
+  return new Promise((resolve,reject)=>{
+    const child=spawn(runtime.python,["-I","-c",translationWorker,runtime.model],{
+      shell:false,stdio:["pipe","pipe","pipe"],env:{...process.env,LD_LIBRARY_PATH:"",PYTHONNOUSERSITE:"1",OMP_NUM_THREADS:"2",HF_HUB_OFFLINE:"1",TRANSFORMERS_OFFLINE:"1"}
+    });
+    const job={child};translationJob=job;
+    let pending="",result=null,failed=false;
+    const timer=setTimeout(()=>child.kill("SIGKILL"),30*60*1000);
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data",chunk=>{
+      pending+=chunk;
+      if(pending.length>8*1024*1024){failed=true;child.kill("SIGKILL");return;}
+      let end;
+      while((end=pending.indexOf("\n"))>=0){
+        const line=pending.slice(0,end);pending=pending.slice(end+1);
+        try{
+          const value=JSON.parse(line);
+          if(Number.isInteger(value.done)&&!event.sender.isDestroyed())
+            event.sender.send("dk-library:translation-progress",{done:value.done,total:lines.length});
+          if(Array.isArray(value.lines))result=value.lines;
+        }catch(_){failed=true;child.kill("SIGKILL");}
+      }
+    });
+    child.stderr.resume();
+    child.stdin.on("error",()=>{});
+    child.on("error",()=>{failed=true;});
+    child.on("close",code=>{
+      clearTimeout(timer);
+      if(translationJob===job)translationJob=null;
+      if(code!==0||failed||!Array.isArray(result)||result.length!==lines.length||
+        result.some(line=>typeof line!=="string"||!line.trim()||line.length>4000))
+        reject(Error("Local translation failed or was cancelled"));
+      else resolve(result);
+    });
+    child.stdin.end(JSON.stringify(lines));
+  });
+}
+
 let externalSelections=[],externalWork=Promise.resolve();
 let installed=false,home=null,player=null,playerFile=null,playerLoading=null,activePage="library",scanActive=false;
 let scanController=null,scanPromise=null;
@@ -164,6 +246,19 @@ function install(originalWindow,originalPlayer){
   });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
+  ipcMain.handle("dk-library:translation-status",(event,pair)=>{
+    if(!onlyPlayer(event))throw Error("Translation command rejected");
+    return translationPaths(pair).ready;
+  });
+  ipcMain.handle("dk-library:translate",(event,pair,lines)=>{
+    if(!onlyPlayer(event))throw Error("Translation command rejected");
+    return translateLocal(event,pair,lines);
+  });
+  ipcMain.handle("dk-library:cancel-translation",event=>{
+    if(!onlyPlayer(event))throw Error("Translation command rejected");
+    cancelTranslation();return true;
+  });
+  home.on("closed",cancelTranslation);
   ipcMain.handle("dk-library:external-selection",event=>{
     if(!onlyPlayer(event))throw Error("External selection rejected");
     return externalSelections.splice(0);

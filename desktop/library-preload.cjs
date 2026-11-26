@@ -87,6 +87,7 @@ const nativeLibrary=Object.freeze({
     String(id),String(filePath),Number(start),Number(end)),
   localCover:(id,filePath,series,kind)=>libIpc.invoke("dk-library:local-cover",
     String(id),String(filePath),Boolean(series),String(kind)),
+  showInFolder:(id,filePath)=>libIpc.invoke("dk-library:show-in-folder",String(id),String(filePath)),
   deleteVideo:(id,filePath)=>libIpc.invoke("dk-library:delete-video",
     String(id),String(filePath)),
   onScanProgress:callback=>{

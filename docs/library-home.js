@@ -440,7 +440,12 @@ function showFileFields(row,info=null,loading=false){
   const filename=info?.filename||row.filename||"";
   const ext=info?.extension||filename.split(".").pop()?.toUpperCase()||"";
   const formatNames={MKV:"Matroska",MP4:"MPEG-4",M4V:"MPEG-4",MOV:"QuickTime",AVI:"AVI",WEBM:"WebM",TS:"MPEG-TS",M2TS:"MPEG-TS",VOB:"DVD Video"};
-  add(say("Format","Формат"),ext+(formatNames[ext]&&formatNames[ext]!==ext?" ("+formatNames[ext]+")":""));
+  const detected=String(info?.format||"").split(",");
+  const family=detected.includes("matroska")?(ext==="WEBM"?"WebM":"Matroska / WebM"):
+    detected.includes("mp4")?"MPEG-4 / QuickTime":detected.includes("avi")?"AVI":
+    detected.includes("mpegts")?"MPEG-TS":detected.includes("mpeg")?"MPEG":null;
+  add(say("Format","Формат"),ext+(family||formatNames[ext]?" ("+(family||formatNames[ext])+")":""));
+  if(info?.probeStatus==="ok"&&info.format&&!family)add(say("Detected container","Обнаруженный контейнер"),info.format);
   const bytes=Number(info?.size??row.size);
   if(Number.isFinite(bytes)&&bytes>=0)add(say("File size","Размер файла"),new Intl.NumberFormat(lang(),{maximumFractionDigits:2}).format(bytes/1073741824)+say(" GiB"," ГиБ"));
   add(say("Filename","Имя файла"),filename);

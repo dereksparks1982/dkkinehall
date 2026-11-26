@@ -382,10 +382,22 @@
      }
      return choose(tv?{...tv,type:"episode"}:null);
    }
+   // Episode names can resolve even when artwork is unavailable.
+   async function episodeTitle(filename){
+     const info=parseFilename(filename);
+     if(info?.type!=="episode")return null;
+     const tv=await tvEpisode(info);
+     if(typeof tv?.title==="string"&&tv.title.trim())return tv.title.trim();
+     if(token()){
+       const tm=await tmdbEpisode(info);
+       if(typeof tm?.title==="string"&&tm.title.trim())return tm.title.trim();
+     }
+     return null;
+   }
    function clear(){
      searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();searchCinema.clear();
    }
-   return {find,clear};
+   return {find,episodeTitle,clear};
  }
  return {normalize,parseFilename,findExact,findShow,allowedImage,allowedCredit,applePoster,pickAppleMovie,pickCinemetaMovie,create};
 });

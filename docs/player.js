@@ -243,8 +243,49 @@
   const fileIsAudio = file => !!file && (
     file.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|flac|opus)$/i.test(file.name)
   );
+  // FileSystemFileHandle.getFile() may produce a File without an Electron
+  // native path. Recover only an unambiguous existing native catalog match;
+  // the main process still validates the native ID and scope.
+  const rawCodecBridge=window.DKCodecBridge;
+  let codecCatalog=null;
+  const codecSource=async file=>{
+    if(file?.nativeVirtual||!file||!window.DKLibraryBridge?.internalPages)return file;
+    const catalog=window.DKLibraryStore;
+    if(!catalog?.entries)return file;
+    if(!codecCatalog)codecCatalog=Promise.resolve(catalog.entries()).catch(()=>[]);
+    const rows=await codecCatalog;
+    const relative=String(file.webkitRelativePath||"").replace(/\\/g,"/");
+    const matches=rows.filter(row=>row.source==="native"&&row.nativePath&&
+      row.filename===file.name&&Number(row.size)===Number(file.size)&&
+      Math.abs(Number(row.modified)-Number(file.lastModified))<=1&&
+      (!relative||row.nativePath.endsWith("/"+relative)));
+    if(matches.length!==1)return file;
+    const row=matches[0];
+    try{
+      const opened=await window.DKLibraryBridge.nativeOpen(row.id,row.nativePath);
+      if(Number(opened.size)!==Number(file.size)||
+        Math.abs(Number(opened.modified)-Number(file.lastModified))>1)return file;
+      return {nativeVirtual:true,nativeId:row.id,nativePath:row.nativePath};
+    }catch(_){return file;}
+  };
+  window.DKLibraryBridge?.onScanState?.(scanning=>{if(!scanning)codecCatalog=null;});
+  const codecCall=async(method,file,...args)=>{
+    try{return await rawCodecBridge[method](file,...args);}
+    catch(error){
+      if(!/local file must be selected/i.test(String(error?.message||error)))throw error;
+      const recovered=await codecSource(file);
+      if(recovered===file)throw Error("Local file path unavailable. Scan Library or open the file from Library.");
+      return rawCodecBridge[method](recovered,...args);
+    }
+  };
+  const localCodecBridge=rawCodecBridge?{
+    ...rawCodecBridge,
+    probe:(file)=>codecCall("probe",file),
+    start:(file,...args)=>codecCall("start",file,...args),
+    subtitleVtt:(file,...args)=>codecCall("subtitleVtt",file,...args)
+  }:null;
   const codecPlayback = window.DKCodecPlayback?.attach({
-    media,bridge:window.DKCodecBridge,current,
+    media,bridge:localCodecBridge,current,
     onStatus:(message,good)=>status(message,good),
     onClockChanged:()=>updateTime(),
     onChaptersChanged:()=>updateChapterMarkers(),
@@ -525,7 +566,7 @@
     const label=track.title||track.language||"Subtitle "+(index+1);
     status("Reading embedded subtitles…");
     try{
-      const vtt=await window.DKCodecBridge.subtitleVtt(item.file,index);
+      const vtt=await localCodecBridge.subtitleVtt(item.file,index);
       if(current()!==item||ticket!==state.subtitleEpoch||state.stopped)return;
       const saved={item,vtt,label,language:track.language||"und",index};
       state.nativeSubtitle=saved;
@@ -1103,7 +1144,7 @@
         item.requestedFormat === "auto") {
       const epoch=item.playbackEpoch;
       const stillCurrent=()=>current()===item && item.playbackEpoch===epoch && !state.stopped;
-      void window.DKCodecBridge.probe(item.file).then(async info=>{
+      void localCodecBridge.probe(item.file).then(async info=>{
         if(!stillCurrent())return;
         mergeChapters(item,info.chapters);
         const preferred=state.audioPreferences[item.key];
@@ -1123,7 +1164,7 @@
     }
     if(standaloneChapters&&item.file&&window.DKCodecBridge?.probe){
       // Explicit Original/MP4/WebM selections also need embedded chapters.
-      void window.DKCodecBridge.probe(item.file).then(info=>{
+      void localCodecBridge.probe(item.file).then(info=>{
         if(state.queue.includes(item))mergeChapters(item,info.chapters);
       }).catch(()=>{});
     }
@@ -1598,6 +1639,11 @@
   // a temporary file input without persistent-file permissions.
   const openLocalFiles = async (mode = "open") => {
     state.pendingPickerMode = mode;
+    if(window.DKLibraryBridge?.internalPages){
+      // Native Chromium file inputs preserve the selected disk path for
+      // Electron webUtils; File System Access handles may not.
+      byId("filePicker").click();return;
+    }
     if (typeof window.showOpenFilePicker !== "function") {
       byId("filePicker").click();
       return;

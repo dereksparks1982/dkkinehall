@@ -324,11 +324,23 @@ async function scanAll({manual=false,onProgress=()=>{},signal}={}){
   }
   return results;
 }
+// Quarantine catalog noise without deleting files, artwork or history.
+function excludedDiscovery(row){
+  if(!row)return false;
+  if(row.libraryExcluded)return true;
+  if(row.source!=="native")return false;
+  const parts=String(row.nativePath||"").split("/").map(p=>p.toLowerCase());
+  return parts.some(p=>["node_modules","__pycache__","cmakefiles","testdata","test-data","fixtures","test-fixtures","desktop-codecs","_internal","vendor","site-packages"].includes(p))||
+    parts.some((p,i)=>p==="dklab"&&["projects","archives"].includes(parts[i+1]))||
+    /^(?:av1|apv|cardimageurl|compiler[._ -]?depend)\.[^.]+$/i.test(row.filename||"")||
+    Number.isFinite(row.size)&&row.size<1024*1024;
+}
 async function ingestNative(scan){
   if(!scan||!Array.isArray(scan.items)||scan.items.length>MAX_FILES)
     throw new Error("Invalid native library scan");
   const existing=(await entries()).filter(row=>row.source==="native");
   const old=new Map(existing.map(row=>[row.id,row]));
+  const rejected=new Set(Array.isArray(scan.rejected)?scan.rejected.filter(id=>/^native:[a-f0-9]{64}$/.test(id)):[]);
   const seen=new Set(),changes=[];
   let added=0,updated=0,missing=0;
   for(const file of scan.items){
@@ -345,7 +357,7 @@ async function ingestNative(scan){
     const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
       previous.season===info.season&&previous.episode===info.episode&&
       (previous.movieMetadataVerified||previous.title===info.title);
-    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing)continue;
+    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing&&!previous.libraryExcluded)continue;
     changes.push({...previous,...info,
       // A verified metadata provider title survives unchanged film contents.
       episodeTitle:previous?.kind===info.kind&&previous?.metadataVerified?
@@ -355,15 +367,18 @@ async function ingestNative(scan){
       metadataVerified:previous?.kind===info.kind&&Boolean(previous?.metadataVerified),
       id:file.id,source:"native",nativePath:file.nativePath,
       nativeRoot:file.root,filename:file.filename,relative:file.relative,
-      size:file.size,modified:file.modified,missing:false,
+      size:file.size,modified:file.modified,missing:false,libraryExcluded:false,
       position:previous?.position||0,duration:previous?.duration||0,
       lastPlayed:previous?.lastPlayed||0,completed:previous?.completed||false,
       updatedAt:Date.now()});
     if(previous)updated++;else added++;
   }
+  for(const row of existing){
+    if(!seen.has(row.id)&&(rejected.has(row.id)||excludedDiscovery(row))&&!row.libraryExcluded){changes.push({...row,libraryExcluded:true});}
+  }
   if(scan.complete===true){
     for(const row of existing){
-      if(!seen.has(row.id)&&!row.missing){
+      if(!seen.has(row.id)&&!row.missing&&!rejected.has(row.id)&&!excludedDiscovery(row)){
         changes.push({...row,missing:true});
         missing++;
       }
@@ -380,13 +395,14 @@ async function reconcileNative(){
   const rows=await entries(),live=new Map(),legacyFolders=new Map((await folders()).map(f=>[f.id,f]));
   const fingerprint=row=>JSON.stringify([row.filename,row.size,Math.trunc(row.modified)]);
   for(const row of rows){
-    if(row.source!=="native"||row.missing)continue;
+    if(row.source!=="native"||row.missing||excludedDiscovery(row))continue;
     const key=fingerprint(row);
     if(!live.has(key))live.set(key,[]);
     live.get(key).push(row);
   }
   let merged=0;
   for(const old of rows){
+    if(excludedDiscovery(old))continue;
     if(old.source==="native"&&!old.missing)continue;
     if(!Number.isFinite(old.modified)||!Number.isFinite(old.size))continue;
     const candidates=live.get(fingerprint(old))||[];
@@ -486,7 +502,7 @@ async function openFile(row,{requestPermission=false}={}){
     parent=await parent.getDirectoryHandle(segment,{create:false});
   const handle=await parent.getFileHandle(parts.at(-1),{create:false});
   const file=await handle.getFile();
-  return {file,handle};
+  return {excludedDiscovery,file,handle};
 }
 // Recover the catalog identity of a manually opened or restored local file.
 async function resolvePlaybackEntry(file,preferredId=null){

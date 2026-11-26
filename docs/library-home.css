@@ -97,3 +97,16 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 .dk-movie-details-close{position:absolute;right:12px;top:12px;width:32px;height:32px;border:1px solid var(--dk-russian-red,#f4515c);border-radius:8px;background:#351419;color:var(--dk-russian-red,#ff515d);font-size:25px;font-weight:800;line-height:1}
 .dk-movie-details-close:hover{background:var(--dk-russian-red,#b92430);color:white}
 .library-context-menu button[hidden]{display:none!important}
+
+/* Standalone resume cards use the collection's exact portrait geometry.
+   The measured track width keeps the existing horizontal resume strip. */
+html.dk-standalone .library-continue{
+  grid-auto-columns:var(--dk-library-card-width,145px);
+  gap:var(--dk-library-card-gap,15px);padding:3px 0 12px;
+  align-items:start;
+}
+html.dk-standalone .library-continue .library-poster{aspect-ratio:2/3}
+html.dk-standalone .library-continue .library-poster img{object-fit:contain}
+html.dk-standalone .library-continue .library-card-title{font-size:.87rem}
+html.dk-standalone .library-continue .library-poster-placeholder{font-size:1.8rem}
+html.dk-standalone .library-progress{z-index:1}

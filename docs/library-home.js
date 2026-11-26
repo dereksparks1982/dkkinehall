@@ -565,6 +565,17 @@ function connect(){
   $("addLibraryFolder").addEventListener("click",()=>void chooseFolder());
   $("addFirstFolder").addEventListener("click",()=>void chooseFolder());
   $("scanLibrary").addEventListener("click",()=>void scan(true));
+  // Standalone navigation only; leave the hosted library unchanged.
+  if(nativeBridge?.showPlayer){
+    const button=document.createElement("button");
+    button.type="button";button.id="showPlayer";button.className="btn primary dk-window-nav";
+    button.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 3l15 9L6 21z" fill="currentColor"/></svg><span>Player</span>';
+    $("scanLibrary").before(button);
+    button.addEventListener("click",async()=>{
+      try{await nativeBridge.showPlayer();}
+      catch(_){status("Could not open the video player.","Не удалось открыть окно проигрывателя.",true);}
+    });
+  }
   $("backToSeries").addEventListener("click",()=>{
     selectedSeries=null;selectedSeason=null;void render();
   });

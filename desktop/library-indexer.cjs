@@ -94,7 +94,7 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null}={
             else truncated=true;
             continue;
           }
-          if(!entry.isFile()||!VIDEO.test(entry.name))continue;
+          if(!entry.isFile()||!VIDEO.test(entry.name)||/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(entry.name))continue;
           try{
             const stat=await fsp.stat(filePath);
             if(!stat.isFile())continue;

@@ -1171,3 +1171,25 @@ html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .dk-tr
   html.dk-standalone .screen .controls .transport .dk-transport-glyph{width:18px;height:18px}
   html.dk-standalone .screen .controls .transport :is(#rewind10,#forward10) .dk-transport-glyph{width:15px;height:15px}
 }
+
+
+/* Approved standalone accessory colours. Preserve existing button geometry. */
+html.dk-standalone .screen .controls .extras #floatPlayer{
+  background-color:#fff;color:#23171a;border-color:#a58039;
+}
+html.dk-standalone .screen .controls .extras #floatPlayer:is(:hover,:active):not(:disabled){
+  background-color:#f5eee5;color:#23171a;border-color:#a58039;
+}
+html.dk-standalone .screen .controls .extras #floatPlayer:focus-visible{
+  outline:2px solid currentColor;outline-offset:-4px;
+}
+html.dk-standalone[lang="ru"] .screen .controls .player-bar-settings>summary{
+  background-color:#dc3942;color:#fff;border-color:#a58039;
+}
+html.dk-standalone[lang="ru"] .screen .controls .player-bar-settings>summary:is(:hover,:active),
+html.dk-standalone[lang="ru"] .screen .controls .player-bar-settings[open]>summary{
+  background-color:#ef434d;color:#fff;border-color:#a58039;
+}
+html.dk-standalone[lang="ru"] .screen .controls .player-bar-settings>summary:focus-visible{
+  outline:2px solid currentColor;outline-offset:-4px;
+}

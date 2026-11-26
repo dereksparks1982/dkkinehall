@@ -21,7 +21,7 @@ The two editions are separate. The Web App remains available regardless of chang
 ## Features
 
 - **Local playback:** Open video and music stored on your device.
-- **Up Next:** Build a playlist and move between movies or episodes. TV entries display the show name above the full season/episode number and episode title on one wrapping line. Verified titles come from TVmaze when available, with filename title fallback while metadata loads or is unavailable. Do not show redundant “Local file” labels, file extensions or raw release filenames in the sidebar. The existing icons and artwork dimensions are unchanged. TV episodes show the **series name**, **complete SxxExx number**, and **actual episode title** on separate lines. Artwork and playback still use the original filenames.
+- **Up Next:** Build a playlist and move between movies or episodes. TV episodes show the **series name**, **complete SxxExx number**, and **actual episode title** on three separate lines. Metadata provides verified titles, with a filename title fallback when available. No raw release filenames or redundant “Local file” labels appear in the sidebar. Artwork and playback still use the original filenames; existing icons and artwork dimensions are unchanged.
 - **Playback controls:** Play, pause, stop, seek, previous, next, and 10-second rewind or fast-forward.
 - **Fullscreen:** Watch videos in fullscreen using the player controls.
 - **Playback settings:** The preferences panel stays above the video and Up Next queue while open.

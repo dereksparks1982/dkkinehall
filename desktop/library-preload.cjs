@@ -44,6 +44,7 @@ const nativeLibrary=Object.freeze({
   voiceoverStatus:pair=>libIpc.invoke("dk-library:voiceover-status",String(pair)),
   generateVoiceover:(pair,rows,ticket)=>libIpc.invoke("dk-library:voiceover-generate",String(pair),rows,Number(ticket)),
   discardVoiceover:()=>libIpc.invoke("dk-library:voiceover-discard"),
+  voiceoverSource:ticket=>libIpc.invoke("dk-library:voiceover-source",Number(ticket)),
   exportVoiceover:(ticket,language)=>libIpc.invoke("dk-library:voiceover-export",Number(ticket),language==="ru"?"ru":"en"),
   onVoiceoverProgress:callback=>subscribe("dk-library:voiceover-progress",callback),
   translationStatus:pair=>libIpc.invoke("dk-library:translation-status",String(pair)),

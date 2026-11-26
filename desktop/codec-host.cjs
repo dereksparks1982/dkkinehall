@@ -289,27 +289,39 @@ function onlyWindow(event) {
 
 let exportBusy=false;
 // Native-only export. Dialog-selected paths never originate from renderer IPC.
-async function exportVideo(win){
+async function exportVideo(win,language="en"){
+  const ru=language==="ru";
+  const t=(en,rus)=>ru?rus:en;
   if(exportBusy||win.isDestroyed())return;
   exportBusy=true;
   let temp=null,child=null,panel=null,cancelled=false;
   try {
-    const pick=await dialog.showOpenDialog(win,{title:"Convert video",properties:["openFile"]});
+    const pick=await dialog.showOpenDialog(win,{title:t("Convert video","Конвертация видео"),properties:["openFile"]});
     if(pick.canceled)return;
     const source=selectedFile(pick.filePaths[0]);
     const info=await probe(source),caps=await status();
-    const formats=["mp4","webm"].filter(f=>caps[f]);
+    const copyH264=info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat);
+    const formats=["mp4","webm","mkv"].filter(f=>f==="mkv"||caps[f]||(f==="mp4"&&copyH264&&caps.mp4Copy));
     if(!info.hasVideo||!formats.length)throw Error("No supported video export format");
-    const choice=await dialog.showMessageBox(win,{type:"question",title:"Convert video",
-      message:"Choose output format",buttons:[...formats.map(f=>f.toUpperCase()),"Cancel"],
+    const choice=await dialog.showMessageBox(win,{type:"question",title:t("Convert video","Конвертация видео"),
+      message:t("Choose output format","Выберите формат"),buttons:[...formats.map(f=>f.toUpperCase()),t("Cancel","Отмена")],
       cancelId:formats.length,defaultId:0});
     if(choice.response>=formats.length)return;
     const format=formats[choice.response];
-    const save=await dialog.showSaveDialog(win,{title:"Save converted video",
+    const save=await dialog.showSaveDialog(win,{title:t("Save converted video","Сохранить видео"),
       defaultPath:path.join(path.dirname(source),path.basename(source,path.extname(source))+"-converted."+format),
       filters:[{name:format.toUpperCase(),extensions:[format]}]});
     if(save.canceled||!save.filePath)return;
     const target=save.filePath;
+    const supportedText=/^(subrip|ass|ssa|webvtt|mov_text|text|ttml|microdvd|sami|realtext)$/i;
+    const textTracks=info.subtitleTracks.filter(track=>supportedText.test(track.codec));
+    if(format!=="mkv"&&info.subtitleTracks.length){
+      const warning=await dialog.showMessageBox(win,{type:"warning",
+        message:t("Some subtitle features may not survive conversion.","Некоторые свойства субтитров могут быть потеряны."),
+        detail:t("Text subtitles will be converted. Bitmap subtitles are excluded. Choose MKV to retain the original subtitle streams.","Текстовые субтитры будут преобразованы. Графические субтитры исключаются. Выберите MKV для сохранения исходных дорожек."),
+        buttons:[t("Continue","Продолжить"),t("Cancel","Отмена")],defaultId:1,cancelId:1});
+      if(warning.response!==0)return;
+    }
     if(path.extname(target).toLowerCase()!=="."+format)
       throw Error("Output filename must end in ."+format);
     if(fs.existsSync(target))throw Error("Choose a new filename; existing files are never overwritten");
@@ -317,21 +329,28 @@ async function exportVideo(win){
     const output=path.join(temp,"output."+format);
     if(win.isDestroyed())return;
     panel=new BrowserWindow({parent:win,modal:true,width:390,height:190,resizable:false,
-      title:"Convert video",webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
+      title:t("Convert video","Конвертация видео"),webPreferences:{sandbox:true,contextIsolation:true,nodeIntegration:false}});
     panel.setMenu(null);
     panel.on("close",()=>{cancelled=true;child?.kill("SIGTERM");});
     await panel.loadURL("data:text/html;charset=utf-8,"+encodeURIComponent(
-      '<!doctype html><meta charset=utf-8><title>Convert video</title><style>body{background:#202020;color:white;font:16px sans-serif;padding:20px}progress{width:100%;accent-color:#b62525}</style><div id="label">Preparing conversion…</div><p><progress id="bar" max="100"></progress></p><button onclick="window.close()">Cancel</button>'));
+      '<!doctype html><meta charset=utf-8><style>body{background:#202020;color:white;font:16px sans-serif;padding:20px}progress{width:100%;accent-color:#b62525}</style><div id="label">'+t("Preparing conversion…","Подготовка…")+'</div><p><progress id="bar" max="100"></progress></p><button onclick="window.close()">'+t("Cancel","Отмена")+'</button>'));
     if(cancelled||panel.isDestroyed()||win.isDestroyed())return;
     const args=["-hide_banner","-loglevel","error","-nostdin","-n","-progress","pipe:1","-nostats",
-      "-i",source,"-map","0:v:0","-map","0:a?","-sn","-dn"];
-    if(format==="webm")args.push("-c:v","libvpx-vp9","-deadline","good","-cpu-used","4","-crf","30","-b:v","0","-c:a","libopus");
+      "-i",source,"-map","0:v:0","-map","0:a?","-map_metadata","0","-map_chapters","0","-dn"];
+    if(format==="mkv")args.push("-map","0:s?","-map","0:t?","-c","copy");
     else {
-      if(caps.h264Encoder==="libopenh264")args.push("-c:v","libopenh264","-b:v","4000k");
-      else args.push("-c:v","libx264","-preset","veryfast","-crf","23");
-      args.push("-pix_fmt","yuv420p","-c:a","aac","-movflags","+faststart");
+      for(const track of textTracks)args.push("-map","0:s:"+track.index);
+      if(textTracks.length)args.push("-c:s",format==="mp4"?"mov_text":"webvtt");
     }
-    args.push("-f",format,output);
+    if(format==="webm")args.push("-c:v","libvpx-vp9","-deadline","good","-cpu-used","4","-crf","30","-b:v","0","-c:a","libopus");
+    else if(format==="mp4") {
+      if(copyH264)args.push("-c:v","copy");
+      else if(caps.h264Encoder==="libopenh264")args.push("-c:v","libopenh264","-b:v","4000k");
+      else args.push("-c:v","libx264","-preset","veryfast","-crf","23");
+      if(!copyH264)args.push("-pix_fmt","yuv420p");
+      args.push("-c:a","aac","-movflags","+faststart");
+    }
+    args.push("-f",format==="mkv"?"matroska":format,output);
     await new Promise((resolve,reject)=>{
       child=spawn(binary("ffmpeg"),args,{stdio:["ignore","pipe","pipe"],env:codecEnvironment()});
       let pending="",last=-1;
@@ -346,7 +365,7 @@ async function exportVideo(win){
           if(percent===last)continue;
           last=percent;
           panel.webContents.executeJavaScript("document.getElementById('bar').value="+percent+
-            ";document.getElementById('label').textContent='Converting: "+percent+"%'").catch(()=>{});
+            ";document.getElementById('label').textContent="+JSON.stringify(t("Converting: ","Конвертация: ")+percent+"%")).catch(()=>{});
         }
       });
       child.stderr.resume();
@@ -357,9 +376,9 @@ async function exportVideo(win){
     // Hard-link publication is atomic and fails if the target appeared meanwhile.
     await fs.promises.link(output,target);
     if(panel&&!panel.isDestroyed())panel.destroy();
-    if(!win.isDestroyed())await dialog.showMessageBox(win,{type:"info",message:"Conversion complete (100%)",detail:target});
+    if(!win.isDestroyed())await dialog.showMessageBox(win,{type:"info",message:t("Conversion complete (100%)","Конвертация завершена (100%)"),detail:target});
   }catch(error){
-    if(!cancelled&&!win.isDestroyed())await dialog.showMessageBox(win,{type:"error",message:"Conversion failed",detail:String(error.message).slice(0,250)});
+    if(!cancelled&&!win.isDestroyed())await dialog.showMessageBox(win,{type:"error",message:t("Conversion failed","Ошибка конвертации"),detail:ru?"Не удалось создать выходной файл.":String(error.message).slice(0,250)});
   }finally{
     if(panel&&!panel.isDestroyed())panel.destroy();
     if(temp)await fs.promises.rm(temp,{recursive:true,force:true}).catch(()=>{});
@@ -387,6 +406,11 @@ function install(win) {
     return;
   }
   installed=true;windowRef=win;
+  ipcMain.handle("dk-codec:export",async(event,language)=>{
+    if(!onlyWindow(event))throw Error("Rejected export request");
+    await exportVideo(windowRef,language==="ru"?"ru":"en");
+    return true;
+  });
   ipcMain.handle("dk-codec:status",async event=>
     onlyWindow(event)?status():{ready:false});
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{

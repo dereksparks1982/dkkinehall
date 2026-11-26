@@ -93,6 +93,8 @@
      "Turn subtitles on":"Включить субтитры", "Turn subtitles off":"Выключить субтитры",
      "Turn embedded subtitles on":"Включить встроенные субтитры",
     "No external subtitles":"Нет внешних субтитров",
+    "Finding episode title…":"Поиск названия серии…",
+    "Episode title unavailable":"Название серии недоступно",
     "Subtitle delay":"Задержка субтитров", "Delay":"Задержка",
     "Show subtitles 0.25 seconds earlier":"Показать субтитры на 0,25 секунды раньше",
     "Show subtitles 0.25 seconds later":"Показать субтитры на 0,25 секунды позже",

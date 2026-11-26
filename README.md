@@ -244,7 +244,7 @@ Next priority: deinterlacing. Standalone source only; no compilation, testing or
 
 ### Approved transport colours
 
-Transport palette: solid brown Previous/Next with gold glyphs; solid white 10-second Rewind/Fast-forward with dark glyphs; red Play/Pause with white glyph; solid gold Stop with dark square. Preserve original symbols, order, dimensions, spacing and gold borders; inset focus indicators and muted disabled states. Standalone CSS only. Runtime appearance remains unverified; next feature remains deinterlacing.
+Transport palette: solid brown Previous/Next with gold glyphs; solid white 10-second Rewind/Fast-forward with dark glyphs; red Play/Pause with white glyph; solid gold Stop with dark square. Use the approved compact SVG symbols: outlined Previous/Next triangles with bars, filled double-triangle Rewind/Fast-forward, circled Play/Pause, and outlined rounded-square Stop. Keep the order, dimensions, spacing, gold borders, inset focus indicators and muted disabled states. Rewind/Fast-forward still skip ten seconds. Standalone CSS only. Runtime appearance remains unverified; next feature remains deinterlacing.
 
 
 ### Standalone deinterlacing
@@ -252,3 +252,8 @@ Transport palette: solid brown Previous/Next with gold glyphs; solid white 10-se
 The existing gear now includes Deinterlacing: Off (default), Automatic and On. Automatic checks FFprobe field-order metadata and elects the native decoder only for declared interlaced video; unknown or progressive sources are not forced through this filter. On explicitly requests FFmpeg BWDIF for video. The fixed native filter uses send_frame and automatic field parity; the selected native output is re-encoded, never stream-copied through a filter. Original playback format bypasses native conversion, and the selected mode takes effect when opening the next video. Preferences are saved locally. Native seeks, repeat and audio selection carry the selected mode. Initial filter preparation failures fall back to ordinary playback; subsequent decoder errors use the existing codec error handling. Requires an available FFmpeg BWDIF filter and a usable output encoder. Source and exported files are unchanged. Interlacing flags, field parity, mixed material, synchronization, actual rendering and CPU performance remain unverified.
 
 Next priority: video smoothing. Master roadmap updated. Source-only changes; no compilation or runtime testing.
+
+
+### Approved replacement transport symbols
+
+The standalone six-button transport uses compact SVG symbols matching the approved reference. Play/Pause switches between circled play and pause; previous/next and stop use outlines; the ten-second rewind/forward use filled double triangles. No playback actions or application/launcher icons changed. Hosted playback retains its prior symbols. Runtime appearance remains unverified. Next feature: video smoothing.

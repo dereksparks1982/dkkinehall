@@ -850,13 +850,6 @@ html.dk-standalone #playerSettingsPanel .dk-settings-close:hover{background:var(
 html.dk-standalone .dk-resizable-panel{
   position:relative;max-width:100%;box-sizing:border-box;padding-bottom:0;
 }
-html.dk-standalone .dk-resizable-panel>.now-playing>.dk-player-resize,
-html.dk-standalone .dk-resizable-panel>.dk-player-resize{
-  position:absolute;z-index:46;bottom:2px;right:2px;
-  width:21px;height:21px;background:#26121dbb;color:var(--dk-russian-red-muted,#e7a4a9);
-  border:1px solid var(--dk-russian-red-trim,#8a4752);border-radius:4px;font-size:.88rem;
-  cursor:nwse-resize;touch-action:none;user-select:none;
-}
 html.dk-standalone .dk-resizable-panel.dk-player-detached{padding-bottom:0}
 html.dk-desktop-fullscreen .dk-resizable-panel :is(.now-playing>.dk-player-resize),
 html.dk-desktop-fullscreen .dk-resizable-panel>.dk-player-resize,
@@ -1337,7 +1330,8 @@ html.dk-standalone .dk-resizable-panel :is(.dk-player-resize,.dk-player-reset){
   box-sizing:border-box;border-radius:4px;line-height:1;
   display:grid;place-items:center;box-shadow:none;transform:none;
 }
-html.dk-standalone .dk-resizable-panel .dk-player-resize{
+html.dk-standalone .dk-resizable-panel .dk-player-resize,
+html.dk-standalone .dk-resizable-panel .dk-player-resize:is(:hover,:active,:focus-visible){
   right:3px;background:#e2b956;color:#462a25;border:1px solid #a58039;
   font-size:16px;cursor:nwse-resize;touch-action:none;user-select:none;
 }

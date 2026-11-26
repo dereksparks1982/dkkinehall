@@ -19,7 +19,8 @@ let scanning=false,controller=null,repaintTimer=null;
 let maintaining=false,refreshCancelled=false;
 let bottomObserver=null;
 let contextRow=null;
-let deferredProgress=false;
+let deferredProgress=false,historyTimer=null,historyRevision=0;
+const artAttempted=new Set(),titleAttempted=new Set();
 const imageUrls=new Set();
 const imageQueue=[],activeArtwork=new Map();
 let artworkBusy=0;
@@ -153,7 +154,7 @@ function createCard(row,{landscape=false,series=false}={}){
         "Откройте сериал и выберите серию для удаления.");
       return;
     }
-    showContextMenu(row,event.clientX,event.clientY);
+    showContextMenu(all.find(item=>item.id===row.id)||row,event.clientX,event.clientY);
   });
   card.addEventListener("click",()=>{
     if(series){
@@ -161,7 +162,7 @@ function createCard(row,{landscape=false,series=false}={}){
       selectedSeason=null;
       visibleCount=72;
       void render().then(recordNavigation);
-    }else void openVideo(row);
+    }else void openVideo(all.find(item=>item.id===row.id)||row);
   });
   // Artwork requests are on-demand and bounded; never fetch every poster
   // or hold all image data in memory when a 25,000-file library opens.
@@ -223,10 +224,17 @@ async function saveMovieResult(row,result){
   return true;
 }
 async function findArtwork(row,id,series=false,force=false){
+  const cache=await store.artwork(id);
+  // A stored poster is usable immediately; missing details cannot invalidate it.
+  if(cache?.blob&&!force&&nativeBridge)return cache.blob;
+  if(nativeBridge&&!force&&artAttempted.has(id))return cache?.blob||null;
+  if(nativeBridge&&!force)artAttempted.add(id);
   let movieResult=null;
   // Native movie metadata is fetched independently of local and cached art.
   if(nativeBridge&&row.kind==="movie"&&(force||!row.movieDetails)&&
-     artworkFinder&&navigator.onLine&&(force||networkTitleCount<TITLE_LOOKUP_LIMIT)){
+     artworkFinder&&navigator.onLine&&(force||networkTitleCount<TITLE_LOOKUP_LIMIT)&&
+     (force||!titleAttempted.has(row.id))){
+    titleAttempted.add(row.id);
     networkTitleCount++;
     try{
       movieResult=await artworkFinder.find(metadataFilename(row),{details:true});
@@ -238,15 +246,15 @@ async function findArtwork(row,id,series=false,force=false){
   // and successful titles are persisted to IndexedDB once.
   if(row.kind==="tv"&&!series&&(force||!row.metadataVerified)&&
      artworkFinder?.episodeTitle&&navigator.onLine&&
-     (force||networkTitleCount<TITLE_LOOKUP_LIMIT)){
+     (force||networkTitleCount<TITLE_LOOKUP_LIMIT)&&(force||!titleAttempted.has(row.id))){
+    titleAttempted.add(row.id);
     networkTitleCount++;
     try{
       const verified=await artworkFinder.episodeTitle(metadataFilename(row));
       if(verified)await store.updateMetadata(row.id,{episodeTitle:verified});
     }catch(_){}
   }
-  const cache=await store.artwork(id);
-  if(cache?.blob&&!force&&(row.kind!=="movie"||row.movieMetadataVerified||movieResult||!nativeBridge))return cache.blob;
+  if(cache?.blob&&!force)return cache.blob;
   if(!force&&nativeBridge&&row.source==="native"&&row.nativePath){
     try{
       const picture=await nativeBridge.localCover(
@@ -396,7 +404,7 @@ async function refreshMovie(){
   if(!navigator.onLine){status("Metadata refresh requires an internet connection.","Для обновления данных требуется интернет.",true);return;}
   if(activeArtwork.has(row.id)){status("This movie is already being updated.","Данные фильма уже обновляются.");return;}
   status("Refreshing movie metadata…","Обновление данных фильма…");
-  artworkFinder?.clear();
+  artworkFinder?.clear();artAttempted.delete(row.id);titleAttempted.delete(row.id);
   try{
     await findArtwork(row,row.id,false,true);
     const updated=await store.item(row.id);
@@ -460,10 +468,54 @@ function switchMode(value){
 function recordNavigation(){
   if(nativeBridge?.recordNavigation)void nativeBridge.recordNavigation({mode,series:selectedSeries,season:selectedSeason}).catch(()=>{});
 }
+// History is a separate view, never a reason to rebuild the collection.
+function paintContinueWatching(){
+  const list=$("continueWatching");
+  const rows=all.filter(row=>row.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(row.filename))&&needsContinue(row))
+    .sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).slice(0,30);
+  const existing=new Map(Array.from(list.children).map(card=>[card.dataset.libraryId,card]));
+  const keep=new Set(rows.map(row=>row.id));
+  for(const [id,card] of existing){
+    if(keep.has(id))continue;
+    for(const image of card.querySelectorAll("img")){
+      const url=image.src;if(imageUrls.delete(url))URL.revokeObjectURL(url);
+    }
+    card.remove();
+  }
+  rows.forEach((row,i)=>{
+    let card=existing.get(row.id);
+    if(!card)card=createCard(row,{landscape:true});
+    const fill=card.querySelector(".library-progress>span");
+    const duration=Number(row.duration)||0;
+    if(fill)fill.style.width=duration>0?Math.max(3,Math.min(100,100*currentProgress(row)/duration))+"%":"10%";
+    card.classList.toggle("library-unavailable",!!row.missing);
+    if(list.children[i]!==card)list.insertBefore(card,list.children[i]||null);
+  });
+  pumpArtwork();
+}
+function scheduleHistoryRefresh(){
+  // Electron's hidden WebContentsView can report focus/visibility incorrectly.
+  // Only reconcile this small section, irrespective of focus.
+  clearTimeout(historyTimer);
+  historyTimer=setTimeout(async()=>{
+    const revision=++historyRevision;
+    try{
+      const rows=(await store.entries()).filter(row=>!nativeBridge||!store.excludedDiscovery?.(row));
+      if(revision!==historyRevision)return;
+      // Do not add/remove collection entries here; structural events own that.
+      const latest=new Map(rows.map(row=>[row.id,row]));
+      all=all.map(row=>latest.get(row.id)||row);
+      try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}catch(_){legacyResume={};}
+      if(nativeBridge)legacyProgressById=recoverLegacyProgress(all);
+      paintContinueWatching();
+    }catch(_){}
+  },180);
+}
 async function render(){
   const epoch=++renderEpoch;
   if(bottomObserver)bottomObserver.disconnect();
   imageQueue.length=0;cleanImageUrls();
+  historyRevision++;
   folders=await store.folders();
   all=(await store.entries()).filter(row=>!nativeBridge||!store.excludedDiscovery?.(row));
   if(epoch!==renderEpoch)return;
@@ -591,7 +643,8 @@ async function scan(manual=false){
       if(controller.signal.aborted)return;
       const counts=await store.ingestNative(discovered);
       const merged=await store.reconcileNative();
-      await render();
+      if(manual||counts.added||counts.updated||counts.missing||merged)await render();
+      else scheduleHistoryRefresh();
       status((discovered.partial?"Scan incomplete. ":"Scan complete. ")+
         counts.found+" videos found. "+
         counts.added+" added, "+counts.updated+" updated, "+
@@ -679,7 +732,7 @@ async function libraryMaintenance(action){
       if(!navigator.onLine)throw Error("Offline");
       // Explicit full-library refresh: one item at a time, with a stop
       // command. Retain existing metadata/art when providers fail.
-      artworkFinder?.clear();
+      artworkFinder?.clear();artAttempted.clear();titleAttempted.clear();
       const rows=(await store.entries()).filter(row=>!row.missing&&!store.excludedDiscovery?.(row));
       const tasks=rows.map(row=>({row,series:false,id:artId(row)}));
       const seen=new Set();
@@ -878,6 +931,7 @@ function connect(){
       // discard/rebuild the artwork for the entire library.
       void store.item(event.id).then(row=>{
         if(!row)return;
+        const index=all.findIndex(item=>item.id===row.id);if(index>=0)all[index]=row;
         if(detailMovieId===row.id&&$("movieDetailsDialog").open)displayMovieDetails(row);
         for(const card of document.querySelectorAll(".library-card")){
           if(card.dataset.libraryId!==row.id ||
@@ -889,6 +943,7 @@ function connect(){
       }).catch(()=>{});
       return;
     }
+    if(nativeBridge&&event.progress){scheduleHistoryRefresh();return;}
     if(scanning||maintaining||(!event.progress&&!event.folders&&!event.entries))return;
     // Keep the video smooth on low-memory Surface Pro hardware. Playback
     // history still commits to IndexedDB; repaint only when Home is active.
@@ -908,17 +963,13 @@ function connect(){
   window.addEventListener("focus",()=>{
     if(nativeBridge){
       deferredProgress=false;
-      void render();
+      scheduleHistoryRefresh();
     }else refreshOnReturn();
   });
   document.addEventListener("visibilitychange",refreshOnReturn);
   if(nativeBridge)window.addEventListener("storage",event=>{
     if(event.key!=="dkmedia.web.resume.v1")return;
-    if(document.hidden||!document.hasFocus()||scanning||maintaining){
-      deferredProgress=true;return;
-    }
-    clearTimeout(repaintTimer);
-    repaintTimer=setTimeout(()=>void render(),260);
+    scheduleHistoryRefresh();
   });
   void render().then(()=>{
     recordNavigation();

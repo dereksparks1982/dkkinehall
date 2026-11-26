@@ -864,3 +864,21 @@ html.dk-desktop-fullscreen .dk-resizable-panel>.dk-player-resize,
 html.dk-standalone .dk-resizable-panel:has(>.screen:fullscreen)>.dk-player-resize{
   display:none!important;
 }
+
+/* Fixed approved standalone colors. Scan is always white, including while
+   scanning, hovered or focused. Volume is red; the seek bar remains gold. */
+html.dk-standalone #scanLibrary.btn,
+html.dk-standalone #playerScanLibrary.btn{
+  background:#fff!important;
+  color:#23171a!important;
+  border-color:#e7e2e2!important;
+}
+html.dk-standalone #scanLibrary.btn:is(:hover,:active,:focus-visible),
+html.dk-standalone #playerScanLibrary.btn:is(:hover,:active,:focus-visible){
+  background:#fff!important;
+  color:#23171a!important;
+  border-color:#e7e2e2!important;
+}
+html.dk-standalone .screen .controls #volume{
+  accent-color:#df4147;
+}

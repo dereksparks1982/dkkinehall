@@ -105,16 +105,19 @@ async function networkDescription(id){
   finally{networkBrowseBusy--;}
 }
 function escapeNetworkXML(value){return value.replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&apos;"}[c]));}
-async function browseNetwork(id,control,type,objectId,start){
+async function browseNetwork(id,control,type,objectId,start,query=null){
   const server=networkServers.get(id);
   if(!server||typeof type!=="string"||!/^urn:schemas-upnp-org:service:ContentDirectory:[1-4]$/.test(type)||
     typeof objectId!=="string"||objectId.length>1024||!Number.isInteger(start)||start<0||start>100000)
     throw Error("Invalid media browse request");
+  if(query!==null&&(typeof query!=="string"||!query.trim()||query.length>150||/[\x00-\x1f"\\]/.test(query)))throw Error("Invalid search text");
   const target=networkURL(control,server.host);
   if(networkBrowseBusy>=4)throw Error("Network requests busy");
-  const body='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:Browse xmlns:u="'+type+'"><ObjectID>'+escapeNetworkXML(objectId)+'</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag><Filter>*</Filter><StartingIndex>'+start+'</StartingIndex><RequestedCount>100</RequestedCount><SortCriteria></SortCriteria></u:Browse></s:Body></s:Envelope>';
+  const action=query===null?"Browse":"Search";
+  const fields=query===null?'<ObjectID>'+escapeNetworkXML(objectId)+'</ObjectID><BrowseFlag>BrowseDirectChildren</BrowseFlag>':'<ContainerID>'+escapeNetworkXML(objectId)+'</ContainerID><SearchCriteria>'+escapeNetworkXML('dc:title contains "'+query.trim()+'"')+'</SearchCriteria>';
+  const body='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body><u:'+action+' xmlns:u="'+type+'">'+fields+'<Filter>*</Filter><StartingIndex>'+start+'</StartingIndex><RequestedCount>100</RequestedCount><SortCriteria></SortCriteria></u:'+action+'></s:Body></s:Envelope>';
   networkBrowseBusy++;
-  try{return await networkRequest(target,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPACTION":'"'+type+'#Browse"',"Content-Length":Buffer.byteLength(body)}},body);}
+  try{return await networkRequest(target,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPACTION":'"'+type+'#'+action+'"',"Content-Length":Buffer.byteLength(body)}},body);}
   finally{networkBrowseBusy--;}
 }
 function serveNetwork(req,res){
@@ -1399,8 +1402,8 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:description",(event,id)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return networkDescription(id);
   });
-  ipcMain.handle("dk-network:browse",(event,id,control,type,objectId,start)=>{
-    if(!onlyPlayer(event))throw Error("Network request rejected");return browseNetwork(id,control,type,objectId,start);
+  ipcMain.handle("dk-network:browse",(event,id,control,type,objectId,start,query=null)=>{
+    if(!onlyPlayer(event))throw Error("Network request rejected");return browseNetwork(id,control,type,objectId,start,query);
   });
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return grantNetwork(id,url);

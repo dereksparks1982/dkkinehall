@@ -764,3 +764,77 @@ html.dk-standalone{--dk-gold:#e2b956;--dk-antique:#a58039}
 .dk-standalone .dk-scan.btn{background:#fff;color:#23171a;border-color:#e7e2e2;font-weight:700;box-sizing:border-box;flex:0 0 auto;width:127px;min-width:127px;height:46px;min-height:46px;padding:10px 12px;white-space:nowrap}
 .dk-standalone .dk-scan.btn:hover{background:#f0e8db;color:#23171a}
 html.dk-standalone[lang="ru"] .dk-scan.btn{width:180px;min-width:180px}
+
+/* Approved standalone button family. Keep icon artwork, control positions and
+   media-card layout. Apply the new solid rounded button design everywhere
+   an actual command is offered, including the formerly transparent controls. */
+html.dk-standalone{
+  --dk-button-radius:10px;
+  --dk-button-bg:#381820;
+  --dk-button-border:#a58039;
+  --dk-button-red:#d83a42;
+  --dk-button-red-border:#f4515c;
+}
+html.dk-standalone :is(.btn,.header-action,.language-select,.select,.library-tabs button,.playback-settings-panel select){
+  border:1px solid var(--dk-button-border);
+  border-radius:var(--dk-button-radius);
+  background-color:var(--dk-button-bg);
+  color:#fff;font-weight:700;
+  box-shadow:none;
+}
+html.dk-standalone :is(.btn,.header-action,.library-tabs button){
+  display:inline-flex;align-items:center;justify-content:center;
+  gap:7px;min-height:46px;padding:10px 12px;line-height:1.2;
+}
+html.dk-standalone :is(.btn,.header-action,.library-tabs button):hover:not(:disabled){
+  background-color:#53262e;border-color:var(--dk-gold);
+}
+html.dk-standalone :is(.btn.primary,#addQueueFiles,#clearQueue,.library-tabs button[aria-selected="true"]){
+  background-color:var(--dk-button-red);border-color:var(--dk-button-red-border);color:#fff;
+}
+html.dk-standalone :is(.btn.primary,#addQueueFiles,#clearQueue,.library-tabs button[aria-selected="true"]):hover:not(:disabled){
+  background-color:#ef434d;border-color:#ff8387;
+}
+html.dk-standalone .library-tabs button[aria-selected="true"]{border-color:var(--dk-gold)}
+html.dk-standalone :is(.sidebar-top .sidebar-actions,.sidebar-play-order,.folder-actions) .btn{
+  min-width:0;min-height:46px;padding:8px 9px;border-radius:var(--dk-button-radius);
+}
+html.dk-standalone .sidebar-play-order .order-active{
+  background-color:var(--dk-button-red);border-color:var(--dk-gold);color:#fff;
+}
+html.dk-standalone .header-tools .language-select,
+html.dk-standalone .library-tools .language-select{height:46px;min-height:46px;}
+html.dk-standalone .screen .controls :is(.transport .icon-btn,.extras .icon-btn,.player-bar-settings>summary){
+  display:inline-flex;align-items:center;justify-content:center;
+  border:1px solid var(--dk-button-border);border-radius:var(--dk-button-radius);
+  background-color:var(--dk-button-bg);color:var(--dk-gold);box-shadow:none;
+  height:42px;min-height:42px;width:42px;min-width:42px;
+}
+html.dk-standalone .screen .controls .player-bar-settings{flex:0 0 42px}
+html.dk-standalone .screen .controls .extras :is(.dk-text-tool,.subtitle-toggle){width:auto;min-width:62px;padding:5px 8px}
+html.dk-standalone .screen .controls :is(.transport .icon-btn,.extras .icon-btn,.player-bar-settings>summary):hover:not(:disabled){
+  background-color:#53262e;border-color:var(--dk-gold);
+}
+html.dk-standalone .screen .controls :is(#playPause,#subtitleToggle[aria-pressed="true"],.player-bar-settings[open]>summary){
+  background-color:var(--dk-button-red);border-color:var(--dk-button-red-border);color:#fff;
+}
+html.dk-standalone .screen .controls #playPause:hover{background-color:#ef434d;color:#fff}
+html.dk-standalone .queue .remove{border:1px solid #a62f38;border-radius:var(--dk-button-radius);background:#381820;color:#ff5a62}
+html.dk-standalone :is(.player-context-menu,.library-context-menu,.dk-chapter-entries) button{
+  border:1px solid var(--dk-button-border);border-radius:var(--dk-button-radius);
+  background-color:var(--dk-button-bg);color:#fff;margin:3px 0;
+}
+html.dk-standalone :is(.player-context-menu,.library-context-menu,.dk-chapter-entries) button:hover:not(:disabled){background:#53262e}
+html.dk-standalone .dk-scan.btn,html.dk-standalone .dk-scan.btn:hover:not(:disabled){
+  background:#fff;border-color:#e7e2e2;color:#23171a;
+}
+html.dk-standalone .dk-scan.btn:hover:not(:disabled){background:#f0e8db}
+@media(max-width:640px){
+  html.dk-standalone .screen .controls :is(.transport .icon-btn,.extras .icon-btn,.player-bar-settings>summary){
+    width:34px;height:34px;min-width:34px;min-height:34px;
+  }
+  html.dk-standalone .screen .controls .transport .icon-btn{flex-basis:34px}
+  html.dk-standalone .screen .controls .player-bar-settings{flex-basis:34px}
+  html.dk-standalone .screen .controls .extras :is(.dk-text-tool,.subtitle-toggle){width:auto;min-width:54px}
+}
+html.dk-standalone [hidden]{display:none!important}

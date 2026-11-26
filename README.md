@@ -184,7 +184,7 @@ All items are in scope, including network playback; none are deferred indefinite
 | 2 | Gamma correction and sharpness | Source added; runtime acceptance pending |
 | 3 | Single-frame forward and reverse navigation | Source added; rendered-frame accuracy and decoder acceptance pending |
 | 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Source added; runtime acceptance pending |
-| 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Planned |
+| 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Source added; runtime acceptance pending |
 | 6 | Automatic volume leveling and dialogue enhancement | Planned |
 | 7 | Deinterlacing | Planned |
 | 8 | Video smoothing | Planned |
@@ -219,3 +219,12 @@ The Player and Library now have the same gold text-only footer: DK Kinehall ☭ 
 The playback gear now has fit/fill, zoom presets 50/100/150/200%, a custom 50–300% slider, horizontal and vertical pan (available when the corresponding picture dimension exceeds the viewport), original and override aspect ratios (4:3, 16:9, 1:1, 21:9, 2.35:1), and Reset zoom and cropping. Overrides deliberately allow stretching to the selected ratio. Saved preferences affect the displayed picture, not the source or export. The video and bitmap subtitle overlay share calculated geometry and clipping; the control bar is not scaled. Existing right-click fit/fill actions use the same preferences. Native Picture-in-Picture, browser-rendered text captions, fullscreen and actual rendering performance require runtime acceptance.
 
 Next priority: ten-band graphic equalizer, presets, bass/treble and stereo balance. Standalone source changes only, no compiling/testing. Master roadmap updated.
+
+
+### Standalone audio enhancements
+
+The playback settings gear now includes an optional ten-band graphic equalizer (31, 62, 125, 250, 500 Hz; 1, 2, 4, 8, 16 kHz, each −12 to +12 dB), eight presets (Flat, Cinema, Speech, Rock, Classical, Jazz, Bass boost, Treble boost), custom settings, independent bass/treble shelves (±12 dB), stereo balance and reset. Settings persist locally. Neutral/disabled effects bypass processing; filters are allocated only when necessary. The existing 0–200% volume gain remains independent. Optional EQ headroom compensates for the estimated frequency-response boost; this is not an automatic loudness normalizer or clipping guarantee.
+
+The same Web Audio effect topology is used by the normal media element, loopback native codec stream and separate MKV WebCodecs audio path. Nonzero stereo balance can downmix surround sound. No change to original media, export, transport, icons or crimson background. Actual local-file and loopback audio behavior, separate audio switching, frequency response and output compatibility are unverified. No compiling or testing.
+
+Next priority: automatic volume leveling and dialogue enhancement. Master roadmap updated.

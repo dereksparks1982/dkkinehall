@@ -8,6 +8,8 @@
 
 ## v0.9.3 installed update
 
+**Playback settings:** The standalone settings panel has a red × in its upper-right corner to close the panel and return focus to the existing gear. No playback icon artwork or application branding changes.
+
 For updates to an existing installation, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It reuses locally installed FFmpeg/FFprobe; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Player, Library and Scan Library use matching header button dimensions.
 
 ## v0.9.3 development preview (not a release)
@@ -34,7 +36,7 @@ The two editions are separate. The Web App remains available regardless of chang
 
 ## Local Library Home (new source; release not verified)
 
-**Catalog corrections:** Native rescans reclassify unchanged files when their classification differs, skip sample clips, and group TV series by normalized name across seasons. In the Grey is treated as a movie. Keyless movie search and poster retrieval use restricted native HTTPS requests rather than renderer CORS or remote JSONP scripts; successful movie title/year updates are stored separately from playback history. Provider availability and actual library contents remain to be tested. Expanded movie details and manual metadata refresh remain planned.
+**Catalog corrections:** Native rescans reclassify unchanged files when their classification differs, skip sample clips, and group TV series by normalized name across seasons. In the Grey is treated as a movie. Keyless movie search and poster retrieval use restricted native HTTPS requests rather than renderer CORS or remote JSONP scripts; successful movie title/year updates are stored separately from playback history. Movie lookup removes the 007 James Bond collection prefix before matching titles and release years. The standalone library retrieves movie descriptions, genre, runtime, cast and directors when supplied by Cinemeta or Apple; it saves metadata independently of local artwork. Right-click a movie for Movie Details or Refresh Metadata. Unknown or unavailable provider fields remain blank; existing playback history is retained. Provider availability and the installed UI have not been verified.
 
 **v0.9.3 standalone navigation:** A single native window opens on Library and switches to the persistent embedded Player view. Red navigation buttons keep the approved design. White Scan Library buttons on either page share the same scan and show its active state; gold trim applies only to standalone pages. Switching pages does not reload the player. Installed behavior is not yet verified.
 

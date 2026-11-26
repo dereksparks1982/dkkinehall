@@ -117,3 +117,11 @@ html.dk-standalone .library-progress{z-index:1}
 .library-scan-issues summary{cursor:pointer;color:var(--dk-gold,#e2b956)}
 .library-scan-issues ul{max-height:16rem;overflow:auto;padding-inline-start:24px;margin:8px 0}
 .library-scan-issues li{margin-bottom:6px}
+
+#libraryEmptyTrash[hidden],#movieFileSection[hidden]{display:none!important}
+html.dk-standalone #libraryEmptyTrash{background:var(--dk-russian-red,#c52832);border-color:var(--dk-russian-red,#c52832);color:white;font-weight:700}
+html.dk-standalone #libraryEmptyTrash:hover:not(:disabled){filter:brightness(1.16)}
+#movieFileSection{margin-top:22px;padding-top:16px;border-top:1px solid #a5803966}
+#movieFileHeading{color:#e2b956;margin:0;font-size:1.1rem}
+#movieFileStatus{margin:12px 0 0}
+#movieFileStatus:empty{display:none}

@@ -1,19 +1,16 @@
 "use strict";
-/* Library Home is the original application's start window. Launch the
- * unchanged docs/index.html player into a SECOND Electron BrowserWindow.
- * No network server, background service, icon redesign or alternative UI.
- */
-const {ipcMain,BrowserWindow,app,dialog,shell}=require("electron");
+/* One native window, persistent Library and Player views. */
+const {ipcMain,WebContentsView,app,dialog,shell}=require("electron");
 const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
 const {fileURLToPath}=require("node:url");
 const VERSION="0.9.3";
 let externalSelections=[],externalWork=Promise.resolve();
-let installed=false,home=null,player=null,playerFile=null;
+let installed=false,home=null,player=null,playerFile=null,playerLoading=null,activePage="library",scanActive=false;
 let scanController=null,scanPromise=null;
 function onlyPlayer(event){
-  return player&&!player.isDestroyed()&&
+  return player&&!player.webContents.isDestroyed()&&
     event.sender===player.webContents&&
     event.senderFrame?.url?.startsWith("file://")&&
     event.senderFrame.url.includes("/index.html");
@@ -24,69 +21,76 @@ function allowed(event){
   return frame.startsWith("file://")&&frame.includes("/library.html");
 }
 function installedWindow(){
-  return player&&!player.isDestroyed();
+  return player&&!player.webContents.isDestroyed();
+}
+function resizePlayer(){
+  if(!home||home.isDestroyed()||!installedWindow())return;
+  const [width,height]=home.getContentSize();
+  player.setBounds({x:0,y:0,width,height});
 }
 function focusWindow(win){
   if(win.isMinimized())win.restore();
   win.show();win.focus();
 }
-function openPlayer(id,external=false) {
-  if(!home||home.isDestroyed())throw new Error("Library window was closed");
-  const navigationOnly=id===null&&!external;
-  if(!navigationOnly&&(typeof id!=="string"||id.length<1||id.length>500||id.includes("\0")))
-    throw new Error("Invalid library selection");
-  // Navigation never reloads the active player or replaces its queue.
-  if(navigationOnly&&installedWindow()){
-    focusWindow(player);return Promise.resolve(true);
+function showPage(page){
+  if(!home||home.isDestroyed())return false;
+  if(page==="player"&&!installedWindow())return false;
+  activePage=page;
+  if(installedWindow()){
+    resizePlayer();
+    player.setVisible(page==="player");
   }
-  if(!installedWindow()){
-    // Inherit the approved original Electron runtime preferences and preload
-    // so DKStandalone and the optional native codec bridge still work.
-    // getLastWebPreferences is an internal Electron API and is not always
-    // exported. Resolve the actual approved DKStandalone preload instead
-    // of risking a second player window with no native bridges.
-    const originalPrefs=typeof home.webContents.getLastWebPreferences==="function"?
-      home.webContents.getLastWebPreferences():null;
-    const appRoot=app.getAppPath();
-    const candidates=[
-      originalPrefs?.preload,
-      path.join(appRoot,"preload.cjs"),
-      path.join(appRoot,"preload.js")
-    ].filter(Boolean);
-    const preload=candidates.find(candidate=>{
-      try{
-        return fs.statSync(candidate).isFile()&&
-          fs.readFileSync(candidate,"utf8").includes("DKStandalone");
-      }catch(_){return false;}
-    });
-    if(!preload)
-      throw Error("Original DKStandalone preload missing; player window refused");
-    const webPreferences={
-      ...(originalPrefs||{}),
-      preload,
-      contextIsolation:originalPrefs?.contextIsolation!==false,
-      nodeIntegration:originalPrefs?.nodeIntegration===true,
-      sandbox:originalPrefs?.sandbox===true
-    };
-    const icon=path.join(appRoot,"docs","icons","dk-media-player-512.png");
-    player=new BrowserWindow({
-      width:1250,height:790,minWidth:720,minHeight:480,
-      backgroundColor:"#110407",icon,
-      webPreferences
-    });
-    // The native decoder belongs to the PLAYER webContents, never the
-    // library process. Keep the bridge optional until bundled binaries exist.
-    if(fs.existsSync(path.join(app.getAppPath(),"desktop","codec-host.cjs")))
-      require("./codec-host.cjs").install(player);
-    player.on("page-title-updated",event=>{event.preventDefault();player?.setTitle("DK Kinehall v"+VERSION);});
-    player.setTitle("DK Kinehall v"+VERSION);
-    player.on("closed",()=>{player=null;externalSelections=[];});
+  focusWindow(home);
+  if(page==="player")player.webContents.focus();
+  else home.webContents.focus();
+  return true;
+}
+async function openPlayer(id,external=false){
+  if(!home||home.isDestroyed())throw Error("Library window was closed");
+  const nav=id===null&&!external;
+  if(!nav&&(typeof id!=="string"||id.length<1||id.length>500||id.includes("\0")))
+    throw Error("Invalid library selection");
+  if(installedWindow()){
+    if(playerLoading)await playerLoading;
+    showPage("player");
+    if(external)player.webContents.send("dk-library:external-ready");
+    else if(!nav)player.webContents.send("dk-library:selection",id);
+    return true;
   }
-  focusWindow(player);
-  if(navigationOnly)return player.loadFile(playerFile).then(()=>true);
-  // Each library selection replaces playback in this SAME second window;
-  // the library window remains open and independent.
-  return player.loadFile(playerFile,{query:external?{externalItem:id}:{libraryItem:id}}).then(()=>true);
+  if(typeof WebContentsView!=="function")throw Error("Installed Electron does not support internal player views");
+  const originalPrefs=home.webContents.getLastWebPreferences?.()||{};
+  const appRoot=app.getAppPath();
+  const preload=[originalPrefs.preload,path.join(appRoot,"preload.cjs"),path.join(appRoot,"preload.js")]
+    .filter(Boolean).find(candidate=>{
+      try{return fs.statSync(candidate).isFile()&&fs.readFileSync(candidate,"utf8").includes("DKStandalone");}
+      catch(_){return false;}
+    });
+  if(!preload)throw Error("Original DKStandalone preload missing");
+  const view=new WebContentsView({webPreferences:{
+    preload,contextIsolation:true,nodeIntegration:false,
+    sandbox:originalPrefs.sandbox===true,session:home.webContents.session,
+    backgroundThrottling:false
+  }});
+  player=view;
+  home.contentView.addChildView(view);
+  resizePlayer();
+  view.setVisible(false);
+  view.webContents.setWindowOpenHandler(()=>({action:"deny"}));
+  view.webContents.on("will-navigate",(event,url)=>{
+    try{if(fileURLToPath(url)!==playerFile)event.preventDefault();}
+    catch(_){event.preventDefault();}
+  });
+  if(fs.existsSync(path.join(appRoot,"desktop","codec-host.cjs")))
+    require("./codec-host.cjs").install(home,view.webContents);
+  const options=nav?{}:{query:external?{externalItem:id}:{libraryItem:id}};
+  playerLoading=view.webContents.loadFile(playerFile,options);
+  try{
+    await playerLoading;
+    if(home.isDestroyed())return false;
+    showPage("player");
+    view.webContents.send("dk-library:scan-state",scanActive);
+    return true;
+  }finally{playerLoading=null;}
 }
 async function openExternal(argv,cwd){
   const entries=[],seen=new Set();
@@ -106,8 +110,7 @@ async function openExternal(argv,cwd){
   if(!entries.length||!home||home.isDestroyed())return false;
   externalSelections.push(...entries);
   if(installedWindow()){
-    player.show();player.focus();
-    player.webContents.send("dk-library:external-ready");
+    await openPlayer("pending",true);
   }else{
     await openPlayer("pending",true);
   }
@@ -122,6 +125,13 @@ function install(originalWindow,originalPlayer){
   if(!originalWindow?.webContents||typeof originalPlayer!=="string")
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
+  home.setTitle("DK Kinehall v"+VERSION);
+  home.on("page-title-updated",event=>{event.preventDefault();home?.setTitle("DK Kinehall v"+VERSION);});
+  home.on("resize",resizePlayer);
+  for(const event of ["enter-full-screen","leave-full-screen"])home.on(event,()=>{
+    resizePlayer();
+    if(installedWindow())player.webContents.send("dk-library:fullscreen-state",home.isFullScreen());
+  });
   if(!app.requestSingleInstanceLock()){app.quit();return;}
   app.on("second-instance",(_event,argv,cwd)=>enqueueExternal(argv,cwd));
   ipcMain.handle("dk-library:external-selection",event=>{
@@ -136,6 +146,20 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:show-player",event=>{
     if(!allowed(event))throw new Error("Library navigation rejected");
     return openPlayer(null);
+  });
+  ipcMain.handle("dk-library:player-fullscreen",(event,value)=>{
+    if(!onlyPlayer(event)||activePage!=="player")throw Error("Fullscreen rejected");
+    home.setFullScreen(Boolean(value));return Boolean(value);
+  });
+  ipcMain.handle("dk-library:request-scan",event=>{
+    if(!onlyPlayer(event))throw Error("Scan request rejected");
+    home.webContents.send("dk-library:scan-request");return true;
+  });
+  ipcMain.handle("dk-library:scan-state",(event,value)=>{
+    if(!allowed(event))throw Error("Scan state rejected");
+    scanActive=Boolean(value);
+    if(installedWindow())player.webContents.send("dk-library:scan-state",scanActive);
+    return true;
   });
   // The native app discovers the local filesystem directly. The renderer
   // receives small metadata records, never video bytes or root access.
@@ -179,12 +203,13 @@ function install(originalWindow,originalPlayer){
     if(!home||home.isDestroyed())return false;
     // A request from the video player may focus the existing library.
     if(!onlyPlayer(event)&&!allowed(event))return false;
-    focusWindow(home);return true;
+    if(home.isFullScreen())home.setFullScreen(false);
+    return showPage("library");
   });
   home.on("closed",()=>{
     scanController?.abort();
-    if(installedWindow())player.close();
-    home=null;
+    if(installedWindow())player.webContents.close();
+    player=null;home=null;
   });
 }
 module.exports={install};

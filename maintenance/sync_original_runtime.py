@@ -55,7 +55,22 @@ def sync(root):
             for entry in before:
                 name = entry.name.removeprefix("./")
                 relative = name[len(PREFIX):] if name.startswith(PREFIX) else ""
-                if entry.isfile() and relative in docs_map:
+                if entry.isfile() and name == "resources/app/main.cjs":
+                    # The window icon was already configured, but Ubuntu's dock
+                    # could not associate the app with our registered launcher.
+                    # Set a consistent X11 WM_CLASS without changing the player.
+                    host = before.extractfile(entry).read()
+                    switch = b'app.commandLine.appendSwitch("class", "dk-kinehall");'
+                    anchor = b'app.setAppUserModelId("org.dksoftworks.dk-kinehall");'
+                    if switch not in host:
+                        if host.count(anchor) != 1:
+                            raise RuntimeError("Original Chromium window identity marker not found")
+                        host = host.replace(anchor, anchor + b"\n" + switch, 1)
+                    if b'dk-media-player-512.png' not in host:
+                        raise RuntimeError("Approved Chromium window icon is not configured")
+                    entry.size = len(host)
+                    after.addfile(entry, io.BytesIO(host))
+                elif entry.isfile() and relative in docs_map:
                     data = docs_map[relative].read_bytes()
                     entry.size = len(data)
                     after.addfile(entry, io.BytesIO(data))
@@ -73,7 +88,9 @@ def sync(root):
         with tarfile.open(updated, "r:gz") as archive:
             for name in required:
                 assert archive.extractfile("./" + PREFIX + name).read() == docs_map[name].read_bytes(), name
-            assert archive.extractfile("./resources/app/main.cjs").read(1)
+            host = archive.extractfile("./resources/app/main.cjs").read()
+            assert b'app.commandLine.appendSwitch("class", "dk-kinehall");' in host
+            assert b'dk-media-player-512.png' in host
             assert archive.extractfile("./electron").read(1)
         new_sha = sha(updated)
         if old_sha == new_sha: raise RuntimeError("Runtime update produced no changes")

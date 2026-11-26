@@ -84,6 +84,19 @@ function discoverNetwork(){
   }).finally(()=>{networkScan=null;});
   return networkScan;
 }
+async function registerNetworkServer(value){
+  const url=networkURL(value);
+  if(networkBrowseBusy>=4)throw Error("Network requests busy");
+  networkBrowseBusy++;
+  try{
+    const xml=await networkRequest(url);
+    if(!/ContentDirectory:[1-4]/i.test(xml)||/<!DOCTYPE|<!ENTITY/i.test(xml))throw Error("Not a supported media server description");
+    const id=randomBytes(18).toString("hex");
+    networkServers.set(id,{location:url.href,host:url.hostname});
+    if(networkServers.size>128)networkServers.delete(networkServers.keys().next().value);
+    return {id,location:url.href,xml};
+  }finally{networkBrowseBusy--;}
+}
 async function networkDescription(id){
   const server=networkServers.get(id);if(!server)throw Error("Network server selection expired");
   if(networkBrowseBusy>=4)throw Error("Network requests busy");
@@ -1378,6 +1391,10 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-network:discover",event=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return discoverNetwork();
+  });
+  ipcMain.handle("dk-network:register",(event,value)=>{
+    if(!onlyPlayer(event))throw Error("Network request rejected");
+    return registerNetworkServer(value);
   });
   ipcMain.handle("dk-network:description",(event,id)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return networkDescription(id);

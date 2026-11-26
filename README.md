@@ -25,7 +25,9 @@ DK Kinehall loads its saved collection immediately, then performs one bounded
 scan of the user's home and connected volumes mounted under `/media/$USER`,
 `/run/media/$USER` or `/mnt`. The visible **Scan Library** button forces
 another scan. Media files are opened from validated native paths without a
-browser folder-selection prompt. App caches, hidden/system folders, symlinks and Trash are
+browser folder-selection prompt. The player uses current file size and
+modification time when opening a cached video, even if that file changed
+since the last scan. App caches, hidden/system folders, symlinks and Trash are
 excluded to limit CPU, I/O and accidental catalog entries. Scans have depth,
 time and item limits and report incomplete results; a partial scan never
 marks all unseen files as deleted. The scanner runs only in the existing

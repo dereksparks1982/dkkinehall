@@ -19,12 +19,18 @@ const bridge={
   }
 };
 (async()=>{
-  const opened={url:"file:///home/example/Videos/South%20Park/S01E01.mkv"};
+  const opened={url:"file:///home/example/Videos/South%20Park/S01E01.mkv",
+    size:9,modified:12345};
   const {file,src}=parent.DKNativeFile.create(row,opened,bridge);
   assert.equal(src,opened.url);
   assert.equal(file.nativeVirtual,true);
   assert.equal(file.name,row.filename);
   assert.equal(file.size,9);
+  const newer=parent.DKNativeFile.create(row,{
+    ...opened,size:8,modified:56789},bridge);
+  assert.equal(newer.file.size,8,
+    "Fresh filesystem metadata overrides a stale cached size");
+  assert.equal(newer.file.lastModified,56789);
   assert.equal(new TextDecoder().decode(await file.slice(2,6).arrayBuffer()),"3456");
   assert.equal((await file.slice(0,0).arrayBuffer()).byteLength,0);
   console.log("PASS: native video URL and bounded, on-demand movie metadata reads");

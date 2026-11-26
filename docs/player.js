@@ -1254,10 +1254,10 @@
     item.codecActive = false;
     item.codecRestart = false;
     item.compatPending = false;
-    item.requestedFormat = item.kind==="network"?"original":item.file?.dvdToken?"auto":playbackSettings.format;
-    item.deinterlaceMode=standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
+    item.requestedFormat = item.file?.dvdToken?"auto":playbackSettings.format;
+    item.deinterlaceMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
-    item.smoothingMode=standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
+    item.smoothingMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
     item.activeSmoothing=0;
     item.deinterlacePending=false;
     item.playbackMethod = (item.compatSrc && item.requestedFormat === "auto")
@@ -1314,6 +1314,11 @@
         item.deinterlacePending=false;
         if(!ok&&!state.stopped)status("DVD title could not be played.");
       });
+      return;
+    }
+    if(item.kind==="network"){
+      if(forcingContainer){void tryNativeCodec(item,0).then(ok=>{if(!ok&&current()===item)status("Network decoder unavailable.");});}
+      else if(autoplay)playCurrent();
       return;
     }
     const proceedNormal=()=>{
@@ -1536,7 +1541,7 @@
     return false;
   };
   const tryNativeCodec = async (item,overridePosition=null) => {
-    if(!codecPlayback||!item?.file||item.codecAttempted ||
+    if(!codecPlayback||!(item?.file||item?.networkSource)||item.codecAttempted ||
        item.requestedFormat==="original" ||
        current()!==item||state.stopped)return false;
     item.codecAttempted=true;
@@ -2616,7 +2621,7 @@
     };
     const nodes=(root,name)=>Array.from(root.getElementsByTagNameNS("*",name));
     const first=(root,name)=>nodes(root,name)[0]?.textContent?.trim()||"";
-    const makeNetworkItem=(grant,name,audio)=>({kind:"network",networkToken:grant.token,key:"network:"+grant.token,
+    const makeNetworkItem=(grant,name,audio)=>({kind:"network",networkToken:grant.token,networkSource:Object.freeze({networkToken:grant.token}),key:"network:"+grant.token,
       name:String(name||"Network media").slice(0,250),audio,src:grant.src,
       embeddedSubtitles:[],embeddedAudio:[],embeddedVideo:[],chapters:[],mkvInspection:"not-mkv"});
     const queuePage=async(serverId,entries)=>{
@@ -3177,7 +3182,15 @@
     if (!current() || !media.error || state.stopped) return;
     const code = media.error.code;
     const item=current();
-    if(item.kind==="network"){status("Network stream unavailable or unsupported.");updateButtons();return;}
+    if(item.kind==="network"&&!codecPlayback?.isActive(item)){
+      if(!item.codecAttempted&&item.requestedFormat!=="original"&&codecPlayback){
+        const epoch=item.playbackEpoch;
+        void tryNativeCodec(item,Math.max(0,Number(media.currentTime)||0)).then(ok=>{
+          if(!ok&&current()===item&&item.playbackEpoch===epoch)status("Network stream unavailable or unsupported.");
+        });
+      }else status("Network stream unavailable or unsupported.");
+      updateButtons();return;
+    }
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;
     if(codecPlayback?.isActive(item)){
       if(dvdSubOn(item)){

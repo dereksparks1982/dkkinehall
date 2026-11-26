@@ -2465,6 +2465,7 @@
     const openDVD=document.createElement("button");openDVD.type="button";openDVD.className="btn ghost";openDVD.textContent="Open DVD…";
     dvdDialog.append(closeDVD);document.body.append(dvdDialog);
     byId("openEmpty").after(openDVD);
+    window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="disc"){deferStartup=false;settingsDetails.open=false;openDVD.click();}});
     openDVD.addEventListener("click",()=>{
       if(dvdDialog.open)return;
       section.hidden=false;dvdDialog.prepend(section);dvdDialog.showModal();
@@ -2590,7 +2591,7 @@
     const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
     section.id="networkSettings";
     section.append(makeButton("Network media…",open));byId("playerSettingsPanel").append(section);
-    window.DKLibraryBridge.onOpenNetwork?.(()=>{settingsDetails.open=false;open();});
+    window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="network"){deferStartup=false;settingsDetails.open=false;open();}});
     window.DKLocale?.apply();
   }
   // Frame stepping uses actual source presentation timestamps. Pause before

@@ -9,6 +9,8 @@ const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
 function attach({screen,button,onResize=()=>{}}){
   if(!screen||!button)return null;
   const container=screen.parentElement;
+  const nativeDock=Boolean(root.DKLibraryBridge?.internalPages);
+  const availableWidth=()=>Math.max(0,nativeDock?(container.parentElement?.clientWidth||container.clientWidth):container.clientWidth);
   const placeholder=document.createElement("div");
   placeholder.className="dk-player-placeholder";
   placeholder.hidden=true;
@@ -25,7 +27,9 @@ function attach({screen,button,onResize=()=>{}}){
   corner.textContent="◢";
   corner.title="Drag to resize player";
   corner.setAttribute("aria-label","Drag to resize player");
-  screen.append(handle,corner);
+  screen.append(handle);
+  if(nativeDock){container.classList.add("dk-resizable-panel");container.append(corner);}
+  else screen.append(corner);
   let saved={};
   try{saved=JSON.parse(localStorage.getItem(KEY)||"{}")||{};}catch(_){}
   let floating=false;
@@ -42,6 +46,7 @@ function attach({screen,button,onResize=()=>{}}){
   };
   function layout(){
     if(floating){
+      if(nativeDock)container.style.removeProperty("width");
       floatWidth=clamp(floatWidth,Math.min(300,innerWidth-16),Math.max(300,innerWidth-16));
       floatHeight=clamp(floatHeight,Math.min(175,innerHeight-16),Math.max(175,innerHeight-16));
       left=clamp(left,0,Math.max(0,innerWidth-floatWidth));
@@ -50,8 +55,12 @@ function attach({screen,button,onResize=()=>{}}){
         width:floatWidth+"px",height:floatHeight+"px",left:left+"px",top:top+"px"
       });
     }else{
-      const available=Math.max(0,container.clientWidth);
-      if(dockWidth)screen.style.width=Math.min(dockWidth,available)+"px";
+      const available=availableWidth();
+      if(nativeDock){
+        screen.style.removeProperty("width");
+        if(dockWidth)container.style.width=Math.min(dockWidth,available)+"px";
+        else container.style.removeProperty("width");
+      }else if(dockWidth)screen.style.width=Math.min(dockWidth,available)+"px";
       else screen.style.removeProperty("width");
       for(const key of ["height","left","top"])screen.style.removeProperty(key);
     }
@@ -62,6 +71,10 @@ function attach({screen,button,onResize=()=>{}}){
     screen.classList.toggle("dk-floating",floating);
     screen.classList.toggle("dk-sized",!floating&&dockWidth>0);
     placeholder.hidden=!floating;
+    if(nativeDock){
+      container.classList.toggle("dk-player-detached",floating);
+      (floating?screen:container).append(corner);
+    }
     button.textContent=floating?"Dock":"Float";
     button.setAttribute("aria-pressed",String(floating));
     button.title=floating?"Dock player back into page":"Move player into floating mode";
@@ -98,7 +111,7 @@ function attach({screen,button,onResize=()=>{}}){
   });
   let sizingStart={width:0,height:0};
   corner.addEventListener("pointerdown",()=>{
-    const bounds=screen.getBoundingClientRect();
+    const bounds=(nativeDock&&!floating?container:screen).getBoundingClientRect();
     sizingStart={width:bounds.width,height:bounds.height};
   },{capture:true});
   startPointer(corner,(dx,dy)=>{
@@ -106,8 +119,8 @@ function attach({screen,button,onResize=()=>{}}){
       floatWidth=sizingStart.width+dx;floatHeight=sizingStart.height+dy;
     }else{
       // The docked surface preserves 16:9; the video always uses contain.
-      dockWidth=clamp(sizingStart.width+dx,Math.min(300,container.clientWidth),
-        container.clientWidth);
+      const available=availableWidth();
+      dockWidth=clamp(sizingStart.width+dx,Math.min(300,available),available);
       screen.classList.add("dk-sized");
     }
     layout();

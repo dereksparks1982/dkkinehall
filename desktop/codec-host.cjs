@@ -19,7 +19,7 @@ const {checkVideo}=require("./library-indexer.cjs");
 
 const BIND_ADDRESS="127.0.0.1";
 const MAX_PROBE_OUTPUT=512*1024;
-let installed=false,windowRef=null,server=null,session=null,availability=null;
+let installed=false,windowRef=null,playerContents=null,server=null,session=null,availability=null;
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
 
@@ -283,7 +283,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0) {
 }
 function onlyWindow(event) {
   return windowRef && !windowRef.isDestroyed() &&
-    event.sender===windowRef.webContents &&
+    event.sender===playerContents &&
     event.senderFrame?.url?.startsWith("file://");
 }
 
@@ -385,18 +385,19 @@ async function exportVideo(win,language="en"){
     exportBusy=false;
   }
 }
-function attachExport(win){
+function attachExport(win,contents){
   // Preserve existing menu and icons; Ctrl+Shift+E is desktop-only.
-  win.webContents.on("before-input-event",(event,input)=>{
+  contents.on("before-input-event",(event,input)=>{
     if(input.type==="keyDown"&&input.control&&input.shift&&!input.alt&&String(input.key).toLowerCase()==="e"){
       event.preventDefault();if(!input.isAutoRepeat)void exportVideo(win);
     }
   });
 }
 
-function install(win) {
-  if(!win?.webContents)throw new Error("A DK Kinehall window is required");
-  attachExport(win);
+function install(win,contents=win?.webContents) {
+  if(!contents)throw new Error("A DK Kinehall player view is required");
+  playerContents=contents;
+  attachExport(win,contents);
   // Re-opened Player windows must reconnect to the same IPC service.
   if(installed){
     if(windowRef&&!windowRef.isDestroyed()&&windowRef!==win)

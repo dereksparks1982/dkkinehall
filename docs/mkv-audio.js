@@ -315,7 +315,7 @@
     const selectedNumber=()=>selection?selection.track.number:null;
     const active=()=>Boolean(selection&&decoder);
     const setVolume=value=>{
-      level=Math.max(0,Math.min(1,Number(value)||0));
+      level=Math.max(0,Math.min(2,Number(value)||0));
       if(gain)gain.gain.value=level;
     };
     const stop=()=>{

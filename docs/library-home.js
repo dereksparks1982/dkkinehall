@@ -275,9 +275,10 @@ async function findArtwork(row,id,series=false,force=false){
   networkArtworkCount++;
   try{
     const excluded=[];
-    for(let attempt=0;attempt<(row.kind==="movie"&&nativeBridge?2:1);attempt++){
+    for(let attempt=0;attempt<(row.kind==="movie"&&nativeBridge?3:1);attempt++){
     const result=attempt===0&&movieResult?movieResult:await artworkFinder.find(metadataFilename(row),{excludeProviders:excluded,details:!!nativeBridge&&row.kind==="movie"});
     if(result?.provider)excluded.push(result.provider);
+    else if(!result)break;
     // Episode cards use episode stills; the series grid uses series art.
     const url=row.kind==="tv"&&series?
       (nativeBridge?(result?.seriesUrl||result?.fallbackUrl):(result?.fallbackUrl||result?.url)):result?.url;
@@ -305,7 +306,7 @@ async function findArtwork(row,id,series=false,force=false){
     return blob;
     }
     return cache?.blob||null;
-  }catch(_){return null;}
+  }catch(_){return cache?.blob||null;}
 }
 async function pumpArtwork(){
   while(imageQueue.length){

@@ -4,9 +4,9 @@
 
 **DK Kinehall (ДК Кинехолл)** is a free media player from **DK Softworks** for watching movies, television episodes, and listening to music from your own device.
 
-## v0.9.3 development update (not a release)
+## v0.9.3 installed update
 
-For explicitly requested local installed testing, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It uses locally available FFmpeg/FFprobe for development only; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Player, Library and Scan Library use matching header button dimensions.
+For updates to an existing installation, `maintenance/update_development_linux.sh` backs up and refreshes the original executable and runtime in place, preserving approved icons and the existing launcher path. It reuses locally installed FFmpeg/FFprobe; without them it refreshes the UI and library without adding native codecs. It does not open the release gate. Close the existing application before updating and reopen through its normal dock icon afterward. Real installed playback and dock launch still need verification. Player, Library and Scan Library use matching header button dimensions.
 
 ## v0.9.3 development preview (not a release)
 

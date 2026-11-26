@@ -11,7 +11,7 @@ import tarfile
 import tempfile
 from pathlib import Path
 from library_bundle import LibraryBundle
-from sync_original_runtime import verify_player_settings
+from sync_original_runtime import verify_player_settings, stage_standalone_background
 
 def main():
     source=Path(__file__).resolve().parents[1]
@@ -70,6 +70,7 @@ def main():
             dest=app/"docs"/rel
             dest.parent.mkdir(parents=True,exist_ok=True)
             shutil.copy2(item,dest)
+        stage_standalone_background(source, app/"docs")
         (app/"desktop").mkdir(exist_ok=True)
         for name in ("library-host.cjs","library-indexer.cjs","codec-host.cjs","codec-policy.cjs","codec-source.cjs"):
             shutil.copy2(source/"desktop"/name,app/"desktop"/name)

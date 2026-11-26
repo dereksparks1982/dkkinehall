@@ -43,7 +43,7 @@ trap cleanup EXIT
 echo "Fetching DK Kinehall source from GitHub main..."
 git clone --quiet --depth 1 --filter=blob:none --sparse --branch main \
   https://github.com/dereksparks1982/dkkinehall.git "$WORK/repo"
-git -C "$WORK/repo" sparse-checkout set docs maintenance desktop
+git -C "$WORK/repo" sparse-checkout set docs maintenance desktop assets/images
 
 # No partial end-user updates. The signed-off release gate remains closed
 # until the complete standalone codec bundle and all roadmap checks pass.

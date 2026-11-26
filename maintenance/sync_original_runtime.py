@@ -8,6 +8,7 @@ from pathlib import Path
 import hashlib
 import io
 import os
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -48,6 +49,26 @@ def verify_player_settings(html):
                 "Missing or duplicated playback-bar setting: "+
                 element.decode("ascii"))
 
+def stage_standalone_background(source_root, docs):
+    """Use the approved static Crimson Flow asset only in desktop staging."""
+    source = Path(source_root) / "assets/images/Crimson Liquid Wave Texture.png"
+    if not source.is_file():
+        raise RuntimeError("Approved Crimson Flow background asset missing")
+    docs = Path(docs)
+    target = docs / "images/crimson-flow.png"
+    css = docs / "player.css"
+    original = 'url("./images/soviet-poster.png") center center / contain fixed no-repeat'
+    replacement = 'url("./images/crimson-flow.png") center center / cover fixed no-repeat'
+    text = css.read_text(encoding="utf-8")
+    if text.count(original) == 1 and replacement not in text:
+        text = text.replace(original, replacement, 1)
+    elif text.count(replacement) != 1 or original in text:
+        raise RuntimeError("Cannot identify the shared standalone background rule")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    css.write_text(text, encoding="utf-8")
+
+
 def sha(path):
     result = hashlib.sha256()
     with path.open("rb") as source:
@@ -61,16 +82,17 @@ def sync(root, codec_source=None):
     parts = sorted(internal.glob("runtime.tar.gz.*"))
     if len(parts) < 2 or not launcher.is_file() or not (docs / "index.html").is_file():
         raise RuntimeError("Original desktop runtime, launcher or docs missing")
+    source_root = codec_source if codec_source is not None else root
+    stage_standalone_background(source_root, docs)
     docs_map = {file.relative_to(docs).as_posix(): file
                 for file in docs.rglob("*") if file.is_file()}
-    source_root = codec_source if codec_source is not None else root
     codec_bundle = CodecBundle(source_root)
     library_bundle = LibraryBundle(source_root)
     required = {"index.html","player.js","player.css","mkv-tracks.js",
                 "mkv-subtitles.js","pgs-subtitles.js","vobsub.js",
                 "queue-autoplay.js","folder-access.js","i18n.js",
                 "library.html","library-home.css","library-home.js",
-                "library-store.js","native-file.js"}
+                "library-store.js","native-file.js","images/crimson-flow.png"}
     if not required.issubset(docs_map):
         raise RuntimeError("Missing original web player resources: " +
                            str(sorted(required - docs_map.keys())))

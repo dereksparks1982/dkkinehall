@@ -925,3 +925,37 @@ html.dk-standalone .screen .controls .dk-chapter-marker::after{
 }
 html.dk-standalone .screen .controls .dk-chapter-marker:hover::after,
 html.dk-standalone .screen .controls .dk-chapter-marker:focus-visible::after{background:#fff;width:2px}
+
+/* Approved standalone action palette: three matching folder rows and two
+   matching queue rows. Preserve icon artwork, background and seek controls. */
+html.dk-standalone .folder-actions{
+  grid-auto-rows:minmax(46px,auto);
+}
+html.dk-standalone .folder-actions :is(#playerEmptyTrash,#playerRefreshMetadata){
+  box-sizing:border-box;width:100%;min-width:0;max-width:100%;
+  min-height:46px;padding:8px 6px;font-size:.78rem;font-weight:600;
+  line-height:1.25;white-space:normal;overflow-wrap:anywhere;text-align:center;border-radius:8px;
+}
+html.dk-standalone .folder-actions #playerEmptyTrash{grid-column:1;grid-row:3}
+html.dk-standalone .folder-actions #playerRefreshMetadata{grid-column:2;grid-row:3}
+html.dk-standalone :is(.folder-actions #forgetFolder,.sidebar-play-order #shuffleQueue,.sidebar-play-order #loopQueue){
+  background:#fff;border-color:#e7e2e2;color:#23171a;
+}
+html.dk-standalone :is(.folder-actions #forgetFolder,.sidebar-play-order #shuffleQueue,.sidebar-play-order #loopQueue):hover:not(:disabled){
+  background:#fff;border-color:#a58039;color:#23171a;
+}
+html.dk-standalone .sidebar-play-order :is(#shuffleQueue,#loopQueue).order-active{
+  background:#fff;color:#23171a;border-color:#e2b956;box-shadow:inset 0 0 0 2px #a58039;
+}
+html.dk-standalone .folder-actions :is(#playerEmptyTrash,#playerRefreshMetadata),
+html.dk-standalone :is(.library-tabs button[aria-selected="true"],#refreshMovieMetadata,#movieDetailsAction){
+  background:#e2b956;border-color:#f2ce76;color:#23171a;
+}
+html.dk-standalone .folder-actions :is(#playerEmptyTrash,#playerRefreshMetadata):hover:not(:disabled),
+html.dk-standalone :is(.library-tabs button[aria-selected="true"],#refreshMovieMetadata,#movieDetailsAction):hover:not(:disabled){
+  background:#f2ce76;border-color:#e2b956;color:#23171a;
+}
+html.dk-standalone :is(.btn.ghost,.header-action):not(.primary):not(.dk-scan):not(#forgetFolder):not(#shuffleQueue):not(#loopQueue):not(#addQueueFiles):not(#clearQueue){
+  color:var(--dk-gold);
+}
+html.dk-standalone :is(#playerEmptyTrash,#playerRefreshMetadata,#forgetFolder,#shuffleQueue,#loopQueue):disabled{opacity:.55;cursor:default}

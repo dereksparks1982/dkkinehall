@@ -45,3 +45,5 @@ We're working on better file-format support, DVD and network playback, offline s
 
 DK Kinehall is free for personal and business use. DK Softworks' original software may not be sold or repackaged for distribution without permission. See the [license](LICENSE) for the full terms.
 
+
+Standalone metadata repair: existing incorrect 1974 Golden Gun movie records are corrected in place on library opening, preserving watch history and local artwork, with a verified IMDb identity for poster lookup. No rescan or filename change is required for this repair.

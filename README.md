@@ -183,7 +183,7 @@ All items are in scope, including network playback; none are deferred indefinite
 | 1 | Brightness, contrast, saturation, hue, reset picture settings | Source added; runtime acceptance pending |
 | 2 | Gamma correction and sharpness | Source added; runtime acceptance pending |
 | 3 | Single-frame forward and reverse navigation | Source added; rendered-frame accuracy and decoder acceptance pending |
-| 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Planned/partial |
+| 4 | 50%, 100%, 150%, 200% and custom zoom, crop, aspect ratio | Source added; runtime acceptance pending |
 | 5 | Ten-band graphic equalizer, presets, bass/treble, stereo balance | Planned |
 | 6 | Automatic volume leveling and dialogue enhancement | Planned |
 | 7 | Deinterlacing | Planned |
@@ -210,3 +210,12 @@ Drag the docked player's right edge or existing bottom-right resize grip beyond 
 Frame navigation in the settings gear adds Previous frame and Next frame; Shift+Left and Shift+Right are keyboard shortcuts. Playback pauses and the guarded native decoder bridge obtains presentation timestamps from the actual local source video using bounded FFprobe windows and a small reusable cache. Direct playback seeks just inside the selected frame interval, while native transcoded playback restarts paused at the selected source timestamp with a frame-specific end clamp. No assumed frame rate, whole-film indexing or modification of the source file. This is source-level implementation, not proof of frame-perfect rendering: variable frame rates, nonzero timestamp origins, browser/remux timelines, decoder keyframes, final frames and native stream startup need acceptance. FFprobe and the existing native bridge are required.
 
 Next implementation priority: video zoom, cropping and aspect ratio controls. Master roadmap updated. No compile, runtime tests, downloads or terminal commands.
+
+
+### Standalone footer and picture geometry
+
+The Player and Library now have the same gold text-only footer: DK Kinehall ☭ DK Softworks on the left, ACP on the right. The latter opens https://acp.us/ in the system default browser via a fixed, guarded Electron command, not by navigating either internal view. No ACP logo asset, background box or new application icon. The Russian interface localizes the labels.
+
+The playback gear now has fit/fill, zoom presets 50/100/150/200%, a custom 50–300% slider, horizontal and vertical pan (available when the corresponding picture dimension exceeds the viewport), original and override aspect ratios (4:3, 16:9, 1:1, 21:9, 2.35:1), and Reset zoom and cropping. Overrides deliberately allow stretching to the selected ratio. Saved preferences affect the displayed picture, not the source or export. The video and bitmap subtitle overlay share calculated geometry and clipping; the control bar is not scaled. Existing right-click fit/fill actions use the same preferences. Native Picture-in-Picture, browser-rendered text captions, fullscreen and actual rendering performance require runtime acceptance.
+
+Next priority: ten-band graphic equalizer, presets, bass/treble and stereo balance. Standalone source changes only, no compiling/testing. Master roadmap updated.

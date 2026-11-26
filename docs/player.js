@@ -1031,6 +1031,28 @@
     status("");
     if (item.embeddedSubtitles?.length)
       queueMicrotask(() => restoreEmbeddedSubtitlePreference(item));
+    // Standalone only: a playable picture does not prove audio is decodable.
+    // Probe before normal playback; the web edition has no native bridge.
+    if (codecPlayback && window.DKCodecBridge?.probe && item.file &&
+        !item.audio && item.requestedFormat === "auto") {
+      const epoch=item.playbackEpoch;
+      const stillCurrent=()=>current()===item && item.playbackEpoch===epoch && !state.stopped;
+      void window.DKCodecBridge.probe(item.file).then(async info=>{
+        if(!stillCurrent())return;
+        const preferred=state.audioPreferences[item.key];
+        const ordinal=preferred?.mode==="mkv"?
+          (item.embeddedAudio||[]).findIndex(t=>t.number===preferred.number):0;
+        const codec=info.audioTracks?.[Math.max(0,ordinal)]?.codec||info.audioCodec||"";
+        if(/^(ac3|eac3|dts|truehd|mlp)$/i.test(codec)){
+          item.codecAudioIndex=Math.max(0,ordinal);
+          if(await tryNativeCodec(item))return;
+          if(!stillCurrent())return;
+          status("Included audio decoder unavailable.");
+        }
+        if(autoplay&&stillCurrent())playCurrent();
+      }).catch(()=>{if(autoplay&&stillCurrent())playCurrent();});
+      return;
+    }
     if (needsRemux) {
       item.playbackMethod = "Preparing " + item.requestedFormat.toUpperCase();
       if (item.mkvInspection === "pending") {

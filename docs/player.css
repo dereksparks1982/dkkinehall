@@ -768,7 +768,7 @@ html.dk-standalone[lang="ru"] .dk-scan.btn{width:180px;min-width:180px}
    an actual command is offered, including the formerly transparent controls. */
 html.dk-standalone{
   --dk-button-radius:10px;
-  --dk-button-bg:#381820;
+  --dk-button-bg:#462a25;
   --dk-button-border:#a58039;
   --dk-button-red:var(--dk-russian-red,#d83a42);
   --dk-button-red-border:var(--dk-russian-red,#f4515c);
@@ -785,7 +785,7 @@ html.dk-standalone :is(.btn,.header-action,.library-tabs button){
   gap:7px;min-height:46px;padding:10px 12px;line-height:1.2;
 }
 html.dk-standalone :is(.btn,.header-action,.library-tabs button):hover:not(:disabled){
-  background-color:#53262e;border-color:var(--dk-gold);
+  background-color:#53322b;border-color:var(--dk-gold);
 }
 html.dk-standalone :is(.btn.primary,#addQueueFiles,#clearQueue,.library-tabs button[aria-selected="true"]){
   background-color:var(--dk-button-red);border-color:var(--dk-button-red-border);color:#fff;
@@ -811,7 +811,7 @@ html.dk-standalone .screen .controls :is(.transport .icon-btn,.extras .icon-btn,
 html.dk-standalone .screen .controls .player-bar-settings{flex:0 0 42px}
 html.dk-standalone .screen .controls .extras :is(.dk-text-tool,.subtitle-toggle){width:auto;min-width:62px;padding:5px 8px}
 html.dk-standalone .screen .controls :is(.transport .icon-btn,.extras .icon-btn,.player-bar-settings>summary):hover:not(:disabled){
-  background-color:#53262e;border-color:var(--dk-gold);
+  background-color:#53322b;border-color:var(--dk-gold);
 }
 html.dk-standalone .screen .controls :is(#playPause,#subtitleToggle[aria-pressed="true"]){
   background-color:var(--dk-button-red);border-color:var(--dk-button-red-border);color:#fff;
@@ -1388,3 +1388,20 @@ html.dk-standalone[lang="ru"] :is(#scanLibrary,#playerScanLibrary){
 #dkSpeakerSettings[hidden]{display:none}
 #dkSpeakerAssignments{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:5px 8px;align-items:center}
 #dkSpeakerAssignments select{min-width:0;width:100%}
+
+/* Live TV uses the approved palette; no burgundy command buttons. */
+html.dk-standalone .dk-live-tv-dialog {background:#211b18;color:#fff;border-color:#a58039}
+html.dk-standalone .dk-live-tv-dialog>strong {color:#e2b956}
+html.dk-standalone .dk-live-tv-dialog input:is([type="text"],[type="search"]) {
+  width:100%;min-width:0;min-height:42px;box-sizing:border-box;padding:9px 12px;
+  background:#fff;color:#23171a;border:1px solid #a58039;border-radius:8px;
+  font:inherit;
+}
+html.dk-standalone .dk-live-tv-dialog .helper {color:#e7ddd3}
+html.dk-standalone .dk-live-tv-dialog .btn {background:#462a25;color:#e2b956;border-color:#a58039}
+html.dk-standalone .dk-live-tv-dialog .btn[data-live-action="discover"] {background:#e2b956;color:#462a25}
+html.dk-standalone .dk-live-tv-dialog .btn[data-live-action="load"] {background:var(--dk-russian-red,#d52b1e);color:#fff}
+html.dk-standalone .dk-live-tv-dialog .btn[data-live-action="local"] {background:#fff;color:#23171a}
+html.dk-standalone .dk-live-tv-dialog .btn[data-live-action="close"] {background:#e2b956;color:#462a25}
+html.dk-standalone .dk-live-tv-dialog .btn:hover:not(:disabled) {filter:brightness(1.1)}
+html.dk-standalone .dk-live-tv-dialog .btn:focus-visible {outline:2px solid #e2b956;outline-offset:2px}

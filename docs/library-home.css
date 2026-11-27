@@ -134,7 +134,7 @@ html.dk-standalone .library-tabs button#tabTV {
   background:#fff;color:#23171a;border-color:#e7e2e2;
 }
 html.dk-standalone .library-tabs button#libraryLiveTV {
-  background:var(--dk-button-bg,#381820);color:var(--dk-gold,#e2b956);border-color:#a58039;
+  background:#462a25;color:#e2b956;border-color:#a58039;
 }
 html.dk-standalone .library-tabs button#tabMovies:hover:not(:disabled),
 html.dk-standalone .library-tabs button#tabTV:hover:not(:disabled),

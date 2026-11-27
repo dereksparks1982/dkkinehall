@@ -2861,7 +2861,7 @@
     section.append(makeButton("Network media…",open));byId("playerSettingsPanel").append(section);
     window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="network"){deferStartup=false;settingsDetails.open=false;open();}});
     if(bridge.liveTvLineup&&bridge.liveTvGrant){
-      const tv=document.createElement("dialog");tv.className="dk-dvd-dialog dk-network-dialog";
+      const tv=document.createElement("dialog");tv.className="dk-dvd-dialog dk-network-dialog dk-live-tv-dialog";
       const title=document.createElement("strong");title.textContent="Live TV";
       const hint=document.createElement("p");hint.className="helper";hint.textContent="Enter the local IPv4 address of your HDHomeRun tuner.";
       const host=document.createElement("input");host.type="text";host.placeholder="192.168.1.10";host.setAttribute("aria-label","Tuner address");
@@ -2933,7 +2933,9 @@
         finally{busy=false;local.disabled=false;}
       });
       local.hidden=!bridge.liveTvLocalTuners;
-      tv.append(title,hint,discover,devices,host,scan,local,localDevices,status,filter,channels,makeButton("Close",()=>tv.close()));
+      const close=makeButton("Close",()=>tv.close());
+      for(const [button,action] of [[discover,"discover"],[scan,"load"],[local,"local"],[close,"close"]])button.dataset.liveAction=action;
+      tv.append(title,hint,discover,devices,host,scan,local,localDevices,status,filter,channels,close);
       document.body.append(tv);
       tv.addEventListener("close",()=>{revision++;channels.replaceChildren();devices.replaceChildren();localDevices.replaceChildren();filter.value="";});
       bridge.onOpenMediaTool?.(kind=>{

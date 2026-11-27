@@ -678,3 +678,5 @@ Cinema Home correction after user review: full-height sidebar even with library 
 Server settings: moved existing power and status controls out of the Home sidebar; added local-only server information and exportable basic runtime/process/scan diagnostics. Pending: independent autostart/background preferences, remote access and full legacy diagnostics integration, installed validation.
 
 Server shortcut correction: add live sidebar status lamp and direct navigation to Server Settings, with no sidebar power switch. Local visual and functional acceptance pending.
+
+Player and Library polish: remove duplicate Playlist toggle; enlarge navigation buttons; improve Up Next card text contrast; exempt chapter marker buttons from gold action styling. Local acceptance pending.

@@ -6264,7 +6264,7 @@
   // Standalone application menu and toolbar are aliases of the real controls.
   // Keep one repeat/shuffle state and one dock layout.
   if(window.DKLibraryBridge?.internalPages){
-    const menu=byId("dkApplicationMenu"),toolbarIds=["dkPlaylistToggle","dkRepeatToggle","dkShuffleToggle"];
+    const menu=byId("dkApplicationMenu"),toolbarIds=["dkRepeatToggle","dkShuffleToggle"];
     for(const id of toolbarIds)byId(id).hidden=false;
     const click=id=>{const node=byId(id);if(node&&!node.disabled)node.click();};
     const categoryAvailable=id=>Boolean(byId("playerSettingsPanel")?.querySelector('[data-category="'+id+'"]'));
@@ -6276,13 +6276,12 @@
       if(category)byId("playerSettingsPanel")?.querySelector('[data-category="'+category+'"]')?.click();
       keepControlsVisible();
     };
-    byId("dkPlaylistToggle").addEventListener("click",()=>playerWindow?.toggleTheater());
     byId("dkRepeatToggle").addEventListener("click",()=>click("loopQueue"));
     byId("dkShuffleToggle").addEventListener("click",()=>click("shuffleQueue"));
     updateOrderButtons();playerWindow?.layout();
     const hasMedia=()=>Boolean(current()&&!state.stopped);
     const enabled=id=>Boolean(byId(id)&&!byId(id).disabled);
-    const canLayout=()=>Boolean(playerWindow&&!byId("dkPlaylistToggle").disabled);
+    const canLayout=()=>Boolean(playerWindow&&byId("theaterMode")&&!byId("theaterMode").disabled);
     const setSpeed=value=>{const control=byId("rate");if(control){control.value=String(value);control.dispatchEvent(new Event("change",{bubbles:true}));}};
     const entries=[
       ["Media",[
@@ -6343,7 +6342,6 @@
       ]],
       ["View",[
         ["Library",()=>click("returnToLibrary"),()=>enabled("returnToLibrary")],
-        ["Show / hide playlist",()=>playerWindow?.toggleTheater(),canLayout],
         ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
         ["Reset player size",()=>playerWindow?.reset()]
       ]]

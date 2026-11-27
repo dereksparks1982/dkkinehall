@@ -214,3 +214,6 @@ Cinema Home footer: DK Kinehall · DK Softworks stays at the application window'
 Server controls moved to Settings → Server. The sidebar ends with Settings; the existing server power button, live status lamp, remembered power choice and detached process behavior are preserved. A basic diagnostic report shows runtime availability, process and scan status, local port and folder count, and can be exported as JSON without credentials or media paths. Independent lifecycle switches, remote access configuration and the full legacy diagnostic centre remain planned. Installed acceptance pending.
 
 Server navigation: the sidebar again includes a flat Server shortcut directly beneath Settings, with a live status lamp synchronized to the existing server poll. Clicking Server opens Settings → Server without changing power. Start/Stop and report export remain inside Settings; the application footer is unchanged.
+
+
+Control cleanup: removed the redundant Playlist toolbar button and its duplicate Theatre Mode menu action; retained Up Next, queue management, playlist import, dedicated Theatre Mode and fullscreen. Library navigation uses 16px labels, 20px icons and 48px targets. Up Next gold cards use dark brown text throughout; chapter marks are plain white ticks with transparent click targets instead of gold boxes. Installed visual verification pending.

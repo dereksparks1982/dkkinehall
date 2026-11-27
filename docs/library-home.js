@@ -66,7 +66,7 @@ const nameSort=(a,b)=>String(a).localeCompare(String(b),undefined,{
 const seriesKey=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").trim().toLowerCase();
 const formatCode=row=>"S"+String(row.season).padStart(2,"0")+
   "E"+String(row.episode).padStart(2,"0");
-const metadataFilename=row=>row.kind==="movie"&&store.knownFeatureSpecial(row.filename,row.relative)?row.title.replace(/[:]/g,"")+" ("+row.year+").mkv":row.kind==="movie"&&Number(row.year)===1974&&
+const metadataFilename=row=>row.manualClassification?(row.kind==="movie"?row.title.replace(/[:]/g,"")+(row.year?" ("+row.year+")":"")+".mkv":row.series+"."+formatCode(row)+".mkv"):row.kind==="movie"&&store.knownFeatureSpecial(row.filename,row.relative)?row.title.replace(/[:]/g,"")+" ("+row.year+").mkv":row.kind==="movie"&&Number(row.year)===1974&&
   seriesKey(row.title)==="the man with the golden gun"?"The Man with the Golden Gun (1974).mkv":row.kind==="tv"&&
   window.DKMediaMetadata?.parseFilename?.(row.filename)?.type!=="episode"?
   row.series+".S"+String(row.season).padStart(2,"0")+
@@ -515,6 +515,8 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   $("fixMatch").disabled=scanning||maintaining;
   $("editLocalMetadata").hidden=false; $("editLocalMetadata").disabled=scanning||maintaining;
   $("chooseArtwork").hidden=false; $("chooseArtwork").disabled=scanning||maintaining;
+  $("reclassifyMedia").hidden=seriesOnly; $("reclassifyMedia").disabled=scanning||maintaining;
+  $("reclassifyMedia").textContent=row.kind==="tv"?say("Move to Movies","Перенести в фильмы"):say("Move to TV Shows","Перенести в сериалы");
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
   $("removeFromLibrary").hidden=seriesOnly;
   $("showInFolder").hidden=seriesOnly||!nativeBridge.showInFolder;
@@ -1382,6 +1384,32 @@ function localEditDialog(title){
   dialog.addEventListener("close",()=>dialog.remove());
   document.body.append(dialog);return {dialog,message,close};
 }
+async function reclassifyDialog(){
+ const row=contextRow,seriesOnly=contextSeries;hideContextMenu();if(!row||seriesOnly||scanning||maintaining)return;
+ const kind=row.kind==="tv"?"movie":"tv";
+ const {dialog,message,close}=localEditDialog(kind==="movie"?say("Move to Movies","Перенести в фильмы"):say("Move to TV Shows","Перенести в сериалы"));
+ const form=document.createElement("form");
+ const note=create("p","helper",say("Only the library category changes. Your video file, artwork and playback history stay in place.","Изменится только категория библиотеки. Видеофайл, обложка и история просмотра сохранятся."));
+ form.append(note);
+ const field=(label,value,type="text")=>{const wrapper=create("label",null,label),node=document.createElement("input");node.type=type;node.value=value??"";wrapper.append(node);form.append(wrapper);return node;};
+ const known=store.knownFeatureSpecial(row.filename,row.relative);
+ const title=field(kind==="movie"?say("Movie title","Название фильма"):say("Series title","Название сериала"),kind==="movie"?(known?.title||row.episodeTitle||row.filename.replace(/\.[^.]+$/,"")):row.title);
+ title.required=true;title.maxLength=180;
+ const year=field(say("Year (optional)","Год (необязательно)"),known?.year||row.year,"number");year.min="1800";year.max="2100";year.step="1";
+ let season,episode,episodeTitle;
+ if(kind==="tv"){
+  season=field(say("Season number","Номер сезона"),"","number");season.required=true;season.min="0";season.max="99";season.step="1";
+  episode=field(say("Episode number","Номер серии"),"","number");episode.required=true;episode.min="1";episode.max="999";episode.step="1";
+  episodeTitle=field(say("Episode title (optional)","Название серии (необязательно)"),"");episodeTitle.maxLength=180;
+ }
+ const save=create("button","btn",say("Save classification","Сохранить категорию"));save.type="submit";
+ form.append(save,close);dialog.append(form,message);
+ form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{
+  if(scanning||maintaining||!await store.reclassifyNative(row.id,{kind,title:title.value,year:year.value,season:season?.value,episode:episode?.value,episodeTitle:episodeTitle?.value}))throw Error();
+  dialog.close();await render();
+ }catch(_){message.textContent=say("Could not change the category.","Не удалось изменить категорию.");save.disabled=false;}});
+ dialog.showModal();
+}
 async function editMetadataDialog(){
   const row=contextRow,series=contextSeries;hideContextMenu();if(!row)return;
   if(series){await editHierarchyDialog(row,"series");return;}
@@ -1579,6 +1607,7 @@ function connect(){
   $("fixMatch").addEventListener("click",()=>void showFixMatch());
   $("editLocalMetadata").addEventListener("click",()=>void editMetadataDialog());
   $("chooseArtwork").addEventListener("click",()=>void chooseArtworkDialog());
+  $("reclassifyMedia").addEventListener("click",()=>void reclassifyDialog());
   if(nativeBridge?.metadataRequest){void pollJellyfin();setInterval(pollJellyfin,10000);}
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;const p=$("movieDetailsDialog").querySelector(".dk-person-credits");p?.dispose?.();p?.remove();});

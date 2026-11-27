@@ -495,15 +495,16 @@
      }
      const query=info.title, norm=normalize(query);
      const exactYear=value=>!info.year||Number(String(value||"").slice(0,4))===info.year;
-     const [movies,shows]=await Promise.all([
+     const [movies,shows,titleShows]=await Promise.all([
        request(CINEMETA+"/catalog/movie/top/search="+encodeURIComponent(query)+".json"),
-       request(TV+"/search/shows?q="+encodeURIComponent(seriesHint||query))
+       request(TV+"/search/shows?q="+encodeURIComponent(seriesHint||query)),
+       seriesHint&&normalize(seriesHint)!==norm?request(TV+"/search/shows?q="+encodeURIComponent(query)):Promise.resolve(null)
      ]);
      // Failed requests are unknown evidence, not negative search results.
-     if(!Array.isArray(movies?.metas)||!Array.isArray(shows))return null;
+     if(!Array.isArray(movies?.metas)||!Array.isArray(shows)||seriesHint&&normalize(seriesHint)!==norm&&!Array.isArray(titleShows))return null;
      const candidates=movies.metas.filter(x=>x&&x.type==="movie"&&/^tt\d{6,11}$/.test(x.id||"")&&normalize(x.name)===norm&&exactYear(x.year||x.releaseInfo||x.released));
      const movie=candidates.length===1?candidates[0]:null;
-     const exactShows=shows.filter(x=>x?.show&&normalize(x.show.name)===norm&&exactYear(x.show.premiered));
+     const exactShows=(titleShows||shows).filter(x=>x?.show&&normalize(x.show.name)===norm&&exactYear(x.show.premiered));
      let episode=null;
      if(seriesHint&&normalize(seriesHint)!==norm){
        const matching=shows.filter(x=>x?.show&&normalize(x.show.name)===normalize(seriesHint)&&Number.isSafeInteger(x.show.id));

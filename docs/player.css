@@ -1374,7 +1374,7 @@ html.dk-standalone .dk-library-settings-dialog .dk-library-settings-content {
   background:transparent;border:0;
 }
 html.dk-standalone :is(.language-select,.language-select option,.playback-settings-panel select,.dk-dvd-dialog select) {
-  background:var(--dk-brown);color:var(--dk-gold);border-color:var(--dk-antique);
+  background-color:var(--dk-brown);color:var(--dk-gold);border-color:var(--dk-antique);
 }
 html.dk-standalone :is(dialog,.playback-settings-panel,.library-tools) input:is([type="text"],[type="search"],[type="url"],[type="number"]),
 html.dk-standalone :is(dialog,.playback-settings-panel) textarea {
@@ -1505,3 +1505,11 @@ html.dk-standalone .screen .controls .buttons-row .player-bar-settings>summary#d
 }
 html.dk-standalone .screen .controls .buttons-row .extras #floatPlayer{font-size:clamp(9px,calc(var(--dk-control-size)*.33),14px);font-weight:500}
 html.dk-standalone .screen .controls .player-bar-settings>summary#dkSettingsToggle:is(:hover,:focus-visible){outline:2px solid currentColor;outline-offset:-4px}
+
+/* Keep the red chevron visible in both standalone header selectors. */
+html.dk-standalone select.language-select{
+  appearance:none;-webkit-appearance:none;
+  background-color:#462a25;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Cpath d='M2 2l6 6 6-6' fill='none' stroke='%23D52B1E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 17px center;background-size:12px 8px;padding-right:42px;
+}

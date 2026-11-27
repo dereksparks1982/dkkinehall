@@ -387,6 +387,67 @@
     if (codecPlayback?.isActive(item))void codecPlayback.seek(item,value);
     else media.currentTime=value;
   };
+  // Session-only A–B repeat uses the original media clock, not the
+  // decoder's temporary segment clock. Never change whole-file repeat.
+  let abLoop=null;
+  const canSetAB=()=>{
+    const item=current(),length=playbackDuration(),at=playbackSeconds();
+    return Boolean(window.DKLibraryBridge?.internalPages&&item?.kind==="file"&&
+      !item.file?.dvdToken&&!state.stopped&&item.historyReady&&!media.seeking&&
+      Number.isFinite(length)&&length>0&&Number.isFinite(at)&&at>=0&&at<=length);
+  };
+  const validAB=(item,loop)=>Boolean(loop&&item&&loop.item===item&&loop.epoch===item.playbackEpoch&&!state.stopped);
+  const activeAB=()=>validAB(current(),abLoop)&&Number.isFinite(abLoop.b);
+  const abRangeValid=(a,b,length)=>Number.isFinite(a)&&Number.isFinite(b)&&Number.isFinite(length)&&a>=0&&b-a>=0.5&&b<=length;
+  const clearAB=(announce=false)=>{
+    abLoop=null;
+    if(announce)status("A–B loop cleared.",true);
+  };
+  const setABStart=()=>{
+    if(!canSetAB())return;
+    const item=current(),at=playbackSeconds();
+    if(at>=playbackDuration())return;
+    abLoop={item,epoch:item.playbackEpoch,a:at,b:null,busy:false};
+    status(streamSay("Loop start A: ","Начало повтора А: ")+time(at),true);
+  };
+  const setABEnd=()=>{
+    if(!canSetAB()||!validAB(current(),abLoop))return;
+    const at=playbackSeconds();
+    if(!abRangeValid(abLoop.a,at,playbackDuration())){status("Point B must be at least half a second after point A.");return;}
+    abLoop.b=at;
+    cancelNextCountdown();
+    status(streamSay("A–B loop: ","Повтор А–Б: ")+time(abLoop.a)+" – "+time(at),true);
+    if(!media.paused)repeatAB(false);
+  };
+  const repeatAB=ended=>{
+    const loop=abLoop,item=current();
+    if(!activeAB())return false;
+    if(loop.busy)return true;
+    if(!item.historyReady||media.seeking||(!ended&&media.paused))return false;
+    const at=playbackSeconds(),length=playbackDuration();
+    if(!abRangeValid(loop.a,loop.b,length)){clearAB();return false;}
+    if(!Number.isFinite(at)||at<loop.b)return false;
+    loop.busy=true;cancelNextCountdown();watchSample=null;
+    item.historyResumeTarget=0;
+    const finish=ok=>{
+      if(abLoop!==loop||!validAB(current(),loop))return;
+      loop.busy=false;
+      if(!ok){clearAB();status("A–B repeat could not seek.");}
+    };
+    if(codecPlayback?.isActive(item)){
+      const request=ended?codecPlayback.start(item,loop.a,true,
+        ["mp4","webm"].includes(item.requestedFormat)?item.requestedFormat:"auto",
+        item.codecAudioIndex||0):codecPlayback.seek(item,loop.a);
+      void Promise.resolve(request).then(finish,()=>finish(false));
+    }else{
+      try{
+        media.currentTime=loop.a;
+        if(ended){const request=media.play();void Promise.resolve(request).then(()=>finish(true),()=>finish(false));}
+        else finish(true);
+      }catch(_){finish(false);}
+    }
+    return true;
+  };
   // Accumulate actual advancing playback time, not seek position. Reset
   // samples at interruptions, and cap gaps so sleeping/buffering is not counted.
   let watchSample=null;
@@ -898,7 +959,7 @@
     byId("rewind10").disabled = !current() || !seekable || state.stopped;
     byId("forward10").disabled = !current() || !seekable || state.stopped;
     byId("seek").value = seekable ? String(Math.max(0, Math.min(1000, Math.round(1000 * position / length)))) : "0";
-    refreshSegmentSkip();
+    if(!activeAB())refreshSegmentSkip();
   };
   const queueHover = window.DKQueueHover && window.DKQueueHover.create({
     makeVideo: () => document.createElement("video")
@@ -1527,6 +1588,7 @@
   const load = (index, autoplay = true) => {
     if (index < 0 || index >= state.queue.length) return;
     cancelNextCountdown();resetVoiceover();cancelNetworkRetry();
+    clearAB();
     const previous=current();
     if(previous&&previous!==state.queue[index])resetTVBuffer(previous);
     if(previous?.remuxAbort){
@@ -3548,6 +3610,7 @@
     }, 330);
   });
   const stopCurrent = () => {
+    clearAB();
     cancelNextCountdown();resetVoiceover();cancelNetworkRetry();
     if (seekPreview) seekPreview.reset();
     const item = current();
@@ -3649,6 +3712,7 @@
   });
   media.addEventListener("timeupdate", () => {
     sampleWatchTime();
+    if(repeatAB(false)){updateTime();return;}
     const item=current();
     if(item?.kind==="network"&&!state.stopped&&!media.seeking&&media.readyState>=2){
       const at=playbackSeconds(),duration=playbackDuration();
@@ -3709,6 +3773,9 @@
   media.addEventListener("ended", () => {
     const completed = current();
     if (!completed) return;
+    if(repeatAB(true))return;
+    // A failed or premature end while repeating must not become watched.
+    if(activeAB()){clearAB();rememberPosition(true);status("A–B repeat ended unexpectedly.");return;}
     if(completed.liveChannel){if(completed.tvReplay){returnToLive(completed);return;}if(!recoverNetwork(completed,true))status(networkErrorText(completed),false,true);return;}
     if(completed.kind==="network"&&completed.networkKnownDuration>0&&playbackSeconds()+5<completed.networkKnownDuration){
       if(!recoverNetwork(completed))status("Network stream ended unexpectedly.");
@@ -4777,7 +4844,11 @@
     addMenuItem("↷  Forward 10 seconds", () => skipTen(10),
       {disabled: !current() || !Number.isFinite(media.duration) || state.stopped});
 
-    if(window.DKLibraryBridge?.internalPages){addMenuItem("Jump to Time",openJumpToTime,{disabled:!canJumpToTime()});addMenuItem("Scene bookmarks",openBookmarks,{disabled:!canBookmark()});}
+    if(window.DKLibraryBridge?.internalPages){addMenuItem("Jump to Time",openJumpToTime,{disabled:!canJumpToTime()});addMenuItem("Scene bookmarks",openBookmarks,{disabled:!canBookmark()});
+      addMenuItem("Set loop start (A)",setABStart,{disabled:!canSetAB()});
+      addMenuItem("Set loop end (B)",setABEnd,{disabled:!canSetAB()||!validAB(current(),abLoop)});
+      addMenuItem("Clear A–B loop",()=>clearAB(true),{disabled:!validAB(current(),abLoop)});
+    }
     addMenuHeading("Playback format");
     for (const [value,label] of [["auto","Automatic"],["original","Original (no conversion)"],
       ["mp4","MP4 (H.264/AAC)"],["webm","WebM (VP9/Opus)"]]) {
@@ -6136,6 +6207,9 @@
         ["Forward 10 seconds",()=>skipTen(10),hasMedia],
         ["Jump to Time",openJumpToTime,canJumpToTime],
         ["Scene bookmarks",openBookmarks,canBookmark],
+        ["Set loop start (A)",setABStart,canSetAB],
+        ["Set loop end (B)",setABEnd,()=>canSetAB()&&validAB(current(),abLoop)],
+        ["Clear A–B loop",()=>clearAB(true),()=>validAB(current(),abLoop)],
         ["Slower (0.75×)",()=>setSpeed(.75),hasMedia],
         ["Normal speed (1×)",()=>setSpeed(1),hasMedia],
         ["Faster (1.5×)",()=>setSpeed(1.5),hasMedia],

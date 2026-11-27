@@ -22,6 +22,8 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 ## Library controls
 
+Movies (gold), TV Shows (white), and Live TV (brown) are the three standalone library navigation buttons.
+
 - **Ctrl + mouse wheel:** Enlarge or shrink the library.
 - **Ctrl + middle-click:** Restore the default library size.
 - **Right-click a title:** Access file and library management options.

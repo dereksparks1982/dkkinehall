@@ -2834,7 +2834,7 @@
       const report=msg=>{status.textContent=msg;window.DKLocale?.apply();};
       const scan=makeButton("Load channels",async()=>{
         if(busy)return;busy=true;scan.disabled=true;channels.replaceChildren();
-        const epoch=++revision;report("Loading channels…");
+        const epoch=++revision;filter.value="";report("Loading channels…");
         try{
           const rows=await bridge.liveTvLineup(host.value.trim());
           if(!tv.open||epoch!==revision)return;
@@ -2857,9 +2857,31 @@
         }catch(_){if(tv.open&&epoch===revision)report("Cannot load tuner channels.");}
         finally{busy=false;scan.disabled=false;}
       });
-      tv.append(title,hint,host,scan,status,channels,makeButton("Close",()=>tv.close()));
+      const devices=document.createElement("div");devices.className="dk-network-results";
+      const discover=makeButton("Find TV tuners",async()=>{
+        if(busy)return;busy=true;scan.disabled=true;discover.disabled=true;
+        const epoch=++revision;devices.replaceChildren();channels.replaceChildren();report("Searching for TV tuners…");
+        try{
+          const rows=await bridge.liveTvDiscover();
+          if(!tv.open||epoch!==revision)return;
+          report(rows.length?"Choose a TV tuner.":"No TV tuners found. Enter the address manually.");
+          for(const row of rows){
+            devices.append(makeButton("HDHomeRun "+row.id+" ("+row.host+")",()=>{
+              if(busy)return;host.value=row.host;scan.click();
+            }));
+          }
+        }catch(_){if(tv.open&&epoch===revision)report("Tuner discovery failed.");}
+        finally{busy=false;scan.disabled=false;discover.disabled=false;}
+      });
+      discover.hidden=!bridge.liveTvDiscover;
+      const filter=document.createElement("input");filter.type="search";filter.setAttribute("aria-label","Search channels");filter.placeholder="Search channels";
+      filter.addEventListener("input",()=>{
+        const query=filter.value.trim().toLocaleLowerCase();
+        for(const button of channels.children)button.hidden=!button.textContent.toLocaleLowerCase().includes(query);
+      });
+      tv.append(title,hint,discover,devices,host,scan,status,filter,channels,makeButton("Close",()=>tv.close()));
       document.body.append(tv);
-      tv.addEventListener("close",()=>{revision++;channels.replaceChildren();});
+      tv.addEventListener("close",()=>{revision++;channels.replaceChildren();devices.replaceChildren();filter.value="";});
       bridge.onOpenMediaTool?.(kind=>{
         if(kind!=="live-tv")return;
         deferStartup=false;settingsDetails.open=false;

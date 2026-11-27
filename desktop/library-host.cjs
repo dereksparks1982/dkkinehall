@@ -1088,17 +1088,18 @@ function selectMMS(token,address){
 async function grantTransfer(value,language){
  if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid remote file URL");
  const url=new URL(value);
- if(!["ftp:","sftp:"].includes(url.protocol)||!url.hostname||url.hash||url.search||!url.pathname||url.pathname==="/"||url.pathname.endsWith("/"))throw Error("A remote file URL is required");
+ if(!["ftp:","sftp:","smb:"].includes(url.protocol)||!url.hostname||url.hash||url.search||!url.pathname||url.pathname==="/"||url.pathname.endsWith("/"))throw Error("A remote file URL is required");
  const normalized=new URL("http://"+url.host);url.hostname=normalized.hostname;
+ if(url.protocol==="smb:"&&url.pathname.split("/").filter(Boolean).length<2)throw Error("An SMB share and filename are required");
  for(const part of [url.username,url.password,url.pathname]){
   if(/[\x00-\x1f\x7f\\]/.test(decodeURIComponent(part)))throw Error("Invalid remote file URL");
  }
  if(url.hostname.includes("%")||(url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Invalid remote host");
  if(networkGrants.size>=256)throw Error("Network media queue is full");
- const ru=language==="ru",secure=url.protocol==="sftp:",transport=secure?"sftp":"ftp";
+ const ru=language==="ru",secure=url.protocol==="sftp:",transport=url.protocol.slice(0,-1);
  const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
   message:ru?"Открыть удалённый файл?":"Open remote media file?",
-  detail:url.host+"\n"+(secure?(ru?"Ключ сервера должен быть проверен по списку известных узлов SSH.":"The SSH server key must match your trusted known_hosts file."):(ru?"FTP не шифрует данные и пароль.":"FTP sends data and credentials without encryption.")),
+  detail:url.host+"\n"+(secure?(ru?"Ключ сервера должен быть проверен по списку известных узлов SSH.":"The SSH server key must match your trusted known_hosts file."):transport==="smb"?(ru?"Подключайтесь только к доверенному общему ресурсу SMB. Защита зависит от настроек сервера и клиента.":"Connect only to a trusted SMB share. Security depends on server and client settings."):(ru?"FTP не шифрует данные и пароль.":"FTP sends data and credentials without encryption.")),
   buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
  if(answer.response!==1)throw Error("Connection cancelled");
  if(networkGrants.size>=256)throw Error("Network media queue is full");

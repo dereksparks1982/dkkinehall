@@ -1484,7 +1484,7 @@
     item.networkToken=item.tvOriginal.token;item.networkSource=Object.freeze({networkToken:item.networkToken});item.src=item.tvOriginal.src;item.tvOriginal=null;item.tvReplay=false;item.tvPaused=false;
     load(state.queue.indexOf(item),true);
   }
-  function refreshLiveControls(){if(livePanel)livePanel.hidden=!current()?.liveChannel||state.stopped||["udp","rtp"].includes(current()?.networkTransport);}
+  function refreshLiveControls(){if(livePanel)livePanel.hidden=!current()?.liveChannel||state.stopped||["udp","rtp","rtsp"].includes(current()?.networkTransport);}
   if(liveControlBridge?.liveTvBuffer){
     livePanel=document.createElement("div");livePanel.className="dk-live-player-tools";livePanel.hidden=true;screen.append(livePanel);
     const controls=[];
@@ -1546,7 +1546,7 @@
     item.codecRestart = false;
     item.compatPending = false;
     inspectSelectedMkv(item);
-    item.requestedFormat = item.file?.dvdToken||["udp","rtp"].includes(item.networkTransport)?"auto":playbackSettings.format;
+    item.requestedFormat = item.file?.dvdToken||["udp","rtp","rtsp"].includes(item.networkTransport)?"auto":playbackSettings.format;
     item.deinterlaceMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
     item.smoothingMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
@@ -1866,7 +1866,7 @@
     try{return await tryNativeCodec(item,at);}
     finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
   };
-  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
+  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["RTSP stream could not be opened","Не удалось открыть поток RTSP"],["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
   const recoverNetwork=(item,forceNative=false)=>{
     if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||networkRetryTimer!==null)return false;
     if(item.networkRetries>=5){cancelBufferGate();item.streamBuffering=false;item.autoplayRequested=false;media.pause();updateButtons();return false;}
@@ -2948,7 +2948,7 @@
     };
     const heading=document.createElement("strong");heading.textContent="Network media";
     const note=document.createElement("p");note.className="helper";
-    note.textContent="Browse DLNA media servers or enter a private IPv4 HTTP media URL. Compatible streams only.";
+    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP or trusted local RTSP media address.";
     const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
     const results=document.createElement("div");results.className="dk-network-results";
     const url=document.createElement("input");url.type="text";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
@@ -3007,7 +3007,7 @@
       if(opening)return;opening=true;const epoch=generation;
       try{
         say("Opening network media…");
-        const grant=datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
+        const grant=datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
         const item=makeNetworkItem(grant,name,audio);if(datagram)item.liveChannel=true;
         if(queueOnly.checked){
@@ -3115,6 +3115,11 @@
     const direct=makeButton("Open network URL",()=>{
       try{
         const value=url.value.trim();
+        if(/^rtsp:\/\//i.test(value)){
+          if(!bridge.networkRTSPGrant)throw Error("RTSP unavailable");
+          const address=new URL(value);
+          void addNetwork(null,address.href,address.hostname+" · RTSP",false,"rtsp");return;
+        }
         if(/^(udp|rtp):\/\//i.test(value)){
           if(!bridge.networkDatagramGrant)throw Error("Receiver unavailable");
           void addNetwork(null,value,value.slice(0,100),false,true);return;
@@ -3622,7 +3627,7 @@
     media.textTracks.addEventListener("addtrack", () => setTimeout(applySubtitlePreference, 0));
     media.textTracks.addEventListener("removetrack", () => setTimeout(applySubtitlePreference, 0));
   }
-  media.addEventListener("playing",()=>{const item=current();if(item?.liveChannel&&!["udp","rtp"].includes(item.networkTransport)&&!item.tvReplay&&!item.tvConfirmed&&!item.streamBuffering){item.tvConfirmed=true;void window.DKLibraryBridge?.liveTvPlayed?.(item.networkToken).catch(()=>{});}});
+  media.addEventListener("playing",()=>{const item=current();if(item?.liveChannel&&!["udp","rtp","rtsp"].includes(item.networkTransport)&&!item.tvReplay&&!item.tvConfirmed&&!item.streamBuffering){item.tvConfirmed=true;void window.DKLibraryBridge?.liveTvPlayed?.(item.networkToken).catch(()=>{});}});
   media.addEventListener("ended", () => {
     const completed = current();
     if (!completed) return;

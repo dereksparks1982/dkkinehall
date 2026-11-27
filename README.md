@@ -92,3 +92,5 @@ Playback startup correction: a duplicate variable declaration in the network set
 The Up Next playlist import button uses the compact **+ Playlist** label in a three-column action row; the welcome-screen import label remains unchanged.
 
 Standalone Network media includes **Find multicast streams (SAP)**: listen for up to 12 seconds for compatible IPv4 SAP/SDP announcements on 224.2.127.254:9875, then select an RTP MPEG-TS stream to play or queue. Only single-stream static payload 33 announcements are supported; no background listener or arbitrary SDP execution. A quiet network may require another scan. Installed reception has not been verified.
+
+Standalone Network Media accepts explicitly confirmed trusted private IPv4 `rtsp://` sources, for example `rtsp://192.168.1.20:554/live`. Native FFprobe/FFmpeg uses RTSP over TCP and the existing playback pipeline; no credentials, public initial addresses, UDP RTSP, or browser playback. A trusted RTSP server may redirect TCP connections, as the native confirmation explains. Actual bundled decoder support and camera playback still require installed validation.

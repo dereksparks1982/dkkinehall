@@ -645,6 +645,7 @@ async function serveNetwork(req,res){
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
+  if(entry.rtsp)return fail();
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
@@ -844,8 +845,32 @@ async function matchTvCatalog(rows){
  });
 }
  // Only the native decoder receives a validated, session-scoped loopback URL.
+function rtspAddress(value){
+ if(typeof value!=="string"||value.length>2048||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid RTSP address");
+ const url=new URL(value);
+ if(url.protocol!=="rtsp:"||!privateIPv4(url.hostname)||url.username||url.password||url.hash||
+    (url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Use a private IPv4 RTSP address without credentials");
+ return url.href;
+}
+async function grantRTSP(value,language){
+ const address=rtspAddress(value);
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const ru=language==="ru";
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Подключиться к доверенному серверу RTSP?":"Connect to a trusted RTSP server?",
+  detail:address+"\n"+(ru?"Сервер может перенаправить подключение. Продолжайте только для доверенного источника.":"The server may redirect the connection. Continue only for a trusted source."),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex");
+ networkGrants.set(token,{rtsp:address,clients:new Set()});
+ // No browser URL: this source is opened solely by the native decoder.
+ return {token,src:"",transport:"rtsp"};
+}
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
+  const entry=networkGrants.get(token);
+  if(entry.rtsp)return entry.rtsp;
   const port=await startNetworkProxy();
   if(!networkGrants.has(token))throw Error("Network media selection expired");
   return "http://127.0.0.1:"+port+"/media/"+token;
@@ -2460,6 +2485,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
+  ipcMain.handle("dk-network:rtsp-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("RTSP request rejected");return grantRTSP(url,language);
+  });
   ipcMain.handle("dk-network:sap-discover",event=>{
     if(!onlyPlayer(event))throw Error("SAP discovery rejected");return discoverSAP();
   });
@@ -2480,7 +2508,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -2843,4 +2871,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,networkTransport:token=>networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

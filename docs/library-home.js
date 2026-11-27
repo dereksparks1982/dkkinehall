@@ -149,10 +149,26 @@ function paintWatchedCard(card,row,series=false){
   const rows=series?seriesRows(row):[row],count=rows.filter(x=>x.completed).length;
   const done=rows.length>0&&count===rows.length;
   let mark=box.querySelector(".dk-watched-mark");
-  if(done){
-    if(!mark){mark=create("span","dk-watched-mark","✓");box.append(mark);}
-    mark.title=say("Watched","Просмотрено");mark.setAttribute("aria-label",mark.title);
-  }else mark?.remove();
+  if(!mark){
+    mark=create("button","dk-watched-mark");mark.type="button";
+    mark.addEventListener("click",async event=>{
+      event.preventDefault();event.stopPropagation();
+      if(mark.disabled)return;
+      const latest=all.find(item=>item.id===card.dataset.libraryId);
+      if(!latest)return;
+      const targets=card.dataset.displayRole==="series"?seriesRows(latest):[latest];
+      if(!targets.length)return;
+      const watched=!targets.every(item=>item.completed);
+      mark.disabled=true;
+      try{await markHistory(targets,watched);}
+      finally{mark.disabled=false;}
+    });
+    box.append(mark);
+  }
+  mark.textContent=done?"✓":"";
+  mark.setAttribute("aria-pressed",String(done));
+  mark.title=series?(done?say("Mark Entire Series as Unwatched","Отметить весь сериал непросмотренным"):say("Mark Entire Series as Watched","Отметить весь сериал просмотренным")):(done?say("Mark as Unwatched","Отметить непросмотренным"):say("Mark as Watched","Отметить просмотренным"));
+  mark.setAttribute("aria-label",mark.title);
   let bar=box.querySelector(".library-progress");
   const value=series?count:currentProgress(row),duration=series?rows.length:Number(row.duration)||0;
   if(!done&&(series?count>0:value>2)){
@@ -179,8 +195,10 @@ function refreshWatchedCards(){
   refreshSeasonWatched();
 }
 function createCard(row,{landscape=false,series=false}={}){
-  const card=create("button","library-card"+(row.missing?" library-unavailable":""));
-  card.type="button";
+  // Separate native buttons for playback and watched status. A button
+  // inside another button is invalid and can trigger the wrong action.
+  const card=create(nativeBridge?"div":"button","library-card"+(row.missing?" library-unavailable":""));
+  if(!nativeBridge)card.type="button";
   card.dataset.libraryId=row.id;
   card.dataset.displayRole=series?"series":landscape?"resume":"entry";
   const box=coverShell(landscape&&!nativeBridge);
@@ -192,6 +210,13 @@ function createCard(row,{landscape=false,series=false}={}){
     series?"":row.kind==="tv"?(row.episodeTitle||""):row.year||"");
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
+  if(nativeBridge){
+    const open=create("button","dk-library-open-card");
+    open.type="button";
+    const label=series?say("Open series","Открыть сериал"):say("Play video","Воспроизвести видео");
+    open.setAttribute("aria-label",label+": "+[title.textContent,detail.textContent].filter(Boolean).join(" · "));
+    card.append(open);
+  }
   if(window.DKCollections?.has(row))box.append(create("span","dk-watchlist-mark","★"));
   if(nativeBridge)paintWatchedCard(card,row,series);
   else if(landscape){
@@ -574,7 +599,15 @@ async function markHistory(rows,watched){
       if(fingerprints.has(key.slice(0,split))&&Math.abs(Number(key.slice(split+1))-Number(fingerprints.get(key.slice(0,split))))<=1)delete resume[key];
     }
     localStorage.setItem("dkmedia.web.resume.v1",JSON.stringify(resume));
-    await render();
+    // Update only history indicators unless an active filter requires
+    // rebuilding the collection. Do not reload posters on each click.
+    if(watchedFilter)await render();
+    else{
+      const ids=new Set(rows.map(row=>row.id));
+      const latest=new Map((await store.entries()).filter(row=>ids.has(row.id)).map(row=>[row.id,row]));
+      all=all.map(row=>latest.get(row.id)||row);
+      paintContinueWatching();refreshWatchedCards();
+    }
     status(watched?"Marked as watched.":"Marked as unwatched.",watched?"Отмечено просмотренным.":"Отмечено непросмотренным.");
   }catch(_){status("Could not save watched status.","Не удалось сохранить состояние просмотра.",true);}
 }

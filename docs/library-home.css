@@ -172,7 +172,14 @@ html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
 .dk-collection-dialog{width:min(660px,92vw);max-height:85vh;overflow:auto;background:#211b17;color:#fff;border:1px solid #e2b956;border-radius:10px;padding:18px}.dk-collection-dialog h2{color:#e2b956}.dk-collection-dialog-body{display:grid;gap:8px;margin:12px 0}.dk-collection-membership{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dk-collection-membership span{flex:1;min-width:120px;overflow-wrap:anywhere}.dk-collection-membership input[type=text]{flex:1;min-width:130px}
 
 /* Persistent watched indicators, independent of Continue Watching. */
-.dk-watched-mark{position:absolute;top:7px;right:7px;display:grid;place-items:center;width:26px;height:26px;border:1px solid #432822;border-radius:50%;background:var(--dk-gold,#e2b956);color:#432822;font-size:18px;font-weight:900;z-index:3;line-height:1;pointer-events:none}
+.library-card:has(.dk-library-open-card){position:relative}
+.dk-library-open-card{position:absolute;inset:0;z-index:1;width:100%;height:100%;padding:0;margin:0;border:0;border-radius:12px;background:transparent!important;box-shadow:none!important;cursor:pointer}
+.dk-library-open-card:focus-visible{outline:2px solid var(--dk-gold,#e2b956);outline-offset:3px}
+.library-card:has(.dk-library-open-card:focus-visible) .library-poster{border-color:var(--dk-russian-red,#ed444c)}
+.dk-watched-mark{position:absolute;top:7px;right:7px;display:grid;place-items:center;box-sizing:border-box;width:30px;height:30px;min-width:0;min-height:0;margin:0;padding:0;border:2px solid var(--dk-gold,#e2b956);border-radius:50%;background:#432822;color:var(--dk-gold,#e2b956);font-size:18px;font-weight:900;z-index:3;line-height:1;cursor:pointer;pointer-events:auto;box-shadow:none}
+.dk-watched-mark[aria-pressed="true"]{background:var(--dk-gold,#e2b956);color:#432822}
+.dk-watched-mark:focus-visible{outline:2px solid white;outline-offset:2px}
+.dk-watched-mark:disabled{cursor:wait;opacity:.75}
 .library-poster:has(.dk-watched-mark) .dk-watchlist-mark{left:7px;right:auto}
 .library-season-row{flex-wrap:wrap}
 #seasonWatchedCount{color:var(--dk-gold,#e2b956);font-size:.84rem}

@@ -463,7 +463,7 @@
     "Use a direct HTTPS/HTTP video or audio link, such as MP4, MP3, WebM, or an HLS stream on supported browsers. Video website pages are not media files.":"Укажите прямую ссылку на видео или аудиофайл. Поддерживаемые форматы зависят от браузера. Ссылки на страницы видеосайтов не подходят.",
     "Media address":"Адрес медиафайла", "Optional title":"Название (необязательно)",
     "Title (optional)":"Название (необязательно)", "Play URL":"Воспроизвести ссылку",
-    "Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP or RTSPS media address.":"Найдите сервер DLNA или введите адрес медиа HTTP, UDP, RTP, RTSP либо RTSPS.",
+    "Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP, RTSPS or RTMP media address.":"Найдите сервер DLNA или введите адрес медиа HTTP, UDP, RTP, RTSP, RTSPS либо RTMP.",
     "RTSP transport":"Транспорт RTSP", "Automatic (TCP preferred)":"Автоматически (предпочтительно TCP)",
     "Find multicast streams (SAP)":"Найти многоадресные потоки (SAP)",
     "Listening for multicast announcements…":"Ожидание объявлений многоадресных потоков…",

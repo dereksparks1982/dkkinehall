@@ -645,7 +645,7 @@ async function serveNetwork(req,res){
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
-  if(entry.rtsp)return fail();
+  if(entry.rtsp||entry.rtmp)return fail();
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
@@ -875,10 +875,37 @@ function rtspOptions(token){
  if(!entry?.rtsp)throw Error("RTSP selection expired");
  return {mode:entry.rtspMode,secure:entry.rtspSecure,host:entry.rtspHost};
 }
+// Explicit user-selected RTMP input. Keep stream keys and credentials
+// inside the main-process grant; the renderer receives only a token.
+function rtmpAddress(value){
+ if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid RTMP address");
+ const url=new URL(value);
+ if(url.protocol!=="rtmp:"||!url.hostname||url.hash||!url.pathname||url.pathname==="/"||
+    (url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Invalid RTMP address");
+ const normalized=new URL("https://"+url.host);
+ url.hostname=normalized.hostname;
+ if(!url.hostname||url.hostname.includes("%"))throw Error("Invalid RTMP host");
+ return url;
+}
+async function grantRTMP(value,language){
+ const url=rtmpAddress(value);
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const ru=language==="ru";
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Подключиться к серверу RTMP?":"Connect to this RTMP server?",
+  detail:url.protocol+"//"+url.host+"\n"+(ru?"Обычный RTMP не шифрует соединение. Используйте доверенный источник.":"Plain RTMP does not encrypt the connection. Use a source you trust."),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex");
+ networkGrants.set(token,{rtmp:url.href,clients:new Set()});
+ return {token,src:"",transport:"rtmp"};
+}
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
   const entry=networkGrants.get(token);
   if(entry.rtsp)return entry.rtsp;
+  if(entry.rtmp)return entry.rtmp;
   const port=await startNetworkProxy();
   if(!networkGrants.has(token))throw Error("Network media selection expired");
   return "http://127.0.0.1:"+port+"/media/"+token;
@@ -2493,6 +2520,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
+  ipcMain.handle("dk-network:rtmp-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("RTMP request rejected");return grantRTMP(url,language);
+  });
   ipcMain.handle("dk-network:rtsp-grant",(event,url,language,mode)=>{
     if(!onlyPlayer(event))throw Error("RTSP request rejected");return grantRTSP(url,language,mode);
   });
@@ -2516,7 +2546,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -2879,4 +2909,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?"rtmp":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

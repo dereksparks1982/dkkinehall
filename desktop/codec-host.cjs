@@ -76,6 +76,7 @@ function rtspInputArgs(options){
  ...(secure?["-tls_verify","1","-verifyhost",options.host]:[]),
  "-timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","rtsp"];
 }
+const rtmpInputArgs=["-protocol_whitelist","rtmp,tcp","-format_whitelist","flv","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-rtmp_live","any","-f","flv"];
 const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","25000000","-http_proxy","","-probesize","4194304","-analyzeduration","3000000"];
 async function resolvePlaybackSource(value){
   if(value?.kind==="network")return {kind:"network",token:value.token,url:await require("./library-host.cjs").resolveNetworkMedia(value.token)};
@@ -292,7 +293,7 @@ async function probe(localPath) {
   try{stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):[...networkInputArgs,...(transport==="udp"||transport==="rtp"?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i",file
+    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:[...networkInputArgs,...(transport==="udp"||transport==="rtp"?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i",file
   ],dvd&&!dvd.drive?90000:30000);}catch(error){
     if(!network)throw error;
     const failure=require("./library-host.cjs").networkFailure(localPath.token);
@@ -301,6 +302,7 @@ async function probe(localPath) {
     const reason={denied:"TV stream denied by broadcaster",offline:"TV stream no longer available",upstream:"TV broadcaster returned an error",format:"Unsupported TV stream format",manifest:"Unsupported HLS manifest",address:"TV stream destination rejected",timeout:"TV stream timed out",connection:"TV stream connection failed"}[failure];
     if(reason)throw Error(reason);
     if(transport==="rtsp")throw Error("RTSP stream could not be opened");
+    if(transport==="rtmp")throw Error("RTMP stream could not be opened");
     if(transport!=="http"&&caps&&!caps.mpegts)throw Error("Bundled decoder lacks MPEG-TS support");
     if(transport==="http"&&caps&&!caps.hls)throw Error("Bundled decoder lacks HLS support");
     if(caps&&!caps.http)throw Error("Bundled decoder lacks HTTP support");
@@ -452,7 +454,7 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     ...(hardware?["-hwaccel","vaapi","-hwaccel_device",hardware.device,"-hwaccel_output_format","vaapi"]:[]),
-    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):[...networkInputArgs,...(active.transport==="udp"||active.transport==="rtp"?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:[...networkInputArgs,...(active.transport==="udp"||active.transport==="rtp"?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];

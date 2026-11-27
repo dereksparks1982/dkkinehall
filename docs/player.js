@@ -2879,9 +2879,26 @@
         const query=filter.value.trim().toLocaleLowerCase();
         for(const button of channels.children)button.hidden=!button.textContent.toLocaleLowerCase().includes(query);
       });
-      tv.append(title,hint,discover,devices,host,scan,status,filter,channels,makeButton("Close",()=>tv.close()));
+      const localDevices=document.createElement("div");localDevices.className="dk-network-results";
+      const local=makeButton("Find USB and internal TV tuners",async()=>{
+        if(busy)return;busy=true;local.disabled=true;localDevices.replaceChildren();
+        const epoch=revision;report("Checking local TV tuners…");
+        try{
+          const rows=await bridge.liveTvLocalTuners();
+          if(!tv.open||epoch!==revision)return;
+          report(rows.length?"Local TV tuners found. Channel scanning is not yet available.":"No local TV tuners found.");
+          for(const row of rows){
+            const p=document.createElement("p");
+            p.textContent=(row.name||"DVB")+" "+row.adapter+":"+row.frontend+" · "+translate(row.accessible?"Device accessible":"Device permission required");
+            localDevices.append(p);
+          }
+        }catch(_){if(tv.open&&epoch===revision)report("Cannot inspect local TV tuners.");}
+        finally{busy=false;local.disabled=false;}
+      });
+      local.hidden=!bridge.liveTvLocalTuners;
+      tv.append(title,hint,discover,devices,host,scan,local,localDevices,status,filter,channels,makeButton("Close",()=>tv.close()));
       document.body.append(tv);
-      tv.addEventListener("close",()=>{revision++;channels.replaceChildren();devices.replaceChildren();filter.value="";});
+      tv.addEventListener("close",()=>{revision++;channels.replaceChildren();devices.replaceChildren();localDevices.replaceChildren();filter.value="";});
       bridge.onOpenMediaTool?.(kind=>{
         if(kind!=="live-tv")return;
         deferStartup=false;settingsDetails.open=false;

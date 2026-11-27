@@ -1311,6 +1311,72 @@ async function editMetadataDialog(){
   unlock.addEventListener("click",async()=>{try{await store.editLocalMetadata(latest.id,{},true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
   dialog.showModal();
 }
+function attachOnlineArtworkGallery(dialog,row,scope,select,isBusy){
+  const panel=create("section","dk-online-art");
+  const heading=create("h3",null,say("Online Artwork","Обложки из интернета"));
+  const filter=document.createElement("select");
+  filter.setAttribute("aria-label",say("Artwork type","Тип изображения"));
+  for(const [value,en,ru] of [["Primary","Posters","Обложки"],["Backdrop","Backgrounds","Фоновые изображения"],["Thumb","Thumbnails","Миниатюры"]]){
+    const opt=create("option",null,say(en,ru));opt.value=value;filter.append(opt);
+  }
+  if(row.kind==="tv"&&scope==="item")filter.value="Thumb";
+  const load=create("button","btn",say("Browse online","Найти в интернете"));load.type="button";
+  const prev=create("button","btn",say("Previous","Назад"));prev.type="button";prev.disabled=true;
+  const next=create("button","btn",say("Next","Далее"));next.type="button";next.disabled=true;
+  const controls=create("div","dk-art-options");controls.append(filter,load,prev,next);
+  const status=create("p","helper");status.setAttribute("role","status");
+  const grid=create("div","dk-online-art-grid");
+  panel.append(heading,controls,status,grid);
+  const params={id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",scope};
+  let epoch=0,current=0,nextIndex=0,hasNext=false,loading=false,choosing=false,urls=[];
+  const clear=()=>{for(const u of urls)URL.revokeObjectURL(u);urls=[];grid.replaceChildren();};
+  const valid=revision=>dialog.open&&revision===epoch;
+  const sync=()=>{load.disabled=loading||choosing;filter.disabled=choosing;prev.disabled=loading||choosing||current===0;next.disabled=loading||choosing||!hasNext;};
+  const requestImage=async(ticket,preview)=>{
+    const url="dk-jellyfin://catalog/gallery-image?"+new URLSearchParams({...params,ticket,preview:preview?"1":"0"});
+    const r=await nativeBridge.metadataRequest(url,"image");
+    if(!r.ok||!/^image\/(jpeg|png|webp)$/.test(r.mime))throw Error("Image unavailable");
+    return new Blob([r.bytes],{type:r.mime});
+  };
+  async function browse(start){
+    if(isBusy()||choosing)return;
+    const revision=++epoch;clear();loading=true;current=start;hasNext=false;sync();
+    status.textContent=say("Searching artwork…","Поиск изображений…");
+    try{
+      const data=await jfCall("gallery",{...params,image:filter.value,start});
+      if(!valid(revision))return;
+      const cards=[];
+      for(const item of data.choices||[]){
+        const card=create("button","btn dk-online-art-card");card.type="button";
+        const image=create("img");image.alt="";image.hidden=true;
+        const label=create("span",null,[item.width&&item.height?item.width+" × "+item.height:"",item.language||""].filter(Boolean).join(" · ")||say("Image","Изображение"));
+        card.append(image,label);grid.append(card);cards.push({item,card,image});
+        card.addEventListener("click",async()=>{
+          if(choosing||isBusy()||!valid(revision))return;
+          choosing=true;sync();status.textContent=say("Loading selected artwork…","Загрузка выбранного изображения…");
+          try{const blob=await requestImage(item.ticket,false);if(valid(revision)){select(blob);for(const c of cards)c.card.setAttribute("aria-pressed",String(c.card===card));status.textContent=say("Selected. Save artwork to apply.","Выбрано. Сохраните обложку для применения.");}}
+          catch(_){if(valid(revision))status.textContent=say("Image unavailable or too large. Choose another image.","Изображение недоступно или слишком велико. Выберите другое.");}
+          finally{choosing=false;sync();}
+        });
+      }
+      nextIndex=data.next;hasNext=!!data.hasNext;
+      status.textContent=cards.length?say("Choose an image to preview and save.","Выберите изображение для просмотра и сохранения."):say("No supported artwork found on this page.","На этой странице нет поддерживаемых изображений.");
+      // Sequential thumbnails avoid competing with normal library lookups.
+      void (async()=>{for(const {item,image} of cards){
+        if(!valid(revision))break;
+        try{const blob=await requestImage(item.ticket,true);if(!valid(revision))break;const u=URL.createObjectURL(blob);urls.push(u);image.src=u;image.hidden=false;}catch(_){}
+      }})();
+    }catch(_){if(valid(revision))status.textContent=say("Online artwork unavailable. Check the metadata engine and its providers.","Обложки недоступны. Проверьте службу метаданных и её источники.");}
+    finally{if(valid(revision)){loading=false;sync();}}
+  }
+  load.addEventListener("click",()=>void browse(0));
+  filter.addEventListener("change",()=>void browse(0));
+  prev.addEventListener("click",()=>void browse(Math.max(0,current-12)));
+  next.addEventListener("click",()=>void browse(nextIndex));
+  dialog.addEventListener("close",()=>{epoch++;clear();});
+  return panel;
+}
+
 async function chooseArtworkDialog(target=null,scope=null){
   const row=target||contextRow,series=scope==="series"||(!target&&contextSeries);hideContextMenu();if(!row)return;
   const id=scope==="season"?hierarchyKey(row,"season"):artId(row,series),{dialog,message,close}=localEditDialog(say("Choose Artwork","Выбрать обложку"));
@@ -1331,7 +1397,8 @@ async function chooseArtworkDialog(target=null,scope=null){
   }
   save.addEventListener("click",async()=>{if(!blob||busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));if(!await store.saveArtwork(id,blob,"Manual",true))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save artwork.","Не удалось сохранить обложку.");setBusy(false);}});
   reset.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));await store.removeArtwork(id);artAttempted.delete(id);jfChecked.delete(id);dialog.close();await render();}catch(_){message.textContent=say("Could not restore automatic artwork.","Не удалось восстановить автоматический выбор.");setBusy(false);}});
-  dialog.append(source,choices,preview,message,save,reset,close);dialog.showModal();
+  const gallery=attachOnlineArtworkGallery(dialog,row,scope||(series?"series":"item"),select,()=>busy);
+  dialog.append(source,choices,preview,message,save,reset,close,gallery);dialog.showModal();
   const current=await store.artwork(id);if(dialog.open&&current?.blob&&!blob)select(current.blob);
 }
 

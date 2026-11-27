@@ -2412,11 +2412,11 @@ function jellyfinConfig(){
   }catch(_){return null;}
 }
 function jellyfinId(value){return typeof value==="string"&&/^[a-f0-9]{32}$|^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);}
-async function jellyfinGet(cfg,route,query={},image=false){
+async function jellyfinGet(cfg,route,query={},image=false,timeout=8000){
   if(cfg.managed&&(!jfState||cfg.port!==jfState.port||!jfOwnListener(jfState)))return null;
   const address=new URL("http://127.0.0.1:"+cfg.port+route);
   for(const [key,value] of Object.entries(query))address.searchParams.set(key,String(value));
-  const res=await fetch(address,{headers:{Authorization:'MediaBrowser Client="DK Kinehall", Device="Local", DeviceId="dk-kinehall-local", Version="0.9.3", Token="'+cfg.token+'"'},redirect:"error",signal:AbortSignal.timeout(8000)});
+  const res=await fetch(address,{headers:{Authorization:'MediaBrowser Client="DK Kinehall", Device="Local", DeviceId="dk-kinehall-local", Version="0.9.3", Token="'+cfg.token+'"'},redirect:"error",signal:AbortSignal.timeout(timeout)});
   if(!res.ok){await res.body?.cancel();return null;}
   const mime=(res.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
   if(image?!/^image\/(jpeg|png|webp)$/.test(mime):!/^application\/(?:json|[^;]+\+json)$/.test(mime)){await res.body?.cancel();return null;}
@@ -2507,6 +2507,79 @@ async function jfMatch(url,kind){
   return fail;
 }
 
+// A provider gallery can return arbitrary URLs. Only approved HTTPS image
+// hosts are accepted; URLs and the server token stay in the main process.
+const jfImageTickets=new Map();
+function jfImageURL(raw){
+  if(typeof raw!=="string"||raw.length>2048)return null;
+  try{
+    const u=new URL(raw);
+    if(u.protocol!=="https:"||u.username||u.password||u.port||u.hash||
+       !["image.tmdb.org","static.tvmaze.com","images.tvmaze.com","artworks.thetvdb.com","assets.fanart.tv"].includes(u.hostname))return null;
+    return u;
+  }catch(_){return null;}
+}
+function jfGallerySize(raw,size){
+  const u=jfImageURL(raw);
+  if(u?.hostname==="image.tmdb.org"&&/^\/t\/p\/(?:original|w\d+)\/[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp)$/i.test(u.pathname))
+    u.pathname=u.pathname.replace(/^\/t\/p\/(?:original|w\d+)\//,"/t/p/"+size+"/");
+  return u;
+}
+async function jfGalleryImage(url){
+  const missing={ok:false,status:404};
+  let target=url;
+  if(!target)return missing;
+  try{
+    for(let hop=0;hop<3;hop++){
+      const r=await fetch(target,{credentials:"omit",redirect:"manual",signal:AbortSignal.timeout(12000)});
+      if([301,302,303,307,308].includes(r.status)){
+        const location=r.headers.get("location");await r.body?.cancel();
+        if(!location)return missing;
+        target=jfImageURL(new URL(location,target).href);if(!target)return missing;continue;
+      }
+      const mime=(r.headers.get("content-type")||"").split(";")[0].trim().toLowerCase(),limit=3*1024*1024;
+      if(!r.ok||!/^image\/(jpeg|png|webp)$/.test(mime)||Number(r.headers.get("content-length"))>limit){await r.body?.cancel();return missing;}
+      const reader=r.body?.getReader();if(!reader)return missing;
+      const chunks=[];let size=0;
+      for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();return missing;}chunks.push(Buffer.from(value));}
+      if(!size)return missing;
+      return {ok:true,status:200,mime,bytes:new Uint8Array(Buffer.concat(chunks))};
+    }
+  }catch(_){}
+  return missing;
+}
+async function jfGallery(cfg,target,url,kind){
+  const missing={ok:false,status:404},now=Date.now();
+  const binding=cfg.port+":"+cfg.token+":"+cfg.userId+":"+target;
+  for(const [ticket,value] of jfImageTickets)if(value.expires<now)jfImageTickets.delete(ticket);
+  if(url.pathname==="/gallery"&&kind==="json"){
+    const type=url.searchParams.get("image")||"Primary";
+    const start=Number(url.searchParams.get("start")||0);
+    if(!["Primary","Backdrop","Thumb"].includes(type)||!Number.isSafeInteger(start)||start<0||start>1000)return missing;
+    const data=await jellyfinGet(cfg,"/Items/"+target+"/RemoteImages",{type,startIndex:start,limit:12,includeAllLanguages:true},false,30000);
+    if(!Array.isArray(data?.Images))return missing;
+    const choices=[];
+    for(const image of data.Images.slice(0,12)){
+      const original=jfImageURL(image.Url),thumbnail=jfImageURL(image.ThumbnailUrl);
+      if(!original||image.Type!==type)continue;
+      const ticket=randomBytes(24).toString("hex");
+      jfImageTickets.set(ticket,{binding,type,url:original.href,thumb:thumbnail?.href||null,expires:now+600000});
+      choices.push({ticket,width:Number(image.Width)||null,height:Number(image.Height)||null,language:typeof image.Language==="string"?image.Language.slice(0,20):null});
+    }
+    while(jfImageTickets.size>240)jfImageTickets.delete(jfImageTickets.keys().next().value);
+    return jfJSON({choices,start,next:start+data.Images.length,hasNext:data.Images.length>0&&start+data.Images.length<Number(data.TotalRecordCount)&&start+data.Images.length<=1000});
+  }
+  if(url.pathname==="/gallery-image"&&kind==="image"){
+    const ticket=jfImageTickets.get(url.searchParams.get("ticket"));
+    if(!ticket||ticket.binding!==binding)return missing;
+    const preview=url.searchParams.get("preview")==="1";
+    const size=preview?"w342":ticket.type==="Backdrop"?"w1280":"w780";
+    const targetURL=preview&&ticket.thumb?jfImageURL(ticket.thumb):jfGallerySize(ticket.url,size);
+    return jfGalleryImage(targetURL);
+  }
+  return missing;
+}
+
 async function jellyfinMetadata(raw,kind){
   const missing={ok:false,status:404};
   try{
@@ -2514,7 +2587,7 @@ async function jellyfinMetadata(raw,kind){
     if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.username||url.password||url.port||url.hash)return missing;
     if(url.pathname==="/status"&&kind==="json")return await jfStatus();
     if(["/search","/apply"].includes(url.pathname))return await jfMatch(url,kind);
-    const cfg=jellyfinConfig()||jfConfig;if(!cfg||url.pathname!=="/item")return missing;
+    const cfg=jellyfinConfig()||jfConfig;if(!cfg||!["/item","/gallery","/gallery-image"].includes(url.pathname))return missing;
     const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
     const series=url.searchParams.get("series")==="1";
     if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Episode"].includes(type)||series&&type!=="Episode")return missing;
@@ -2527,6 +2600,7 @@ async function jellyfinMetadata(raw,kind){
     if(!["item","series","season"].includes(scope)||scope!=="item"&&type!=="Episode")return missing;
     const target=scope==="series"?item.SeriesId:scope==="season"?item.SeasonId:item.Id;
     if(!jellyfinId(target))return missing;
+    if(url.pathname!=="/item")return await jfGallery(cfg,target,url,kind);
     if(kind==="image"){
       const imageType=url.searchParams.get("image")||"Primary";
       if(!["Primary","Backdrop","Thumb"].includes(imageType))return missing;

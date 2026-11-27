@@ -4,7 +4,7 @@ The current standalone edition uses the approved DK Kinehall interface in a bund
 
 ## Update an existing installation
 
-Close DK Kinehall. Run the standard updater in a terminal:
+Run the standard updater in a terminal. It requests shutdown of DK Kinehall and its private Jellyfin server and waits for detected processes to exit; no manual Task Manager step is required:
 
 ```bash
 python3 - <<'PY'
@@ -18,7 +18,7 @@ with urllib.request.urlopen(url, timeout=30) as response:
 PY
 ```
 
-The updater synchronizes the Player, Library and native bridge in the existing installation, preserves approved icons and installed codec binaries unless a verified replacement is available, creates a backup, and reopens the player. The default installation location is `~/DKLab/Projects/DK Kinehall`.
+The updater synchronizes the Player, Library and native bridge in the existing installation, preserves approved icons and installed codec binaries unless a verified replacement is available, creates a backup, and reopens the player. The private server starts automatically on a new app session and stays running after the player closes. Stop Server stops it for the current session; the next app launch starts it again. The updater aborts before modifying installed files if detected processes do not exit. Installed process detection and lifecycle verification are pending. The default installation location is `~/DKLab/Projects/DK Kinehall`.
 
 ## New installations
 

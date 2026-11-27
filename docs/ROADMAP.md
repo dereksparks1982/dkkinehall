@@ -2,6 +2,10 @@
 
 Updated 2026-11-26. This is the authoritative running backlog. Keep every unfinished feature here until accepted. **Source added** means committed, not tested or installed. **Planned** means not yet implemented. Maintain this file and README at every build.
 
+## Competitive feature coverage (product objective)
+
+Owner direction 2026-11-26: aim to make DK Kinehall the best video player on the market by pursuing broad competitor feature parity alongside reliable playback. Maintain a deduplicated feature coverage matrix for major competitors, distinguish planned/source-added/verified/excluded capabilities, and independently implement compatible equivalents without copying incompatible code or changing the DK license. Preserve the video-first scope and existing release acceptance criteria; measure actual usability, format coverage, stability and performance rather than claiming market leadership from roadmap entries alone. Family Cut stays the final optional item.
+
 ## Approved product and scope
 
 The current installed standalone edition uses **the approved DK Kinehall shared web UI inside Chromium/Electron**. The hosted web edition is frozen for now; shared-source changes must be guarded by the standalone bridge. Do not change the approved icons, transport buttons, episode artwork sizes or player identity.
@@ -319,6 +323,30 @@ Owner-approved 2026-11-26. Extend the MPC-HC parity, audio and codec plans with 
 
 Plan after existing core playback/release work and before Family Cut; no new release gate. Test installed runtime, hardware, synchronization, language parity, original-file safety and regressions. No application code, licensing change or public README edits.
 
+## PotPlayer feature parity (planned)
+
+Owner-approved 2026-11-26. Independently implement all 17 identified features for standalone Linux, using publicly documented behavior rather than proprietary code/assets. Extend related roadmap entries; keep the existing appearance, shared Settings and Tools, bilingual UI and DK license. Prioritize real-time subtitles, adaptive profiles, subtitle editor and seamless playback within this batch.
+
+1. **Real-time subtitle generation:** Local incremental speech recognition, playhead/seek prioritization, partial timed cues, cancellation, latency and resource reporting, integration with Voiceover.
+2. **Intelligent playback profiles:** User-approved rules based on resolution, codec, HDR, audio layout, device and media identity; manual override and reset.
+3. **Subtitle editor:** Search/edit, split/merge cues, timing, preview, undo and separate export under Tools.
+4. **Seamless playback:** Bounded preloading, compatible gapless transitions, safe fallback and queue/track synchronization.
+5. **Interactive subtitles:** Word/phrase dictionary and translation lookup, offline preferred, opt-in external requests; English/Russian and future Arabic.
+6. **Multiple audio outputs:** Compatible simultaneous PCM sinks with independent levels/delays, drift correction and disconnect handling; capability-gate passthrough conflicts.
+7. **Advanced video filters:** Evaluate VapourSynth and compatible frameworks, dependency/license/security audit, trusted presets, resource limits and bypass.
+8. **Archive playback:** ZIP/RAR accessible video entries, bounded extraction/streaming, path traversal, decompression bomb, disk space and cleanup safeguards.
+9. **MKV edition selection:** Embedded/ordered editions and validated linked segments where supported; correct source timeline and missing-media handling.
+10. **Live timeshifting:** Bounded local buffer, pause/rewind/live edge for supported authorized inputs; internet input scope still requires owner approval.
+11. **Subtitle auto-reload:** Debounced reload of explicitly selected local subtitle files, preserve last valid cues on errors.
+12. **Dialogue repetition:** Replay subtitle cues with configurable repeats, gaps and rate; coordinate A-B repeat and instant replay.
+13. **Battery-aware playback:** Optional power/thermal-aware decoding and processing presets, user override and safe fallback.
+14. **Video clip recording/export:** Save selected local source intervals to separate files with accurate boundaries, progress and cancellation.
+15. **Animated GIF export:** Convert selected clips to GIF with duration/resolution/frame-rate controls and output-size safeguards.
+16. **Audio extraction/recording:** Export selected soundtrack or explicitly chosen mixed playback audio to a separate file; supported formats, progress and synchronization.
+17. **FTP/WebDAV access:** Evaluate authorized network sources, prefer encrypted transports, safe credentials and bounded access; preserve prior restriction on arbitrary web/stream inputs until owner approves expansion.
+
+All file exports preserve originals, validate destinations and output, and belong under Tools. Require installed Linux tests, hardware compatibility, security, licensing and performance checks; no new release gate. Schedule after core playback/release work and before Family Cut.
+
 ## DK Family Cut (deferred; lowest priority)
 
 Parent-directed, non-destructive scene and chapter editing for local movies and TV episodes. Keep this feature optional; preserve original files, approved player controls and the hosted web edition. English and Russian UI parity is required.
@@ -329,4 +357,4 @@ Parent-directed, non-destructive scene and chapter editing for local movies and 
 4. **Permanent export:** Use bundled FFmpeg/FFprobe to create a separate edited file (initially MKV/MP4 where supported), with accurate cut boundaries, suitable re-encoding when necessary, synchronized audio/subtitles, adjusted chapter timestamps, progress, cancellation, disk-space checks, and verified output before adding it to the library. Never overwrite or delete the original. Warn of unsupported tracks/format limitations.
 5. **Acceptance:** Test local files and multiple editions, mismatched/replaced files, overlapping cuts, seek/resume, all audio/subtitle/voiceover paths, protected playback, export quality and A/V sync, cancellation and persistence on Linux. Verify both languages and retain existing UI styling. No automatic content classification or DRM bypass in the initial scope; parents choose and review edits.
 
-Owner-directed priority: DK Family Cut, including parental controls, is the final optional development item, after all other outstanding player, library, Voiceover, DVD, network, codec, performance, localization, packaging, release-acceptance work and the planned home cinema, library, media intelligence and maintenance enhancements, DK Spatial Audio and the planned visual playback and navigation enhancements, including the classic Windows Media Player and Media Player Classic parity additions, including MPC-BE extensions. It is not a 1.0 release gate; defer implementation until the owner explicitly reprioritizes it or the other work is complete and authorizes proceeding. No code implementation, build or release acceptance implied by this entry. Public README remains free of development notes.
+Owner-directed priority: DK Family Cut, including parental controls, is the final optional development item, after all other outstanding player, library, Voiceover, DVD, network, codec, performance, localization, packaging, release-acceptance work and the planned home cinema, library, media intelligence and maintenance enhancements, DK Spatial Audio and the planned visual playback and navigation enhancements, including the classic Windows Media Player and Media Player Classic parity additions, including MPC-BE extensions, and PotPlayer parity. It is not a 1.0 release gate; defer implementation until the owner explicitly reprioritizes it or the other work is complete and authorizes proceeding. No code implementation, build or release acceptance implied by this entry. Public README remains free of development notes.

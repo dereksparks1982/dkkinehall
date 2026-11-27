@@ -1221,6 +1221,75 @@
       else if (err && err.name !== "AbortError") status("Couldn't start this media. Check its format or source.");
     });
   };
+  // MKV headers are read only for the selected item, not the entire folder.
+  // Keep one pipeline active and at most one waiting selection. Rapid skips
+  // replace the waiting selection instead of accumulating pending file reads.
+  let inspectionActive=null,inspectionNext=null;
+  const inspectSelectedMkv=item=>{
+    if(!item?.file||item.file.dvdToken||!/\.mkv$/i.test(item.name))return;
+    const needsTracks=!!window.DKMatroska&&["not-mkv","deferred","pending"].includes(item.mkvInspection);
+    const needsChapters=!!window.DKMkvChapters&&!item.chaptersInspected;
+    if(!needsTracks&&!needsChapters)return;
+    if(inspectionActive===item){ 
+      if(inspectionNext&&inspectionNext!==item&&inspectionNext.mkvInspection==="pending")
+        inspectionNext.mkvInspection="deferred";
+      inspectionNext=null;
+      return;
+    }
+    if(inspectionNext&&inspectionNext!==item&&inspectionNext.mkvInspection==="pending")
+      inspectionNext.mkvInspection="deferred";
+    if(needsTracks)item.mkvInspection="pending";
+    inspectionNext=item;
+    if(inspectionActive)return;
+    const pump=async()=>{
+      while(inspectionNext){
+        const selected=inspectionNext;
+        inspectionNext=null;
+        if(!state.queue.includes(selected)||current()!==selected){
+          if(selected.mkvInspection==="pending")selected.mkvInspection="deferred";
+          continue;
+        }
+        inspectionActive=selected;
+        try{
+          if(selected.mkvInspection==="pending"&&window.DKMatroska){
+            try{
+              const result=await window.DKMatroska.inspectFile(selected.file);
+              if(!state.queue.includes(selected))continue;
+              selected.embeddedSubtitles=result.tracks||[];
+              selected.embeddedAudio=result.audioTracks||[];
+              selected.embeddedVideo=result.videoTracks||[];
+              selected.mkvInspection=result.truncated?"partial":"complete";
+            }catch(_){selected.mkvInspection="unavailable";}
+            if(current()===selected&&!state.stopped){
+              updateSubtitleStatus();
+              restoreAudioPreference();
+              restoreEmbeddedSubtitlePreference(selected);
+              refreshOpenSubtitleMenu();
+              if(selected.compatPending){
+                selected.compatPending=false;
+                const epoch=selected.playbackEpoch;
+                void tryCompatibleFallback(selected).then(ok=>{
+                  if(!ok&&current()===selected&&selected.playbackEpoch===epoch&&!state.stopped)
+                    void tryNativeCodec(selected);
+                }).catch(()=>{});
+              }
+            }
+          }
+          if(current()===selected&&state.queue.includes(selected)&&!state.stopped&&
+             !selected.chaptersInspected&&window.DKMkvChapters){
+            try{
+              const chapters=await window.DKMkvChapters.inspectFile(selected.file);
+              if(state.queue.includes(selected)){
+                selected.chaptersInspected=true;
+                mergeChapters(selected,chapters);
+              }
+            }catch(_){/* Optional chapter metadata may be unavailable. */}
+          }
+        }finally{inspectionActive=null;}
+      }
+    };
+    void pump().catch(()=>{inspectionActive=null;});
+  };
   const load = (index, autoplay = true) => {
     if (index < 0 || index >= state.queue.length) return;
     cancelNextCountdown();resetVoiceover();cancelNetworkRetry();
@@ -1260,6 +1329,7 @@
     item.codecActive = false;
     item.codecRestart = false;
     item.compatPending = false;
+    inspectSelectedMkv(item);
     item.requestedFormat = item.file?.dvdToken?"auto":playbackSettings.format;
     item.deinterlaceMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
@@ -1286,6 +1356,8 @@
       media.src = item.requestedFormat === "auto" ? (item.compatSrc || item.src) : item.src;
     }
     media.load();
+    // Converted video blobs belong to the current playback, not the playlist.
+    if(previous&&previous!==item)releaseCompatible(previous);
     screen.classList.remove("empty", "stopped");
     screen.classList.toggle("audio", item.audio);
     applySubtitlePreference();
@@ -1678,42 +1750,7 @@
       else if(item.libraryId&&Number(artData?.libraryPosition)>2 &&
               !Number(state.resume[item.key]))
         state.resume[item.key]=Number(artData.libraryPosition);
-      if (!file.dvdToken&&/\.mkv$/i.test(file.name) && window.DKMkvChapters) {
-        void window.DKMkvChapters.inspectFile(file).then(chapters=>{
-          if (!state.queue.includes(item)) return;
-          mergeChapters(item,chapters);
-        }).catch(()=>{});
-      }
-      if (!file.dvdToken&&/\.mkv$/i.test(file.name) && window.DKMatroska) {
-        item.mkvInspection = "pending";
-        void window.DKMatroska.inspectFile(file).then(result => {
-          if (!state.queue.includes(item)) return;
-          item.embeddedSubtitles = result.tracks || [];
-          item.embeddedAudio = result.audioTracks || [];
-          item.embeddedVideo = result.videoTracks || [];
-          item.mkvInspection = result.truncated ? "partial" : "complete";
-          if (current() === item) {
-            updateSubtitleStatus(); restoreAudioPreference(); restoreEmbeddedSubtitlePreference(item);
-            refreshOpenSubtitleMenu();
-            if(item.compatPending){
-              item.compatPending=false;
-              void tryCompatibleFallback(item).then(ok=>{
-                if(!ok && current()===item)void tryNativeCodec(item);
-              });
-            }
-          }
-        }).catch(() => {
-          item.mkvInspection = "unavailable";
-          if (current() === item) {
-            updateSubtitleStatus();
-            refreshOpenSubtitleMenu();
-            if(item.compatPending){
-              item.compatPending=false;
-              void tryNativeCodec(item);
-            }
-          }
-        });
-      }
+
     }
     // Put an explicitly opened movie ahead of pending entries, retaining
     // existing queue order. Multi-selection starts only the first new file.

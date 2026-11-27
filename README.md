@@ -13,6 +13,7 @@ DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softwork
 - Play movies, TV shows and music.
 - Organize your local media with posters, titles and movie information.
 - Resume videos with Continue Watching and manage your Up Next playlist.
+- Add large TV collections to Up Next without scanning every episode at once.
 - Adjust picture, sound, subtitles and playback speed.
 - Watch fullscreen or resize the player.
 - Use the interface in English or Russian.

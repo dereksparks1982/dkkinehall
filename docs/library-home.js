@@ -1381,6 +1381,7 @@ async function libraryMaintenance(action,selection=null){
   }finally{maintaining=false;await send(result);}
 }
 let jfLast=null,jfPollBusy=false,jfPowerBusy=false,jfRevision=0;
+let openCinemaSettings=null;
 async function jfCall(route,params={}){
   const r=await nativeBridge.metadataRequest("dk-jellyfin://catalog/"+route+"?"+new URLSearchParams(params),"json");
   if(!r.ok)throw Error("Jellyfin unavailable");return JSON.parse(r.text);
@@ -1391,6 +1392,9 @@ function paintJellyfinState(data){
  const messages={off:say("Server off","Сервер выключен"),starting:say("Starting server…","Запуск сервера…"),stopping:say("Stopping server…","Остановка сервера…"),scanning:say("Server running · Scanning library","Сервер работает · Сканирование медиатеки"),ready:say("Server running","Сервер работает"),external:say("External server configured (read only)","Настроен внешний сервер (только чтение)"),unavailable:say("Server unavailable · Fallback metadata","Сервер недоступен · Резервные метаданные"),unknown:say("Server status unknown","Состояние сервера неизвестно")};
  controls.hidden=false;light.dataset.state=data.state;node.textContent=(messages[data.state]||messages.unknown)+(data.state==="scanning"&&data.progress!=null?" "+Math.round(data.progress)+"%":"");
  light.title=node.textContent;light.setAttribute("aria-label",node.textContent);
+ const shortcut=$("dkSidebarServer"),lamp=$("dkSidebarServerLight");
+ if(lamp){lamp.dataset.state=data.state;lamp.title=node.textContent;}
+ if(shortcut){shortcut.title=node.textContent;shortcut.setAttribute("aria-label",say("Server Settings","Настройки сервера")+" · "+node.textContent);}
  button.textContent=data.enabled&&(data.state!=="unavailable"||data.runningProcess)?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
  button.title=button.textContent+" · "+node.textContent;button.setAttribute("aria-label",button.title);
  button.disabled=jfPowerBusy||!data.controllable||!nativeBridge?.jellyfinPower;
@@ -1807,6 +1811,14 @@ function setupCinema(){
  nav.append(navButton("dkNavWatch","☆","Watchlist","Список просмотра",()=>navigateCinema("watch")),navButton("dkNavCollections","▥","Collections","Коллекции",()=>{switchMode("movie");collectionFilter={kind:"collection",value:"",query:"",saved:false};void render();}));
  const player=adopt($("showPlayer"),"▶","Player","Проигрыватель");if(player)nav.append(player);
  const settings=adopt($("librarySettings"),"⚙","Settings","Настройки");if(settings)bottom.append(settings);
+ if(settings&&openCinemaSettings){
+  const server=cinemaButton("Server","Сервер",()=>void openCinemaSettings("server"),"dk-sidebar-server");
+  server.id="dkSidebarServer";
+  const lamp=create("span","dk-server-light");lamp.id="dkSidebarServerLight";lamp.dataset.state=jfLast?.state||"unknown";lamp.setAttribute("aria-hidden","true");
+  const label=create("span","dk-cinema-nav-label",say("Server","Сервер"));
+  server.replaceChildren(lamp,label);server.setAttribute("aria-haspopup","dialog");server.setAttribute("aria-label",say("Server Settings","Настройки сервера"));bottom.append(server);
+  if(jfLast)paintJellyfinState(jfLast);
+ }
  tabs.hidden=true;
  // Keep the application-wide footer outside the sidebar.
  const footer=shell.querySelector(".dk-branded-footer");if(footer){footer.classList.add("dk-cinema-window-footer");shell.append(footer);}
@@ -1860,7 +1872,7 @@ function syncCinema(){
  n.heading.textContent=live?say("Live TV","Прямой эфир"):home?say("Home","Главная"):watch?say("Watchlist","Список просмотра"):mode==="tv"?say("TV Shows","Сериалы"):collectionFilter.kind==="collection"?say("Collections","Коллекции"):say("Movies","Фильмы");
  const selected=live?"libraryLiveTV":home?"dkNavHome":watch?"dkNavWatch":mode==="tv"?"tabTV":collectionFilter.kind==="collection"?"dkNavCollections":"tabMovies";
  for(const b of n.side.querySelectorAll(".dk-cinema-nav-button")){const label=say(b.dataset.en,b.dataset.ru);const span=b.querySelector(".dk-cinema-nav-label");if(span)span.textContent=label;b.title=label;b.setAttribute("aria-label",label);if(b.id===selected)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");if(b.hasAttribute("aria-selected"))b.setAttribute("aria-selected",String(b.id===selected));}
- if($("jellyfinPower"))$("jellyfinPower").dataset.label=say("Server","Сервер");
+ const shortcut=$("dkSidebarServer");if(shortcut){shortcut.querySelector(".dk-cinema-nav-label").textContent=say("Server","Сервер");if(jfLast)paintJellyfinState(jfLast);else shortcut.setAttribute("aria-label",say("Server Settings","Настройки сервера"));}
  n.collapse.setAttribute("aria-label",say("Toggle sidebar","Свернуть или развернуть меню"));
  n.input.placeholder=say("Search library","Поиск в медиатеке");n.input.setAttribute("aria-label",n.input.placeholder);if(document.activeElement!==n.input)n.input.value=homeFilters.query;
  const pool=all.filter(r=>cinemaEligible(r)&&(home||watch||r.kind===mode));
@@ -2161,13 +2173,14 @@ function connect(){
     close.addEventListener("click",()=>{if(!busy)dlg.close();});
     dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
     dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;body.replaceChildren();button.focus();});
-    button.addEventListener("click",async()=>{
-      if(dlg.open)return;const ticket=++epoch;
-      chooseCategory(null);dlg.showModal();setFeedback("Loading settings…");body.inert=true;busy=true;
+    openCinemaSettings=async(category=null)=>{
+      if(dlg.open){chooseCategory(category);return;}
+      const ticket=++epoch;dlg.showModal();chooseCategory(category);setFeedback(category==="server"?"":"Loading settings…");body.inert=true;busy=true;
       try{const sections=await nativeBridge.openSharedSettings(lang());if(ticket===epoch&&dlg.open){renderShared(sections);setFeedback("");}}
-      catch(_){if(ticket===epoch&&dlg.open)setFeedback("Could not open settings.");}
+      catch(_){if(ticket===epoch&&dlg.open&&selectedCategory!=="server")setFeedback("Could not open settings.");}
       finally{busy=false;body.inert=false;}
-    });
+    };
+    button.addEventListener("click",()=>void openCinemaSettings(null));
   }
   if(nativeBridge?.internalPages)setupCinema();
   $("backToSeries").addEventListener("click",()=>{

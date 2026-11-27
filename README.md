@@ -212,3 +212,5 @@ Cinema Home footer: DK Kinehall · DK Softworks stays at the application window'
 
 
 Server controls moved to Settings → Server. The sidebar ends with Settings; the existing server power button, live status lamp, remembered power choice and detached process behavior are preserved. A basic diagnostic report shows runtime availability, process and scan status, local port and folder count, and can be exported as JSON without credentials or media paths. Independent lifecycle switches, remote access configuration and the full legacy diagnostic centre remain planned. Installed acceptance pending.
+
+Server navigation: the sidebar again includes a flat Server shortcut directly beneath Settings, with a live status lamp synchronized to the existing server poll. Clicking Server opens Settings → Server without changing power. Start/Stop and report export remain inside Settings; the application footer is unchanged.

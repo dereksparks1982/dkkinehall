@@ -330,10 +330,19 @@ async function jellyfinArtwork(row,id,series,force){
   }catch(_){return null;}
 }
 async function verifyMediaCategory(row){
- if(!nativeBridge||!navigator.onLine||!artworkFinder?.classifyMedia||row.manualClassification||row.manualMatch||row.manualFields||row.missing)return row;
+ if(!nativeBridge||row.manualClassification||row.manualMatch||row.manualFields||row.missing)return row;
  const parsed=window.DKMediaMetadata?.parseFilename(row.filename);
- if(!parsed||row.featureClassification||store.knownFeatureSpecial(row.filename,row.relative)||row.kind==="tv"&&Number(row.episode)>0||row.kind==="movie"&&parsed.type!=="episode"&&row.movieMetadataVerified)return row;
- const result=await artworkFinder.classifyMedia(row.filename,{seriesHint:row.kind==="tv"?row.series:""});
+ if(!parsed||row.featureClassification||store.knownFeatureSpecial(row.filename,row.relative)||row.kind==="tv"&&Number(row.episode)>0||row.kind==="movie"&&parsed.type!=="episode"&&row.movieMetadataVerified&&!row.classificationReview)return row;
+ let result=null;
+ if(nativeBridge.metadataRequest){
+  try{
+   const params={id:row.id,path:row.nativePath,title:parsed.type==="episode"?parsed.series:parsed.title,series:parsed.type==="episode"?parsed.series:row.kind==="tv"?row.series:""};
+   if(parsed.year)params.year=parsed.year;
+   if(parsed.type==="episode"){params.season=parsed.season;params.episode=parsed.episode;}
+   result=await jfCall("classification",params);
+  }catch(_){}
+ }
+ if(!result&&navigator.onLine&&artworkFinder?.classifyMedia)result=await artworkFinder.classifyMedia(row.filename,{seriesHint:row.kind==="tv"?row.series:""});
  if(result&&await store.applyVerifiedClassification(row,result))return await store.item(row.id)||row;
  return row;
 }
@@ -1131,16 +1140,17 @@ async function scan(manual=false){
       const discovered=await nativeBridge.discover(manual);
       // Cancellation retains successfully discovered records. Never mark
       // unseen records missing after an interrupted or errored scan.
-      const cancelled=!!discovered.cancelled||controller.signal.aborted;
+      let cancelled=!!discovered.cancelled||controller.signal.aborted;
       const counts=await store.ingestNative(cancelled?{...discovered,complete:false}:discovered);
       const merged=cancelled?0:await store.reconcileNative();
-      if(!cancelled&&navigator.onLine){
-        const candidates=(await store.entries()).filter(row=>row.source==="native"&&!store.excludedDiscovery(row)&&!row.missing&&!row.manualClassification&&!row.manualMatch&&!row.manualFields&&!row.verifiedClassification&&(row.kind==="tv"&&!Number(row.episode)||row.kind==="movie"&&window.DKMediaMetadata?.parseFilename(row.filename)?.type==="episode")).slice(0,12);
+      if(!cancelled){
+        const candidates=(await store.entries()).filter(row=>row.source==="native"&&!store.excludedDiscovery(row)&&!row.missing&&!row.manualClassification&&!row.manualMatch&&!row.manualFields&&!row.verifiedClassification&&(row.kind==="tv"&&!Number(row.episode)||row.kind==="movie"&&window.DKMediaMetadata?.parseFilename(row.filename)?.type==="episode"));
         for(let i=0;i<candidates.length&&!controller.signal.aborted;i++){
           status("Checking media categories: "+(i+1)+" / "+candidates.length,"Проверка категорий: "+(i+1)+" / "+candidates.length);
           try{await verifyMediaCategory(candidates[i]);}catch(_){}
         }
       }
+      cancelled=cancelled||controller.signal.aborted;
       if(manual||counts.added||counts.updated||counts.missing||merged)await render();
       else scheduleHistoryRefresh();
       const errors=Array.isArray(discovered.errors)?discovered.errors:[];

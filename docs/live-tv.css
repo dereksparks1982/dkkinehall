@@ -38,3 +38,5 @@ html.dk-standalone #libraryLiveTV[aria-selected=true]{box-shadow:inset 0 0 0 2px
 .dk-live-card .dk-live-watch{margin-top:auto;width:100%}
 .dk-live-identity{min-height:72px}
 .dk-live-icon{font-variant-emoji:text}
+
+.dk-live-details{font-size:.8rem;line-height:1.25}.dk-live-art{font-weight:700;text-align:center}.dk-live-guidebar select{max-width:190px}

@@ -12,6 +12,7 @@ const read=(k,fallback)=>{try{return JSON.parse(localStorage.getItem(k))??fallba
 const write=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(_){return false;}};
 const keys={playlist:"dk-kinehall.live.playlist.v1",saved:"dk-kinehall.live.saved.v1",host:"dk-kinehall.live.host.v1"};
 const validURL=value=>{try{const u=new URL(value);return /^https?:$/.test(u.protocol)&&!u.username&&!u.password&&!u.hash&&u.href.length<=4096?u.href:null;}catch(_){return null;}};
+let catalogPending=false,catalogAgain=false,catalogAt=0,categoryFilter="",languageFilter="",filters=null,guideRefreshTimer=null;const catalogMatches=new Map();
 let directory=[],directoryCountry="",guideSources=new Set(),guideLast=new Map(),logoObserver=null,logoGeneration=0,logoQueue=[],logoBusy=0;const logoCache=new Map();
 let imported=read(keys.playlist,[]);if(!Array.isArray(imported))imported=[];
 imported=imported.filter(x=>x&&validURL(x.url)&&typeof x.name==="string").slice(0,3000);
@@ -45,8 +46,8 @@ function parseDate(s){
 }
 function programRows(row){
  if(row.kind==="atsc"){const broadcast=broadcastPrograms.get(entryKey(row));if(broadcast?.length)return broadcast;}
- const ids=[row.guideId,row.guideId?.split("@")[0],row.name?.replace(/\s*\(\d+p\)\s*$/i,""),row.name,row.number].filter(Boolean);let id=ids.find(x=>programs.has(x));
- if(!id){id=ids.map(x=>xmlNames.get(normalize(x))).find(x=>x&&programs.has(x));}
+ const ids=[row.guideId,row.guideId?.split("@")[0],row.catalogId,row.catalogName,row.name?.replace(/\s*\(\d+p\)\s*$/i,""),row.name].filter(Boolean);let id=ids.find(x=>programs.has(x));
+ if(!id&&row.country){id=ids.map(x=>xmlNames.get(row.country+":"+compact(x.replace(/\.[a-z]{2}(?:@.*)?$/i,"")))).find(x=>x&&programs.has(x));}
  return programs.get(id)||[];
 }
 function guideInfo(row){
@@ -82,9 +83,12 @@ async function play(row){
 }
 function render(){
  if(!grid)return;
- const query=normalize(search?.value),all=[...tuner,...localChannels,...new Map([...imported,...directory].map(x=>[x.url,x])).values()];
- let rows=mode==="saved"?saved:mode==="world"?all.filter(x=>x.kind==="url"&&(!country||x.country===country)):all;
- if(query)rows=rows.filter(x=>normalize(x.number+" "+x.name+" "+(x.country||"")).includes(query));
+ const query=normalize(search?.value),all=[...tuner,...localChannels,...new Map([...imported,...directory].map(x=>[x.url,x])).values()].map(enriched);
+ let rows=mode==="saved"?saved.map(enriched):mode==="world"?all.filter(x=>x.kind==="url"&&(!country||x.country===country)):all;
+ syncFilters(rows);
+ if(categoryFilter)rows=rows.filter(x=>x.categories?.includes(categoryFilter)||x.group===categoryFilter);
+ if(languageFilter)rows=rows.filter(x=>x.languages?.includes(languageFilter));
+ if(query)rows=rows.filter(x=>normalize((x.number||"")+" "+x.name+" "+(x.country||"")+" "+(x.country?countryLabel(x.country):"")+" "+(x.group||"")+" "+(x.categories||[]).join(" ")).includes(query));
  heading.textContent=mode==="saved"?tr("Saved Channels","Избранные каналы"):mode==="world"?tr("World TV","Мировое телевидение"):tr("Channel Guide","Телепрограмма");
  logoObserver?.disconnect();logoGeneration++;logoQueue=[];
  grid.replaceChildren();
@@ -93,7 +97,11 @@ function render(){
  for(const row of rows.slice(0,250)){
   const card=el("article","dk-live-card"),identity=el("div","dk-live-identity"),art=el("div","dk-live-art"),name=el("div","dk-live-name");
   attachLogo(art,row);
-  name.append(el("strong","",row.name),el("small","",row.number|| (row.country?countryLabel(row.country):tr("Stream","Поток"))));
+  name.append(el("strong","",row.name));
+  const location=row.country?flag(row.country)+" "+countryLabel(row.country):row.kind==="url"?tr("Country unknown","Страна неизвестна"):tr("Local tuner","Местный тюнер");
+  name.append(el("small","", [row.number,location].filter(Boolean).join(" · ")));
+  const details=[(row.categories||[]).map(categoryName).join(", "),(row.languages||[]).map(languageName).join(", ")].filter(Boolean).join(" · ");
+  if(details)name.append(el("small","dk-live-details",details));
   const star=button(isSaved(row)?"Remove saved":"Save",isSaved(row)?"Убрать":"Сохранить",()=>saveRow(row),"dk-live-small dk-live-save");
   identity.append(art,name,star);
   const {current,next}=guideInfo(row);
@@ -105,10 +113,46 @@ function render(){
  grid.append(frag);
  if(rows.length>250)grid.append(el("p","dk-live-muted",tr("Showing the first 250 channels. Use search to narrow the guide.","Показаны первые 250 каналов. Используйте поиск.")));
 }
+function flag(c){return /^[A-Z]{2}$/.test(c)?String.fromCodePoint(...[...c].map(x=>127397+x.charCodeAt(0))):"";}
+const categoryLabels={general:["General","Общие"],news:["News","Новости"],sports:["Sports","Спорт"],movies:["Movies","Фильмы"],music:["Music","Музыка"],entertainment:["Entertainment","Развлечения"],documentary:["Documentary","Документальные"],kids:["Children","Детские"],education:["Education","Образование"],religious:["Religion","Религия"],series:["Series","Сериалы"],lifestyle:["Lifestyle","Образ жизни"],business:["Business","Бизнес"],culture:["Culture","Культура"],comedy:["Comedy","Комедия"],family:["Family","Семейные"],animation:["Animation","Анимация"],weather:["Weather","Погода"],shop:["Shopping","Покупки"],travel:["Travel","Путешествия"],cooking:["Cooking","Кулинария"],outdoor:["Outdoors","Природа"],science:["Science","Наука"],auto:["Automotive","Автомобили"],classic:["Classic","Классика"],legislative:["Legislative","Парламент"],relax:["Relaxation","Отдых"],xxx:["Adult","Для взрослых"]};
+const categoryName=c=>categoryLabels[c]?tr(...categoryLabels[c]):c;
+const languageName=c=>{try{return new Intl.DisplayNames([ru()?"ru":"en"],{type:"language"}).of(c)||c;}catch(_){return c;}};
+function enriched(row){
+ if(row.kind!=="url")return row;
+ const m=catalogMatches.get(row.url);
+ if(!m)return row;
+ return {...row,country:m.country||row.country,guideId:row.guideId||m.id+(m.feed?"@"+m.feed:""),catalogId:m.id,catalogName:m.name,logo:m.logo||row.logo,playlistLogo:row.logo,categories:m.categories,languages:m.languages};
+}
+async function enrichCatalog(){
+ if(!active)return;
+ if(catalogPending){catalogAgain=true;return;}
+ const rows=[...new Map([...imported,...directory,...saved.filter(x=>x.kind==="url")].map(x=>[x.url,x])).values()].slice(0,12000);
+ const pending=rows.filter(x=>!catalogMatches.has(x.url)||Date.now()-catalogAt>12*3600000);
+ if(!pending.length){void autoGuide();return;}
+ catalogPending=true;const rev=serial;
+ try{
+  const matches=await bridge.liveTvCatalog(pending.map(x=>({url:x.url,id:x.guideId||""})));
+  if(!Array.isArray(matches)||matches.length!==pending.length)throw Error("Invalid catalog");
+  matches.forEach((m,i)=>catalogMatches.set(pending[i].url,m));
+  catalogAt=Date.now();while(catalogMatches.size>16000)catalogMatches.delete(catalogMatches.keys().next().value);
+  if(epoch(rev)){render();void autoGuide();}
+ }catch(_){if(epoch(rev))report("Channel metadata source unavailable; playlist data retained.","База телеканалов недоступна; сохранены данные списка.");}
+ finally{catalogPending=false;if(catalogAgain){catalogAgain=false;void enrichCatalog();}}
+}
+function syncFilters(rows){
+ if(!filters)return;
+ const opt=(v,t)=>{const o=el("option","",t);o.value=v;return o;};
+ const cats=[...new Set(rows.flatMap(x=>x.categories?.length?x.categories:x.group?[x.group]:[]))].sort();
+ const langs=[...new Set(rows.flatMap(x=>x.languages||[]))].sort();
+ if(!cats.includes(categoryFilter))categoryFilter="";if(!langs.includes(languageFilter))languageFilter="";
+ filters.cat.replaceChildren(opt("",tr("All categories","Все категории")),...cats.map(c=>opt(c,categoryName(c))));filters.cat.value=categoryFilter;
+ filters.lang.replaceChildren(opt("",tr("All languages","Все языки")),...langs.map(c=>opt(c,languageName(c))));filters.lang.value=languageFilter;
+}
 function attachLogo(art,row){
  const file=logo(row),url=validURL(row.logo||"");
- art.textContent=row.number||"▣";
- const paint=src=>{const img=el("img");img.alt="";img.loading="lazy";img.src=src;img.addEventListener("error",()=>{img.remove();art.textContent=row.number||"▣";},{once:true});art.replaceChildren(img);};
+ const initials=String(row.catalogName||row.name||"").replace(/\s*\(\d+p\)\s*$/i,"").split(/\s+/).map(x=>x[0]||"").join("").slice(0,4).toUpperCase();
+ art.textContent=initials||row.number||"▣";
+ const paint=src=>{const img=el("img");img.alt="";img.loading="lazy";img.src=src;img.addEventListener("error",()=>{img.remove();art.textContent=initials||row.number||"▣";},{once:true});art.replaceChildren(img);};
  if(file){paint("./assets/channel_logos/builtin/"+encodeURIComponent(file));return;}
  if(!url)return;
  if(logoCache.has(url)){paint(logoCache.get(url));return;}
@@ -116,7 +160,7 @@ function attachLogo(art,row){
   for(const e of entries)if(e.isIntersecting){logoObserver.unobserve(e.target);const job=e.target.dkLogoJob;if(job)logoQueue.push(job);}
   pumpLogos();
  },{rootMargin:"150px"});
- const job={url,paint,generation:logoGeneration};art.dkLogoJob=job;
+ const job={url,paint,generation:logoGeneration,alternate:validURL(row.playlistLogo||"")};art.dkLogoJob=job;
  if(logoObserver)logoObserver.observe(art);else{logoQueue.push(job);pumpLogos();}
 }
 function pumpLogos(){
@@ -124,11 +168,11 @@ function pumpLogos(){
   const job=logoQueue.shift();if(job.generation!==logoGeneration||!active)continue;
   logoBusy++;
   Promise.resolve().then(()=>bridge.liveTvResource(job.url,"logo")).then(data=>{
-   if(!/^image\/(?:png|jpeg|webp|gif)$/.test(data.mime)||typeof data.base64!=="string"||data.base64.length>2800000)return;
+   if(!/^image\/(?:png|jpeg|webp|gif|svg\+xml|avif)$/.test(data.mime)||typeof data.base64!=="string"||data.base64.length>2800000)return;
    const src="data:"+data.mime+";base64,"+data.base64;
    if(src.length<400000){logoCache.set(job.url,src);while(logoCache.size>48)logoCache.delete(logoCache.keys().next().value);}
    if(active&&job.generation===logoGeneration)job.paint(src);
-  }).catch(()=>{}).finally(()=>{logoBusy--;pumpLogos();});
+  }).catch(()=>{if(job.alternate&&job.alternate!==job.url&&job.generation===logoGeneration)logoQueue.push({...job,url:job.alternate,alternate:null});}).finally(()=>{logoBusy--;pumpLogos();});
  }
 }
 function clearWork(){workspace.replaceChildren();}
@@ -218,22 +262,32 @@ function importPlaylist(){
   const rows=parseM3U(text);if(!rows.length){report("No compatible channel addresses in this playlist.","В списке нет совместимых адресов каналов.");return;}
   imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);
   if(!write(keys.playlist,imported))report("Playlist loaded for this session only.","Список загружен только для этого сеанса.");
-  else report("Playlist imported.","Список импортирован.");clearWork();showAll();void autoGuide();
+  else report("Playlist imported.","Список импортирован.");clearWork();showAll();void enrichCatalog();
  });
 }
 function parseGuide(text){
+  text=text.replace(/<!DOCTYPE\s+tv\s+SYSTEM\s+["\']xmltv\.dtd["\']\s*>/i,"");
   if(/<!DOCTYPE|<!ENTITY/i.test(text))throw Error("Invalid XML");
   const doc=new DOMParser().parseFromString(text,"application/xml");if(doc.querySelector("parsererror")||doc.documentElement.localName!=="tv")throw Error("Invalid guide");
   const names=new Map(),items=new Map();let count=0;
-  for(const c of doc.querySelectorAll("channel")){const id=c.getAttribute("id");if(!id)continue;for(const n of c.querySelectorAll("display-name"))names.set(normalize(n.textContent),id);}
+  for(const c of doc.querySelectorAll("channel")){
+   const id=c.getAttribute("id");if(!id)continue;
+   const cc=/\.([a-z]{2})(?:@.*)?$/i.exec(id)?.[1]?.toUpperCase();
+   if(!cc)continue;
+   for(const value of [id.replace(/\.[a-z]{2}(?:@.*)?$/i,""),...Array.from(c.querySelectorAll("display-name"),n=>n.textContent)]){
+    const k=cc+":"+compact(value);
+    if(names.has(k)&&names.get(k)!==id)names.set(k,null);else names.set(k,id);
+   }
+  }
   for(const p of doc.querySelectorAll("programme")){
-   if(++count>50000)break;const id=p.getAttribute("channel"),start=parseDate(p.getAttribute("start")),end=parseDate(p.getAttribute("stop"));
-   if(!id||!start||end<=start)continue;const row={start,end,title:(p.querySelector("title")?.textContent||tr("Untitled programme","Без названия")).slice(0,250),desc:(p.querySelector("desc")?.textContent||"").slice(0,700)};
+   const id=p.getAttribute("channel"),start=parseDate(p.getAttribute("start")),end=parseDate(p.getAttribute("stop")),now=Date.now()/1000;
+   if(!id||!start||end<=start||end<now-3600||start>now+48*3600)continue;
+   if(++count>50000)break;const row={start,end,title:(p.querySelector("title")?.textContent||tr("Untitled programme","Без названия")).slice(0,250),desc:(p.querySelector("desc")?.textContent||"").slice(0,700)};
    if(!items.has(id))items.set(id,[]);items.get(id).push(row);
   }
   for(const rows of items.values())rows.sort((a,b)=>a.start-b.start);
   for(const [id,rows] of items)programs.set(id,rows);
-  for(const [name,id] of names)xmlNames.set(name,id);
+  for(const [name,id] of names){if(xmlNames.has(name)&&xmlNames.get(name)!==id)xmlNames.set(name,null);else xmlNames.set(name,id);}
   while(programs.size>10000)programs.delete(programs.keys().next().value);
   render();
 }
@@ -260,9 +314,14 @@ async function fetchGuide(value,manual=false){
  finally{guideLoading=false;}
 }
 async function autoGuide(force=false){
- const url=[...guideSources][0]||regionalGuides[country||directoryCountry];
- if(url)await fetchGuide(url,force);
- else if(force)report("Select a supported country or enter a free XMLTV guide URL.","Выберите поддерживаемую страну или введите адрес бесплатной телепрограммы.");
+ if(!active||guideLoading)return;
+ const counts=new Map();for(const raw of [...imported,...directory,...saved]){const r=enriched(raw);if(r.country)counts.set(r.country,(counts.get(r.country)||0)+1);}
+ const chosen=country||directoryCountry;
+ const top=chosen?[chosen]:[...counts].sort((a,b)=>b[1]-a[1]).map(x=>x[0]).filter(x=>regionalGuides[x]).slice(0,3);
+ const urls=[...new Set([...top.map(x=>regionalGuides[x]),...guideSources].filter(Boolean))].slice(0,3);
+ if(!urls.length){if(force)report("Select a supported country or enter a free XMLTV guide URL.","Выберите поддерживаемую страну или введите адрес бесплатной телепрограммы.");return;}
+ const rev=serial;for(const url of urls){if(!epoch(rev))break;await fetchGuide(url,force);}
+
 }
 async function remotePlaylist(value,worldMode,chosen=""){
  const url=validURL(value);if(!url||busy)return;
@@ -275,7 +334,7 @@ async function remotePlaylist(value,worldMode,chosen=""){
   if(!rows.length)throw Error("Empty playlist");
   if(worldMode){directory=rows.map(x=>chosen&&!x.country?{...x,country:chosen}:x);directoryCountry=chosen;mode="world";country=chosen;render();}
   else{imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);write(keys.playlist,imported);showAll();}
-  report("Channels loaded: "+rows.length,"Каналов загружено: "+rows.length);void autoGuide();
+  report("Channels loaded: "+rows.length,"Каналов загружено: "+rows.length);void enrichCatalog();
  }catch(_){if(epoch(rev))report("Channel directory unavailable.","Список каналов недоступен.");}
  finally{setBusy(false);}
 }
@@ -288,7 +347,7 @@ function world(){
  const load=()=>{if(busy){select.value=country;return;}const chosen=select.value;const url="https://iptv-org.github.io/iptv/"+(chosen?"countries/"+chosen.toLowerCase()+".m3u":"index.m3u");void remotePlaylist(url,true,chosen);};
  select.addEventListener("change",()=>{if(busy){select.value=country;return;}country=select.value;render();load();});
  workspace.append(select,button("Refresh Free Channels","Обновить бесплатные каналы",load),button("Refresh Free Guide","Обновить бесплатную телепрограмму",()=>void autoGuide(true)));render();
- if(!directory.length&&!busy)load();else void autoGuide();
+ if(!directory.length&&!busy)load();else void enrichCatalog();
 }
 function showSaved(){clearWork();mode="saved";render();}
 const icons={discover:"◎",direct:"🌐",playlist:"≡+",scan:"⋔",world:"◉",saved:"☆"};
@@ -300,7 +359,10 @@ function init(){
  tiles.append(makeTile("discover","Discover Streams","Поиск потоков",()=>void discover()),makeTile("direct","Open Network Stream","Открыть сетевой поток",direct),makeTile("playlist","Import Playlist","Импорт списка",importPlaylist),makeTile("scan","Scan TV Tuners","Поиск ТВ-тюнеров",scanTuners),makeTile("world","World TV","Мировое телевидение",world),makeTile("saved","Saved Channels","Избранные каналы",showSaved));
  top.append(title,tiles);workspace=el("div","dk-live-workspace");notice=el("p","dk-live-notice");notice.setAttribute("role","status");
  const guideBar=el("div","dk-live-guidebar");heading=el("h2","",tr("Channel Guide","Телепрограмма"));search=makeInput("search","Search channels","Поиск каналов");search.addEventListener("input",render);
- guideBar.append(heading,button("All Channels","Все каналы",()=>{clearWork();showAll();}),button("Import TV Guide","Импорт телепрограммы",importGuide),search);
+ const cat=el("select","dk-live-input"),lang=el("select","dk-live-input");filters={cat,lang};
+ cat.setAttribute("aria-label",tr("Category","Категория"));lang.setAttribute("aria-label",tr("Language","Язык"));
+ cat.addEventListener("change",()=>{categoryFilter=cat.value;render();});lang.addEventListener("change",()=>{languageFilter=lang.value;render();});
+ guideBar.append(heading,button("All Channels","Все каналы",()=>{clearWork();showAll();}),button("Import TV Guide","Импорт телепрограммы",importGuide),cat,lang,search);
  grid=el("div","dk-live-grid");panel.append(top,workspace,notice,guideBar,grid);
  $("libraryStatus").after(panel);
  fetch("./assets/channel_logos/manifest.json").then(r=>r.json()).then(m=>{logoFiles=m.files.map(x=>x.name);if(active)render();}).catch(()=>{});
@@ -311,7 +373,7 @@ function init(){
  setInterval(()=>{if(active&&programs.size)render();},60000);
 }
 function syncTabs(){if(!active)return;for(const id of ["tabMovies","tabTV"])$(id)?.setAttribute("aria-selected","false");$("libraryLiveTV")?.setAttribute("aria-selected","true");}
-function open(){init();active=true;serial++;panel.hidden=false;panel.parentElement.classList.add("dk-live-active");syncTabs();render();}
-function close(){if(!active)return;if(atscRunning){atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
+function open(){init();active=true;serial++;panel.hidden=false;panel.parentElement.classList.add("dk-live-active");syncTabs();render();void enrichCatalog();clearInterval(guideRefreshTimer);guideRefreshTimer=setInterval(()=>{if(active){render();void autoGuide();}},5*60*1000);}
+function close(){if(!active)return;clearInterval(guideRefreshTimer);if(atscRunning){atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
 window.DKLiveTV={open,close,syncTabs};
 })();

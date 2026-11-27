@@ -419,19 +419,66 @@ async function grantExplicitLiveStream(value){
 }
 let liveResourceBusy=0;
 async function liveResource(value,kind){
- if(typeof value!=="string"||value.length>4096||!["playlist","guide","logo"].includes(kind)||liveResourceBusy>=6)throw Error("TV resource unavailable");
- const limit=kind==="logo"?2*1024*1024:kind==="guide"?32*1024*1024:8*1024*1024;
+ if(typeof value!=="string"||value.length>4096||!["playlist","guide","logo","catalog"].includes(kind)||liveResourceBusy>=6)throw Error("TV resource unavailable");
+ const limit=kind==="logo"?2*1024*1024:kind==="guide"?32*1024*1024:kind==="catalog"?32*1024*1024:8*1024*1024;
  liveResourceBusy++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
   const {reply,url}=await followStream(value,null,{signal:controller.signal,timeout:15000});
   if(reply.statusCode!==200){reply.destroy();throw Error("TV resource unavailable");}
   const mime=String(reply.headers["content-type"]||"").split(";")[0].toLowerCase();
-  if(kind==="logo"&&!/^image\/(?:png|jpeg|webp|gif)$/.test(mime)){reply.destroy();throw Error("Unsupported logo");}
+  if(kind==="logo"&&!/^image\/(?:png|jpeg|webp|gif|svg\+xml|avif)$/.test(mime)){reply.destroy();throw Error("Unsupported logo");}
   let data=await boundedBody(reply,limit);
-  if(kind==="logo")return {mime,base64:data.toString("base64")};
+  if(kind==="logo"){
+   if(mime==="image/svg+xml"){
+    const svg=data.toString("utf8");
+    if(data.length>256*1024||/<!DOCTYPE|<!ENTITY|<script\b|<foreignObject\b|\bon[a-z]+\s*=|<iframe\b|<object\b/i.test(svg)||!/<svg[\s>]/i.test(svg))throw Error("Unsupported SVG logo");
+   }
+   return {mime,base64:data.toString("base64")};
+  }
   if(data[0]===31&&data[1]===139)data=require("node:zlib").gunzipSync(data,{maxOutputLength:kind==="guide"?64*1024*1024:limit});
   return {text:data.toString("utf8"),url:url.href};
  }finally{clearTimeout(timer);liveResourceBusy--;}
+}
+// Join the current public catalog schemas in main, and return only compact
+// matches for the channels actually requested by the Library.
+let tvCatalog=null,tvCatalogAt=0,tvCatalogPending=null;
+const tvString=(v,max=250)=>typeof v==="string"?v.slice(0,max):"";
+const tvURL=v=>{try{const x=new URL(v);return ["http:","https:"].includes(x.protocol)&&!x.username&&!x.password&&!x.hash&&x.href.length<=4096?x.href:"";}catch(_){return "";}};
+async function getTvCatalog(){
+ if(tvCatalog&&Date.now()-tvCatalogAt<12*3600000)return tvCatalog;
+ if(tvCatalogPending)return tvCatalogPending;
+ tvCatalogPending=(async()=>{
+  const get=async name=>{
+   const data=await liveResource("https://iptv-org.github.io/api/"+name+".json","catalog");
+   const rows=JSON.parse(data.text);if(!Array.isArray(rows)||rows.length>250000)throw Error("Invalid catalog");return rows;
+  };
+  const sets=await Promise.allSettled(["channels","feeds","logos","streams"].map(get));
+  if(sets[0].status!=="fulfilled")throw Error("Channel catalog unavailable");
+  const [channels,feeds,logos,streams]=sets.map(x=>x.status==="fulfilled"?x.value:[]);
+  const byId=new Map(),byURL=new Map(),byFeed=new Map(),art=new Map();
+  for(const row of channels)if(row&&typeof row.id==="string")byId.set(row.id,row);
+  for(const row of feeds)if(row&&byId.has(row.channel)&&typeof row.id==="string")byFeed.set(row.channel+"@"+row.id,row);
+  for(const row of streams){if(!row||!byId.has(row.channel))continue;const url=tvURL(row.url);if(url)byURL.set(url,{id:row.channel,feed:tvString(row.feed)});}
+  for(const row of logos){
+   if(!row||!byId.has(row.channel))continue;const url=tvURL(row.url);if(!url)continue;
+   const format=tvString(row.format).toUpperCase(),score=(row.in_use===true?20:0)+(["PNG","JPEG","WEBP","AVIF","GIF"].includes(format)?10:0)+(row.tags?.includes?.("horizontal")?2:0);
+   const k=row.channel+(row.feed?"@"+row.feed:""),old=art.get(k);if(!old||score>old.score)art.set(k,{url,score});
+  }
+  const result={byId,byURL,byFeed,art};tvCatalog=result;tvCatalogAt=Date.now();return result;
+ })().catch(error=>{if(tvCatalog)return tvCatalog;throw error;}).finally(()=>tvCatalogPending=null);
+ return tvCatalogPending;
+}
+async function matchTvCatalog(rows){
+ if(!Array.isArray(rows)||rows.length>12000)throw Error("Invalid channel list");
+ const c=await getTvCatalog();
+ return rows.map(row=>{
+  const raw=tvString(row?.id),url=tvURL(row?.url),fromURL=c.byURL.get(url);
+  const [idPart,feedPart]=raw.split("@"),id=c.byId.has(idPart)?idPart:fromURL?.id;
+  if(!id)return null;
+  const channel=c.byId.get(id),feed=feedPart||fromURL?.feed||"",feedRow=c.byFeed.get(id+"@"+feed);
+  const logo=c.art.get(id+"@"+feed)?.url||c.art.get(id)?.url||"";
+  return {id,feed,name:tvString(channel.name),country:/^[A-Z]{2}$/.test(channel.country)?channel.country:"",categories:Array.isArray(channel.categories)?channel.categories.filter(x=>typeof x==="string").slice(0,12):[],languages:Array.isArray(feedRow?.languages)?feedRow.languages.filter(x=>typeof x==="string").slice(0,12):[],logo};
+ });
 }
  // Only the native decoder receives a validated, session-scoped loopback URL.
 async function resolveNetworkMedia(token){
@@ -1689,9 +1736,13 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event)||typeof id!=="string")throw Error("Tuner request rejected");
     return grantLiveChannel(id);
   });
+  ipcMain.handle("dk-live-tv:catalog",(event,rows)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("TV catalog request rejected");
+    return matchTvCatalog(rows);
+  });
   ipcMain.handle("dk-live-tv:resource",(event,url,kind)=>{
     if(!allowed(event)||activePage!=="library")throw Error("TV resource request rejected");
-    return liveResource(url,kind);
+    if(kind==="catalog")throw Error("Use channel catalog lookup");return liveResource(url,kind);
   });
   ipcMain.handle("dk-live-tv:play",async(event,kind,value,name,artwork,alternates=[])=>{
     if(!allowed(event)||activePage!=="library"||!["tuner","url"].includes(kind)||
@@ -1713,7 +1764,7 @@ function install(originalWindow,originalPlayer){
       await openPlayer(null,false,true);
       if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
       showPage("player");
-      const art=typeof artwork==="string"&&artwork.length<=400000&&(/^(?:data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+|\.\/assets\/channel_logos\/builtin\/[A-Za-z0-9_.%()-]+\.bmp)$/.test(artwork))?artwork:"";
+      const art=typeof artwork==="string"&&artwork.length<=400000&&(/^(?:data:image\/(?:png|jpeg|webp|gif|avif|svg\+xml);base64,[A-Za-z0-9+/=]+|\.\/assets\/channel_logos\/builtin\/[A-Za-z0-9_.%()-]+\.bmp)$/.test(artwork))?artwork:"";
       player.webContents.send("dk-live-tv:play-channel",{grant,name,artwork:art});
       grant=null;
       return true;

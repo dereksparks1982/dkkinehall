@@ -1105,7 +1105,7 @@
       fallback.className = "queue-artwork-fallback";
       fallback.textContent = item.audio ? "♫" : "▶";
       artworkBox.append(fallback);
-      if(item.kind==="network"&&item.channelArtwork){const image=document.createElement("img");image.alt="";image.loading="lazy";image.src=item.channelArtwork;image.style.objectFit="contain";image.addEventListener("error",()=>image.remove(),{once:true});artworkBox.append(image);}
+      if(item.kind==="network"&&item.channelArtwork){const image=document.createElement("img");image.alt="";image.loading="lazy";image.src=item.channelArtwork;image.className="dk-channel-queue-logo";fallback.hidden=true;image.addEventListener("error",()=>{image.remove();fallback.hidden=false;},{once:true});artworkBox.append(image);}
       if (queueHover&&!item.file?.dvdToken&&item.kind!=="network") queueHover.bind(play, item, artworkBox);
       const labels = document.createElement("span");
       labels.className = "queue-item-labels";

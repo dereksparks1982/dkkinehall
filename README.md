@@ -54,3 +54,5 @@ DK Kinehall is free for personal and business use. DK Softworks' original softwa
 World TV uses public channel directories and free regional programme guides where available. The player reports specific decoder, broadcaster, connection and format failures instead of treating every unavailable stream as the same error. Live playback and guide matching depend on the stream and bundled decoder.
 
 Live TV starts through the included decoder in Automatic mode and may try up to two alternative addresses for the exact same playlist channel ID. Original mode remains unconverted. No paid guide or tuner is required for internet channels.
+
+World TV matches channels against the IPTV-ORG channel, feed, logo and stream databases for country, category, language and station artwork. Free regional guide downloads are matched by channel ID or unambiguous country-specific name. Coverage depends on published source data; unknown information is explicitly labelled rather than invented.

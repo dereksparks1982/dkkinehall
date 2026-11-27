@@ -3509,6 +3509,13 @@
   // The media element and separately decoded MKV audio use the same EQ
   // topology and preferences. Neutral/bypassed settings retain the original
   // signal path and never impose a stereo downmix merely by enabling EQ.
+  const outputKey="dk-kinehall.audio-output.v1";
+  const outputModes=["auto","headphones","stereo","surround"];
+  const outputStored=desktopVolume?read(outputKey,{}):{};
+  const outputPrefs={mode:outputModes.includes(outputStored?.mode)?outputStored.mode:"auto",protect:outputStored?.protect!==false,levels:{}};
+  for(const mode of outputModes){const n=outputStored?.levels?.[mode];if(typeof n==="number"&&Number.isFinite(n))outputPrefs.levels[mode]=Math.max(0,Math.min(200,Math.round(n)));}
+  const createAudioOutput=(context,gain)=>window.DKAudioOutput?.create(context,gain,()=>outputPrefs);
+  const explicitStereo=()=>outputPrefs.mode==="headphones"||outputPrefs.mode==="stereo";
   const eqKey="dk-kinehall.audio-enhancements.v1";
   const eqFrequencies=[31,62,125,250,500,1000,2000,4000,8000,16000];
   const eqPresets={
@@ -3519,7 +3526,8 @@
     classical:[2,1,0,0,-1,-1,0,1,2,2],
     jazz:[3,2,1,1,0,1,2,1,2,2],
     bass:[6,5,3,1,0,0,0,0,0,0],
-    treble:[0,0,0,0,0,1,2,3,4,5]
+    treble:[0,0,0,0,0,1,2,3,4,5],
+    headphones:[0,1,0,-1,-1,0,1,1,-1,-2]
   };
   const savedEQ=desktopVolume?(read(eqKey,{})||{}):{};
   const eqClamp=(value,min,max)=>Number.isFinite(Number(value))?Math.max(min,Math.min(max,Math.round(Number(value)))):0;
@@ -3576,6 +3584,7 @@
       tail.connect(output);route=next;
     };
     const apply=()=>{
+      window.DKAudioOutput?.setChannels(input,outputPrefs.mode);
       if(!audioEffectsActive()){reconnect("direct");return;}
       dynamicsNodes();
       if(eqActive()){
@@ -3635,7 +3644,9 @@
     try{
       context=new AudioContextType();
       const gain=context.createGain();
-      const input=context.createGain();gain.connect(context.destination);
+      const input=context.createGain();
+      const output=desktopVolume?createAudioOutput(context,gain):null;
+      if(!output)gain.connect(context.destination);
       // Set up output before binding the media source (binding is one-time).
       let effects=null;
       if(desktopVolume){
@@ -3643,7 +3654,7 @@
       }else input.connect(gain);
       const source=context.createMediaElementSource(media);
       source.connect(input);
-      volumeAudioGraph={context,gain,effects,source,input,center:null};
+      volumeAudioGraph={context,gain,effects,source,input,output,center:null};
       media.addEventListener("play",resumeBoost);
       resumeBoost();
       return true;
@@ -3702,9 +3713,11 @@
     Math.round(legacyVolume*100):Number(savedVolumeV2);
   if(!Number.isFinite(volumePercent))volumePercent=100;
   volumePercent=Math.max(0,Math.min(volumeLimit,Math.round(volumePercent)));
+  if(desktopVolume&&Object.hasOwn(outputPrefs.levels,outputPrefs.mode))volumePercent=Math.min(volumeLimit,outputPrefs.levels[outputPrefs.mode]);
+  const saveOutputVolume=()=>{if(desktopVolume){outputPrefs.levels[outputPrefs.mode]=volumePercent;write(outputKey,outputPrefs);}};
   const applyVolume = () => {
     const separateAudio=Boolean(mkvAudio?.active());
-    if(!separateAudio&&(volumePercent>100||(audioEffectsActive()&&current()&&!state.stopped))){
+    if(!separateAudio&&(volumePercent>100||((audioEffectsActive()||explicitStereo())&&current()&&!state.stopped))){
       if(!ensureVolumeBoost()&&volumePercent>100)volumePercent=100;
     }
     const center=setVoiceCenter(separateAudio?null:voiceoverCenterFactor());
@@ -3733,7 +3746,7 @@
     userMuted = false;
     applyVolume();
     resumeBoost();
-    write(store.volume, volumePercent);
+    write(store.volume, volumePercent);saveOutputVolume();
     showVolumeOverlay();
   };
   screen.addEventListener("wheel", event => {
@@ -3755,12 +3768,25 @@
   if(desktopVolume&&settingsDetails){
     const section=document.createElement("section");
     section.className="player-settings-section dk-audio-settings";
+    const local=(en,ru)=>window.DKLocale?.pair(en,ru)??(document.documentElement.lang==="ru"?ru:en);
+    const outputTitle=document.createElement("strong");outputTitle.textContent=local("Audio output","Вывод звука");section.append(outputTitle);
+    const modeLabel=document.createElement("label");modeLabel.htmlFor="audioOutputMode";modeLabel.textContent=local("Output mode","Режим вывода");
+    const modeSelect=document.createElement("select");modeSelect.id="audioOutputMode";
+    for(const [value,en,ru] of [["auto","Automatic (system)","Автоматически (система)"],["headphones","Headphones (stereo)","Наушники (стерео)"],["stereo","Stereo speakers","Стереодинамики"],["surround","Surround (system channels)","Объёмный звук (каналы системы)"]]){
+      const option=document.createElement("option");option.value=value;option.textContent=local(en,ru);modeSelect.append(option);
+    }
+    const protect=document.createElement("input");protect.type="checkbox";protect.id="audioPeakProtection";
+    const protectLabel=document.createElement("label"),protectText=document.createElement("span");
+    protectText.textContent=local("Peak protection for boosted or processed audio","Защита от пиков при усилении или обработке звука");protectLabel.append(protect,protectText);
+    const outputNote=document.createElement("p");outputNote.className="helper";
+    outputNote.textContent=local("Choose a mode manually. Headphones and stereo speakers use stereo downmixing. Other modes follow system routing. Volume is remembered for each mode. Peak protection reduces clipping inside the player, not hardware distortion.","Выберите режим вручную. Наушники и стереодинамики используют стереосведение. Другие режимы используют системный вывод. Громкость запоминается для каждого режима. Защита уменьшает перегрузку в проигрывателе, но не искажения оборудования.");
+    section.append(modeLabel,modeSelect,protectLabel,outputNote);
     const title=document.createElement("strong");title.textContent="Audio enhancements";section.append(title);
     const enable=document.createElement("input");enable.type="checkbox";enable.id="audioEnhancementsEnabled";
     const enabledLabel=document.createElement("label");enabledLabel.append(enable,document.createTextNode("Enable audio enhancements"));section.append(enabledLabel);
     const presetLabel=document.createElement("label");presetLabel.htmlFor="audioEQPreset";presetLabel.textContent="Equalizer preset";
     const preset=document.createElement("select");preset.id="audioEQPreset";
-    for(const [value,label] of Object.entries({flat:"Flat",cinema:"Cinema",speech:"Speech",rock:"Rock",classical:"Classical",jazz:"Jazz",bass:"Bass boost",treble:"Treble boost",custom:"Custom equalizer"})){
+    for(const [value,label] of Object.entries({flat:"Flat",cinema:"Cinema",speech:"Speech",rock:"Rock",classical:"Classical",jazz:"Jazz",bass:"Bass boost",treble:"Treble boost",headphones:local("Headphones","Наушники"),custom:"Custom equalizer"})){
       const option=document.createElement("option");option.value=value;option.textContent=label;preset.append(option);
     }
     section.append(presetLabel,preset);
@@ -3814,6 +3840,7 @@
     const note=document.createElement("p");note.className="helper";note.textContent="Equalizer affects playback only. Stereo balance may downmix surround audio. Headroom reduces estimated filter boost, not all clipping.";
     section.append(reset,note);
     const applyAudioSettings=()=>{
+      modeSelect.value=outputPrefs.mode;protect.checked=outputPrefs.protect;
       enable.checked=eq.enabled;headroom.checked=eq.headroom;
       for(const c of dynamicsControls){c.toggle.checked=eq[c.flag];c.input.value=String(eq[c.strength]);c.input.disabled=!eq[c.flag]||!supportsVolumeBoost;c.output.textContent=eq[c.strength]+"%";}
       const matching=Object.keys(eqPresets).find(name=>eqPresets[name].every((value,index)=>value===eq.bands[index]));
@@ -3829,11 +3856,20 @@
       for(const [id,entry] of Object.entries(extras)){entry.input.value=String(eq[id]);entry.output.textContent=id==="balance"?String(eq[id])+"%":db(eq[id]);}
       applyVolume();
       try{
-        volumeAudioGraph?.effects?.apply();mkvAudio?.applyEffects?.();
+        volumeAudioGraph?.effects?.apply();volumeAudioGraph?.output?.apply();mkvAudio?.applyEffects?.();
         if(audioEffectsActive()&&current()&&!state.stopped&&!mkvAudio?.active()&&!volumeAudioGraph?.effects)
           status("Audio enhancements unavailable for this output.");
       }catch(_){status("Audio enhancements unavailable for this output.");}
     };
+    modeSelect.addEventListener("change",()=>{
+      const mode=modeSelect.value;if(!outputModes.includes(mode)||mode===outputPrefs.mode)return;
+      const previous=volumePercent;saveOutputVolume();outputPrefs.mode=mode;
+      // New modes never raise volume. Switching to a remembered mode restores
+      // its explicit user setting, capped at the supported master range.
+      volumePercent=Math.min(volumeLimit,Object.hasOwn(outputPrefs.levels,mode)?outputPrefs.levels[mode]:Math.min(previous,70));
+      applyAudioSettings();saveOutputVolume();write(store.volume,volumePercent);
+    });
+    protect.addEventListener("change",()=>{outputPrefs.protect=protect.checked;write(outputKey,outputPrefs);applyAudioSettings();});
     enable.addEventListener("change",()=>{eq.enabled=enable.checked;applyAudioSettings();write(eqKey,eq);});
     preset.addEventListener("change",()=>{
       if(!eqPresets[preset.value])return;
@@ -3846,7 +3882,7 @@
     });
     byId("playerSettingsPanel").append(section);
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(applyAudioSettings));
-    media.addEventListener("loadedmetadata",()=>{if(audioEffectsActive())applyAudioSettings();});
+    media.addEventListener("loadedmetadata",()=>{if(audioEffectsActive()||explicitStereo()||volumeAudioGraph)applyAudioSettings();});
     if(!supportsVolumeBoost){for(const control of section.querySelectorAll("input,select,button"))control.disabled=true;}
     // Existing preferences can be shown before a file is selected.
     applyAudioSettings();window.DKLocale?.apply();
@@ -4012,6 +4048,7 @@
   mkvAudio = window.DKMkvAudio ? window.DKMkvAudio.create({
     media, isMuted: () => userMuted,
     createEffects:desktopVolume?createAudioEffects:null,
+    createOutput:desktopVolume?createAudioOutput:null,
     onError: err => {
       applyVolume();
       status("MKV audio decoding stopped: " +
@@ -5133,7 +5170,7 @@
         if(!voiceGain){
           voiceGain=context.createGain();voiceGain.gain.value=0;
           const source=context.createMediaElementSource(voice);
-          source.connect(voiceGain);voiceGain.connect(context.destination);
+          source.connect(voiceGain);voiceGain.connect(volumeAudioGraph.output?.bus||context.destination);
           try{
             voiceAnalyser=context.createAnalyser();voiceAnalyser.fftSize=512;
             voiceSamples=new Float32Array(voiceAnalyser.fftSize);

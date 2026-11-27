@@ -993,6 +993,17 @@ function connect(){
       void nativeBridge.navigateHistory(event.button===3?-1:1).catch(()=>{});
     },true);
   }
+  if(nativeBridge?.internalPages&&nativeBridge.liveTvLineup&&nativeBridge.openMediaTool){
+    const tv=create("button","btn primary","Live TV");tv.type="button";tv.id="libraryLiveTV";
+    $("scanLibrary").before(tv);
+    tv.addEventListener("click",async()=>{
+      tv.disabled=true;
+      try{await nativeBridge.openMediaTool("live-tv");}
+      catch(_){status("Could not open Live TV.","Не удалось открыть прямой эфир.",true);}
+      finally{tv.disabled=false;}
+    });
+    window.DKLocale?.apply();
+  }
   if(nativeBridge?.showPlayer){
     const button=document.createElement("button");
     button.type="button";button.id="showPlayer";button.className="btn primary dk-window-nav";

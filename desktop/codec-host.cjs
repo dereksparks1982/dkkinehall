@@ -656,6 +656,30 @@ function attachExport(win,contents){
   });
 }
 
+// Black-frame transitions are candidate boundaries, never proof of ads.
+let commercialBusy=false,commercialProcess=null;
+async function commercialCandidates(source){
+ const file=selectedFile(source);if(commercialBusy)throw Error("Commercial analysis already running");
+ commercialBusy=true;
+ try{
+  const info=await probe(file);if(!info.hasVideo||!info.duration||info.duration>8*3600)throw Error("Unsupported recording duration");
+  return await new Promise((resolve,reject)=>{
+   const child=spawn(binary("ffmpeg"),["-hide_banner","-nostdin","-v","info","-protocol_whitelist","file,pipe","-i",file,"-an","-vf","scale=320:-2,blackdetect=d=0.25:pix_th=0.10:pic_th=0.96","-f","null","-"],{env:codecEnvironment(),stdio:["ignore","ignore","pipe"]});commercialProcess=child;
+   let pending="",points=[],finished=false;
+   const finish=(error,rows)=>{if(finished)return;finished=true;clearTimeout(timer);if(commercialProcess===child)commercialProcess=null;error?reject(error):resolve(rows);};
+   const timer=setTimeout(()=>{child.kill("SIGKILL");finish(Error("Commercial analysis timed out"));},600000);
+   child.stderr.on("data",chunk=>{
+    pending+=chunk.toString("utf8");const lines=pending.split(/[\r\n]+/);pending=lines.pop().slice(-4096);
+    for(const line of lines){const m=/black_start:([0-9.]+)\s+black_end:([0-9.]+)\s+black_duration:([0-9.]+)/.exec(line);if(m&&points.length<3000){const at=(+m[1]+ +m[2])/2;if(at>5&&at<info.duration-5)points.push(at);}}
+   });
+   child.once("error",e=>finish(e));child.once("close",code=>{
+    if(code!==0)return finish(Error("Commercial analysis failed"));
+    const rows=[];for(let i=1;i<points.length;i++){const start=points[i-1],end=points[i],length=end-start;if(length>=15&&length<=180&&Math.abs(length-Math.round(length/15)*15)<=2.5)rows.push({start:Math.round(start*10)/10,end:Math.round(end*10)/10});}
+    finish(null,rows.slice(0,60));
+   });
+  });
+ }finally{commercialBusy=false;}
+}
 function install(win,contents=win?.webContents) {
   if(!contents)throw new Error("A DK Kinehall player view is required");
   playerContents=contents;
@@ -684,6 +708,9 @@ function install(win,contents=win?.webContents) {
     if(!onlyWindow(event))throw Error("Rejected DVD request");
     return changeDVD(windowRef,id,title,chapter,angle);
   });
+  ipcMain.handle("dk-codec:commercial-candidates",async(event,localPath)=>{
+    if(!onlyWindow(event))throw Error("Rejected commercial analysis");return commercialCandidates(await resolveSource(localPath,checkVideo));
+  });
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return probe(await resolvePlaybackSource(localPath));
@@ -707,6 +734,6 @@ function install(win,contents=win?.webContents) {
     cancelStream();return true;
   });
   win.once("closed",()=>{cancelStream();server?.close();server=null;windowRef=null;});
-  app.once("before-quit",()=>{dvdGrants.clear();cancelStream();server?.close();server=null;});
+  app.once("before-quit",()=>{commercialProcess?.kill("SIGKILL");dvdGrants.clear();cancelStream();server?.close();server=null;});
 }
 module.exports={install};

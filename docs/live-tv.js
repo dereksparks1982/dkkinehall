@@ -12,6 +12,7 @@ const read=(k,fallback)=>{try{return JSON.parse(localStorage.getItem(k))??fallba
 const write=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(_){return false;}};
 const keys={playlist:"dk-kinehall.live.playlist.v1",saved:"dk-kinehall.live.saved.v1",host:"dk-kinehall.live.host.v1"};
 const validURL=value=>{try{const u=new URL(value);return /^https?:$/.test(u.protocol)&&!u.username&&!u.password&&!u.hash&&u.href.length<=4096?u.href:null;}catch(_){return null;}};
+let checks=new Map(),checkObserver=null,checkQueue=[],checking=0,availableOnly=false,guideRestored=false,guideSaveTimer=null,recent=read("dk-kinehall.live.recent.v1",[]);if(!Array.isArray(recent))recent=[];
 let catalogPending=false,catalogAgain=false,catalogAt=0,categoryFilter="",languageFilter="",filters=null,guideRefreshTimer=null;const catalogMatches=new Map();
 let directory=[],directoryCountry="",guideSources=new Set(),guideLast=new Map(),logoObserver=null,logoGeneration=0,logoQueue=[],logoBusy=0;const logoCache=new Map();
 let imported=read(keys.playlist,[]);if(!Array.isArray(imported))imported=[];
@@ -77,6 +78,7 @@ async function play(row){
   const art=localArt?"./assets/channel_logos/builtin/"+encodeURIComponent(localArt):logoCache.get(logoURL)||"";
   const alternates=row.kind==="url"&&row.guideId?[...new Set([...imported,...directory].filter(x=>x.guideId===row.guideId&&x.url!==row.url&&validURL(x.url)).map(x=>x.url))].slice(0,2):[];
   await bridge.liveTvPlay(row.kind==="tuner"?"tuner":"url",row.kind==="tuner"?id:row.url,row.name,art,alternates);
+  recent=[{...row,id:undefined},...recent.filter(x=>entryKey(x)!==entryKey(row))].slice(0,50);write("dk-kinehall.live.recent.v1",recent);
   report("Channel sent to Player.","Канал открыт в проигрывателе.");
  }catch(_){if(epoch(rev))report("Cannot open channel or unsupported stream.","Не удалось открыть канал или поток не поддерживается.");}
  finally{setBusy(false);}
@@ -84,13 +86,14 @@ async function play(row){
 function render(){
  if(!grid)return;
  const query=normalize(search?.value),all=[...tuner,...localChannels,...new Map([...imported,...directory].map(x=>[x.url,x])).values()].map(enriched);
- let rows=mode==="saved"?saved.map(enriched):mode==="world"?all.filter(x=>x.kind==="url"&&(!country||x.country===country)):all;
+ let rows=mode==="recent"?recent.map(enriched):mode==="saved"?saved.map(enriched):mode==="world"?all.filter(x=>x.kind==="url"&&(!country||x.country===country)):all;
  syncFilters(rows);
  if(categoryFilter)rows=rows.filter(x=>x.categories?.includes(categoryFilter)||x.group===categoryFilter);
  if(languageFilter)rows=rows.filter(x=>x.languages?.includes(languageFilter));
  if(query)rows=rows.filter(x=>normalize((x.number||"")+" "+x.name+" "+(x.country||"")+" "+(x.country?countryLabel(x.country):"")+" "+(x.group||"")+" "+(x.categories||[]).join(" ")).includes(query));
- heading.textContent=mode==="saved"?tr("Saved Channels","Избранные каналы"):mode==="world"?tr("World TV","Мировое телевидение"):tr("Channel Guide","Телепрограмма");
- logoObserver?.disconnect();logoGeneration++;logoQueue=[];
+ heading.textContent=mode==="recent"?tr("Recently opened channels","Недавно открытые каналы"):mode==="saved"?tr("Saved Channels","Избранные каналы"):mode==="world"?tr("World TV","Мировое телевидение"):tr("Channel Guide","Телепрограмма");
+ const candidates=rows;logoObserver?.disconnect();checkObserver?.disconnect();logoGeneration++;logoQueue=[];checkQueue=[];
+ if(availableOnly){rows=rows.filter(x=>["working","reachable"].includes(checks.get(x.url)?.state));for(const row of candidates.slice(0,60))if(row.kind==="url"&&!checks.has(row.url))enqueueCheck(row.url,null); }
  grid.replaceChildren();
  if(!rows.length){grid.append(el("p","dk-live-muted",mode==="world"?tr("Import a playlist with country information.","Импортируйте список с указанием страны."):mode==="saved"?tr("No saved channels yet.","Нет избранных каналов."):tr("Scan a tuner or import a playlist to find channels.","Найдите каналы через тюнер или импортируйте список.")));return;}
  const frag=document.createDocumentFragment();
@@ -102,16 +105,83 @@ function render(){
   name.append(el("small","", [row.number,location].filter(Boolean).join(" · ")));
   const details=[(row.categories||[]).map(categoryName).join(", "),(row.languages||[]).map(languageName).join(", ")].filter(Boolean).join(" · ");
   if(details)name.append(el("small","dk-live-details",details));
+  if(row.kind==="url"){const badge=el("small","dk-live-check");paintCheck(badge,checks.get(row.url));name.append(badge);observeCheck(card,row.url,badge);}
   const star=button(isSaved(row)?"Remove saved":"Save",isSaved(row)?"Убрать":"Сохранить",()=>saveRow(row),"dk-live-small dk-live-save");
   identity.append(art,name,star);
   const {current,next}=guideInfo(row);
   const info=el("div","dk-live-programs");info.append(programBlock("Now","Сейчас",current),programBlock("Next","Далее",next));
   const watch=button("Watch Live","Смотреть",()=>void play(row),"dk-live-small dk-live-watch");
   if(row.kind==="atsc"){watch.disabled=true;watch.textContent=tr("Playback pending","Воспроизведение пока недоступно");}
-  card.append(identity,info,watch);frag.append(card);
+  const actions=el("div","dk-live-card-actions");actions.append(watch,button("Schedule","Расписание",()=>showSchedule(row)));
+  if(row.kind==="url")actions.append(button("Record","Запись",()=>showRecord(row)));
+  card.append(identity,info,actions);frag.append(card);
  }
  grid.append(frag);
  if(rows.length>250)grid.append(el("p","dk-live-muted",tr("Showing the first 250 channels. Use search to narrow the guide.","Показаны первые 250 каналов. Используйте поиск.")));
+}
+function paintCheck(node,result){if(!node)return;const state=result?.state||"unknown";const labels={working:["Played successfully","Воспроизведён успешно"],reachable:["Stream responds","Поток отвечает"],denied:["Access denied","Доступ отклонён"],offline:["Unavailable","Недоступен"],unknown:["Not verified","Не проверен"]};node.textContent=tr(...(labels[state]||labels.unknown));node.dataset.state=state;}
+function enqueueCheck(url,node,force=false){
+ const old=checks.get(url);if(old&&!force&&Date.now()-old.at<3*3600000){paintCheck(node,old);return;}
+ if(checkQueue.length>=100)return;checkQueue.push({url,node,force,rev:serial});pumpChecks();
+}
+function observeCheck(card,url,node){
+ if(!checkObserver&&typeof IntersectionObserver==="function")checkObserver=new IntersectionObserver(entries=>{for(const e of entries)if(e.isIntersecting){checkObserver.unobserve(e.target);const j=e.target.dkCheck;if(j)enqueueCheck(j.url,j.node);}}, {rootMargin:"100px"});
+ if(checkObserver){card.dkCheck={url,node};checkObserver.observe(card);}else enqueueCheck(url,node);
+}
+function pumpChecks(){
+ while(active&&checking<2&&checkQueue.length){const job=checkQueue.shift();if(!epoch(job.rev))continue;checking++;
+  bridge.liveTvCheck(job.url,job.force).then(r=>{checks.set(job.url,{...r,at:r.at||Date.now()});while(checks.size>4000)checks.delete(checks.keys().next().value);if(epoch(job.rev))paintCheck(job.node,r);}).catch(()=>{checks.set(job.url,{state:"unknown",at:Date.now()});}).finally(()=>{checking--;if(active&&availableOnly&&!checking&&!checkQueue.length)render();pumpChecks();});
+ }
+}
+async function dvr(action="status",data=null){return bridge.liveTvDVR(action,data);}
+async function recordRow(row,programme,series=false){
+ if(row.kind!=="url")return;
+ const item={url:row.url,name:row.name,title:programme.title,start:programme.start,end:programme.end};
+ try{let s=await dvr();if(!s.folder)s=await dvr("folder");if(!s.folder)return;
+ await dvr(series?"series":"add",item);report("Recording scheduled.","Запись запланирована.");if(series)void syncSeries();}catch(_){report("Could not schedule recording. Check destination and programme time.","Не удалось запланировать запись. Проверьте папку и время.");}
+}
+function showRecord(row){
+ clearWork();const wrap=el("div","dk-live-schedule"),duration=el("select","dk-live-input");
+ for(const min of [15,30,60,90,120,180]){const option=el("option","",min+tr(" minutes"," мин."));option.value=String(min);duration.append(option);}duration.value="60";
+ wrap.append(el("h2","",row.name),el("p","",tr("Record live television for:","Длительность записи:")),duration,button("Start Recording","Начать запись",()=>{const start=Date.now()/1000;void recordRow(row,{start,end:start+Number(duration.value)*60,title:row.name});}));workspace.append(wrap);
+}
+function showSchedule(row){
+ clearWork();const wrap=el("div","dk-live-schedule");wrap.append(el("h2","",row.name));
+ const from=el("input","dk-live-input");from.type="datetime-local";const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());from.value=d.toISOString().slice(0,16);
+ const listBox=el("div");wrap.append(from,listBox);workspace.append(wrap);
+ const draw=()=>{listBox.replaceChildren();const time=new Date(from.value).getTime()/1000||Date.now()/1000;
+ const list=programRows(row).filter(x=>x.end>time).slice(0,100);
+ if(!list.length)listBox.append(el("p","dk-live-muted",tr("No published programme schedule.","Нет опубликованной телепрограммы.")));
+ for(const programme of list){const line=el("div","dk-live-schedule-row");line.append(el("span","",new Date(programme.start*1000).toLocaleString(ru()?"ru-RU":undefined)+" · "+programme.title));
+ if(row.kind==="url"&&programme.end>Date.now()/1000)line.append(button("Record","Записать",()=>void recordRow(row,programme)),button("Record Series","Записать сериал",()=>void recordRow(row,programme,true)));listBox.append(line);}};
+ from.addEventListener("change",draw);draw();
+}
+async function showDVR(){
+ clearWork();const wrap=el("div","dk-live-schedule");workspace.append(wrap);
+ try{const s=await dvr();if(!wrap.isConnected)return;wrap.append(el("h2","",tr("Recordings","Записи")),el("p","",s.folder||tr("Choose a recording folder.","Выберите папку записей.")),el("p","dk-live-muted",tr("Keep Kinehall open for scheduled recordings. One recording at a time.","Для записи по расписанию не закрывайте проигрыватель. Одна запись одновременно.")),button("Recording Folder","Папка записей",async()=>{await dvr("folder");void showDVR();}),button("Refresh","Обновить",()=>void showDVR()));
+ const names={scheduled:["Scheduled","Запланировано"],recording:["Recording","Запись"],complete:["Complete","Завершено"],cancelled:["Cancelled","Отменено"],missed:["Missed","Пропущено"],failed:["Failed","Ошибка"],interrupted:["Interrupted","Прервано"]};
+ for(const job of [...s.jobs].reverse().slice(0,100)){const line=el("div","dk-live-schedule-row");line.append(el("span","",job.name+" · "+job.title+" · "+new Date(job.start*1000).toLocaleString()+" · "+tr(...(names[job.state]||names.failed))));if(["scheduled","recording"].includes(job.state))line.append(button("Cancel","Отменить",async()=>{await dvr("cancel",job.id);void showDVR();}));wrap.append(line);}
+ for(const rule of s.series){const line=el("div","dk-live-schedule-row");line.append(el("span","",tr("Series: ","Сериал: ")+rule.title),button("Remove rule","Убрать правило",async()=>{await dvr("remove-series",rule);void showDVR();}));wrap.append(line);}
+ }catch(_){wrap.append(el("p","",tr("Recordings unavailable.","Записи недоступны.")));}
+}
+function saveGuideCache(){
+ clearTimeout(guideSaveTimer);guideSaveTimer=setTimeout(()=>{
+  const now=Date.now()/1000,rows=[];let count=0;
+  for(const [id,items] of programs){const valid=items.filter(x=>x.end>now-3600).slice(0,100).map(x=>({...x,desc:String(x.desc||"").slice(0,160)}));if(valid.length&&count+valid.length<=18000){rows.push([id,valid]);count+=valid.length;}}
+  void bridge.liveTvGuideCache("write",{programs:rows,names:[...xmlNames].slice(0,40000)}).catch(()=>{});
+ },1200);
+}
+async function restoreGuide(){
+ if(guideRestored)return;guideRestored=true;
+ try{const data=await bridge.liveTvGuideCache("read");if(!data||!Array.isArray(data.programs)||!Array.isArray(data.names))return;
+ const now=Date.now()/1000;for(const [id,rows] of data.programs)if(!programs.has(id)&&Array.isArray(rows))programs.set(id,rows.filter(x=>x.end>now-3600));for(const [key,id] of data.names)if(!xmlNames.has(key))xmlNames.set(key,id);if(active){render();void syncSeries();}
+ }catch(_){}
+}
+async function syncSeries(){
+ try{const s=await dvr();if(!s.series.length)return;const rows=[];
+ for(const rule of s.series){const raw=[...imported,...directory,...saved,...recent].find(x=>x.url===rule.url);if(!raw)continue;for(const programme of programRows(enriched(raw)))if(programme.title===rule.title&&programme.end>Date.now()/1000)rows.push({...programme,url:rule.url,name:raw.name});}
+ if(rows.length)await dvr("sync",rows.slice(0,3000));
+ }catch(_){}
 }
 function flag(c){return /^[A-Z]{2}$/.test(c)?String.fromCodePoint(...[...c].map(x=>127397+x.charCodeAt(0))):"";}
 const categoryLabels={general:["General","Общие"],news:["News","Новости"],sports:["Sports","Спорт"],movies:["Movies","Фильмы"],music:["Music","Музыка"],entertainment:["Entertainment","Развлечения"],documentary:["Documentary","Документальные"],kids:["Children","Детские"],education:["Education","Образование"],religious:["Religion","Религия"],series:["Series","Сериалы"],lifestyle:["Lifestyle","Образ жизни"],business:["Business","Бизнес"],culture:["Culture","Культура"],comedy:["Comedy","Комедия"],family:["Family","Семейные"],animation:["Animation","Анимация"],weather:["Weather","Погода"],shop:["Shopping","Покупки"],travel:["Travel","Путешествия"],cooking:["Cooking","Кулинария"],outdoor:["Outdoors","Природа"],science:["Science","Наука"],auto:["Automotive","Автомобили"],classic:["Classic","Классика"],legislative:["Legislative","Парламент"],relax:["Relaxation","Отдых"],xxx:["Adult","Для взрослых"]};
@@ -289,7 +359,7 @@ function parseGuide(text){
   for(const [id,rows] of items)programs.set(id,rows);
   for(const [name,id] of names){if(xmlNames.has(name)&&xmlNames.get(name)!==id)xmlNames.set(name,null);else xmlNames.set(name,id);}
   while(programs.size>10000)programs.delete(programs.keys().next().value);
-  render();
+  saveGuideCache();void syncSeries();render();
 }
 function importGuide(){
  if(busy)return;
@@ -362,7 +432,9 @@ function init(){
  const cat=el("select","dk-live-input"),lang=el("select","dk-live-input");filters={cat,lang};
  cat.setAttribute("aria-label",tr("Category","Категория"));lang.setAttribute("aria-label",tr("Language","Язык"));
  cat.addEventListener("change",()=>{categoryFilter=cat.value;render();});lang.addEventListener("change",()=>{languageFilter=lang.value;render();});
- guideBar.append(heading,button("All Channels","Все каналы",()=>{clearWork();showAll();}),button("Import TV Guide","Импорт телепрограммы",importGuide),cat,lang,search);
+ const available=el("input");available.type="checkbox";const availabilityLabel=el("label","dk-live-small");availabilityLabel.append(available,el("span","",tr("Available only","Только доступные")));
+ available.addEventListener("change",()=>{availableOnly=available.checked;render();});
+ guideBar.append(heading,button("All Channels","Все каналы",()=>{clearWork();showAll();}),button("Recent Channels","Недавние каналы",()=>{clearWork();mode="recent";render();}),button("Recordings","Записи",()=>void showDVR()),button("Import TV Guide","Импорт телепрограммы",importGuide),button("Refresh Channels","Обновить каналы",()=>{if(!busy){checks.clear();const chosen=country||directoryCountry;void remotePlaylist("https://iptv-org.github.io/iptv/"+(chosen?"countries/"+chosen.toLowerCase()+".m3u":"index.m3u"),true,chosen);}}),cat,lang,availabilityLabel,search);
  grid=el("div","dk-live-grid");panel.append(top,workspace,notice,guideBar,grid);
  $("libraryStatus").after(panel);
  fetch("./assets/channel_logos/manifest.json").then(r=>r.json()).then(m=>{logoFiles=m.files.map(x=>x.name);if(active)render();}).catch(()=>{});
@@ -373,7 +445,7 @@ function init(){
  setInterval(()=>{if(active&&programs.size)render();},60000);
 }
 function syncTabs(){if(!active)return;for(const id of ["tabMovies","tabTV"])$(id)?.setAttribute("aria-selected","false");$("libraryLiveTV")?.setAttribute("aria-selected","true");}
-function open(){init();active=true;serial++;panel.hidden=false;panel.parentElement.classList.add("dk-live-active");syncTabs();render();void enrichCatalog();clearInterval(guideRefreshTimer);guideRefreshTimer=setInterval(()=>{if(active){render();void autoGuide();}},5*60*1000);}
+function open(){init();active=true;serial++;panel.hidden=false;panel.parentElement.classList.add("dk-live-active");syncTabs();render();void restoreGuide();void enrichCatalog();clearInterval(guideRefreshTimer);guideRefreshTimer=setInterval(()=>{if(active){render();void autoGuide();}},5*60*1000);}
 function close(){if(!active)return;clearInterval(guideRefreshTimer);if(atscRunning){atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
 window.DKLiveTV={open,close,syncTabs};
 })();

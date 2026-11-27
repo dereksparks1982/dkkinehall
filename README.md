@@ -56,3 +56,5 @@ World TV uses public channel directories and free regional programme guides wher
 Live TV starts through the included decoder in Automatic mode and may try up to two alternative addresses for the exact same playlist channel ID. Original mode remains unconverted. No paid guide or tuner is required for internet channels.
 
 World TV matches channels against the IPTV-ORG channel, feed, logo and stream databases for country, category, language and station artwork. Free regional guide downloads are matched by channel ID or unambiguous country-specific name. Coverage depends on published source data; unknown information is explicitly labelled rather than invented.
+
+Live TV also has cached availability checks, persistent channel artwork and programme data, recently opened channels, time-selectable programme schedules, local recording and series rules, and opt-in disk replay for supported streams. Keep Kinehall open for recording. Recordings are written to a folder you choose. Commercial analysis suggests possible breaks in local videos for your review; skipping approved breaks is manual unless you enable automation.

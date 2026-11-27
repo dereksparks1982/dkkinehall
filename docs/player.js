@@ -988,7 +988,8 @@
   };
   if(standaloneChapters&&window.DKSegmentSkip){
     const key="dk-kinehall.segment-skip.v1",stored=read(key,{});
-    const options={enabled:stored?.enabled!==false,autoIntro:stored?.autoIntro===true,autoCredits:stored?.autoCredits===true};
+    const options={enabled:stored?.enabled!==false,autoIntro:stored?.autoIntro===true,autoCredits:stored?.autoCredits===true,autoCommercial:stored?.autoCommercial===true};
+    const commercialKey="dk-kinehall.commercial-markers.v1";let commercial=read(commercialKey,{});if(!commercial||Array.isArray(commercial)||typeof commercial!=="object")commercial={};
     const local=(en,ru)=>window.DKLocale?.pair(en,ru)??(document.documentElement.lang==="ru"?ru:en);
     const overlay=document.createElement("button");overlay.type="button";overlay.id="dkSegmentSkip";overlay.className="dk-segment-skip";overlay.hidden=true;screen.append(overlay);
     const section=document.createElement("section");section.className="player-settings-section";section.id="segmentSkipSettings";
@@ -1002,8 +1003,28 @@
     setting("showSegmentSkip","enabled","Show Skip Intro and Skip Credits buttons","Показывать кнопки пропуска заставки и титров");
     setting("autoSkipIntro","autoIntro","Automatically skip marked intros","Автоматически пропускать отмеченные заставки");
     setting("autoSkipCredits","autoCredits","Automatically skip bounded credits","Автоматически пропускать титры с известной границей");
+    setting("autoSkipCommercial","autoCommercial","Automatically skip approved commercial breaks","Автоматически пропускать подтверждённую рекламу");
     const note=document.createElement("p");note.className="helper";note.textContent=local("Skipping is manual by default. Only named chapter boundaries are supported. Final credits are never skipped automatically.","По умолчанию пропуск выполняется вручную. Поддерживаются только именованные главы. Финальные титры не пропускаются автоматически.");
     section.append(note);byId("playerSettingsPanel").append(section);
+    const scanAds=document.createElement("button"),adResults=document.createElement("div");scanAds.type="button";scanAds.className="btn small";scanAds.dataset.mediaOnly="true";adResults.dataset.mediaOnly="true";
+    scanAds.textContent=local("Find possible commercial breaks","Найти возможные рекламные паузы");section.append(scanAds,adResults);
+    let adBusy=false;
+    scanAds.addEventListener("click",async()=>{
+      const item=current();if(adBusy||!item?.file||item.file.dvdToken||item.audio||!window.DKCodecBridge?.commercialCandidates)return;
+      adBusy=true;scanAds.disabled=true;adResults.textContent=local("Analyzing local video…","Анализ местного видео…");
+      try{
+        const rows=await window.DKCodecBridge.commercialCandidates(item.file);if(current()!==item)return;
+        adResults.replaceChildren();const warning=document.createElement("p");warning.textContent=local("Possible breaks only. Preview and approve individually; false matches are possible.","Только возможные паузы. Просмотрите и подтвердите каждую; возможны ошибки.");adResults.append(warning);
+        const clear=document.createElement("button");clear.type="button";clear.className="btn small";clear.textContent=local("Clear approved breaks","Удалить подтверждённые паузы");clear.addEventListener("click",()=>{delete commercial[item.key];write(commercialKey,commercial);refreshSegmentSkip();adResults.replaceChildren();});adResults.append(clear);
+        for(const r of rows.slice(0,60)){
+          const line=document.createElement("div"),label=document.createElement("span"),preview=document.createElement("button"),approve=document.createElement("button");
+          label.textContent=time(r.start)+" – "+time(r.end);preview.type=approve.type="button";preview.className=approve.className="btn small";preview.textContent=local("Preview","Просмотр");approve.textContent=local("Approve","Подтвердить");
+          preview.addEventListener("click",()=>{if(current()===item)setPlaybackPosition(r.start);});
+          approve.addEventListener("click",()=>{if(current()!==item)return;const list=Array.isArray(commercial[item.key])?commercial[item.key]:[];if(!list.some(x=>x.start===r.start&&x.end===r.end))commercial[item.key]=[...list,r].slice(0,60);const keys=Object.keys(commercial);for(const k of keys.slice(0,Math.max(0,keys.length-200)))delete commercial[k];write(commercialKey,commercial);approve.disabled=true;refreshSegmentSkip();});
+          line.append(label,preview,approve);adResults.append(line);
+        }
+      }catch(_){adResults.textContent=local("Commercial analysis unavailable.","Анализ рекламы недоступен.");}finally{adBusy=false;scanAds.disabled=false;}
+    });
     let lastItem=null,lastEpoch=null,lastAt=NaN,shown=null,cachedRows=null,cachedLength=null,cachedSegments=[],cachedLanguage="",lastLabel="";
     const used=new Set();
     const hide=()=>{shown=null;overlay.hidden=true;};
@@ -1016,7 +1037,8 @@
       const rows=getChapterEntries();
       const signature=rows.map(c=>[c.startTime,c.endTime,c.text,c.virtual].join("\u0001")).join("\u0002");
       if(signature!==cachedRows||length!==cachedLength){cachedRows=signature;cachedLength=length;cachedSegments=window.DKSegmentSkip.identify(rows,length);}
-      const segment=cachedSegments.find(s=>at>=s.start&&at<s.end-.1);
+      const approved=(Array.isArray(commercial[item.key])?commercial[item.key]:[]).filter(s=>Number.isFinite(s.start)&&Number.isFinite(s.end)&&s.start>=0&&s.end>s.start&&s.end<length-.5).map(s=>({...s,kind:"commercial",autoSafe:true}));
+      const segment=[...cachedSegments,...approved].find(s=>at>=s.start&&at<s.end-.1);
       const prior=lastAt;lastAt=at;
       if(!segment){hide();return;}
       const tag=segment.kind+":"+segment.start+":"+segment.end;
@@ -1024,11 +1046,11 @@
       const language=window.DKLocale?.get()||document.documentElement.lang;
       if(lastLabel!==segment.kind||cachedLanguage!==language){
         lastLabel=segment.kind;cachedLanguage=language;
-        overlay.textContent=segment.kind==="intro"?local("Skip Intro","Пропустить заставку"):local("Skip Credits","Пропустить титры");
+        overlay.textContent=segment.kind==="intro"?local("Skip Intro","Пропустить заставку"):segment.kind==="commercial"?local("Skip Commercials","Пропустить рекламу"):local("Skip Credits","Пропустить титры");
       }
       overlay.hidden=false;
       const natural=Number.isFinite(prior)&&at>=prior&&at-prior<=2.5&&(prior<segment.start||segment.start===0&&prior===0&&at<=2.5);
-      const automatic=segment.kind==="intro"?options.autoIntro:options.autoCredits;
+      const automatic=segment.kind==="intro"?options.autoIntro:segment.kind==="commercial"?options.autoCommercial:options.autoCredits;
       if(automatic&&segment.autoSafe&&natural&&!media.paused&&!media.seeking&&!used.has(tag)){
         used.add(tag);hide();try{setPlaybackPosition(segment.end);}catch(_){}
       }
@@ -1354,10 +1376,46 @@
     };
     void pump().catch(()=>{inspectionActive=null;});
   };
+  const liveControlBridge=window.DKLibraryBridge;
+  let liveControlBusy=false,livePanel=null;
+  function resetTVBuffer(item){
+    if(!item?.liveChannel)return;
+    const token=item.tvOriginal?.token||item.networkToken;
+    if(item.tvOriginal){item.networkToken=token;item.networkSource=Object.freeze({networkToken:token});item.src=item.tvOriginal.src;item.tvOriginal=null;}
+    item.tvReplay=false;item.tvBuffer=false;item.tvPaused=false;
+    void liveControlBridge?.liveTvBuffer?.("stop",token).catch(()=>{});
+  }
+  function returnToLive(item){
+    if(!item?.tvOriginal)return;
+    item.networkToken=item.tvOriginal.token;item.networkSource=Object.freeze({networkToken:item.networkToken});item.src=item.tvOriginal.src;item.tvOriginal=null;item.tvReplay=false;item.tvPaused=false;
+    load(state.queue.indexOf(item),true);
+  }
+  function refreshLiveControls(){if(livePanel)livePanel.hidden=!current()?.liveChannel||state.stopped;}
+  if(liveControlBridge?.liveTvBuffer){
+    livePanel=document.createElement("div");livePanel.className="dk-live-player-tools";livePanel.hidden=true;screen.append(livePanel);
+    const controls=[];
+    const add=(en,ru,action)=>{const b=document.createElement("button");b.type="button";b.className="btn small";controls.push({b,en,ru});b.addEventListener("click",async e=>{
+      e.stopPropagation();const item=current();if(!item?.liveChannel||state.stopped||liveControlBusy)return;
+      liveControlBusy=true;try{await action(item);}catch(_){status(window.DKLocale?.pair("Live buffer not ready or unavailable.","Буфер эфира не готов или недоступен.")||"Live buffer not ready or unavailable.");}finally{liveControlBusy=false;}
+    });livePanel.append(b);};
+    const say=(en,ru)=>window.DKLocale?.pair(en,ru)||en;
+    const enable=async item=>{const token=item.tvOriginal?.token||item.networkToken;await liveControlBridge.liveTvBuffer("start",token);if(current()!==item||state.stopped){void liveControlBridge.liveTvBuffer("stop",token);return false;}item.tvBuffer=true;return true;};
+    add("Enable Replay","Включить повтор",async item=>{if(await enable(item))status(say("Live buffer recording; wait for completed segments.","Буфер эфира записывается; дождитесь готовых фрагментов."));});
+    add("Pause Live","Пауза эфира",async item=>{if(item.tvReplay){media.pause();return;}if(await enable(item)){media.pause();item.tvPaused=true;status(say("Live paused. Use Replay to resume from the rolling buffer.","Эфир приостановлен. Для продолжения используйте повтор."));}});
+    add("Replay Buffer","Повтор из буфера",async item=>{
+      if(!item.tvBuffer){await enable(item);status(say("Wait for the live buffer to fill.","Дождитесь заполнения буфера."));return;}
+      const source=item.tvOriginal||{token:item.networkToken,src:item.src};const grant=await liveControlBridge.liveTvBuffer("snapshot",source.token);if(current()!==item||state.stopped)return;
+      item.tvOriginal=source;item.networkToken=grant.token;item.networkSource=Object.freeze({networkToken:grant.token});item.src=grant.src;item.tvReplay=true;item.tvPaused=false;load(state.queue.indexOf(item),true);
+    });
+    add("Go Live","К прямому эфиру",async item=>{if(item.tvOriginal)returnToLive(item);else{item.tvPaused=false;load(state.queue.indexOf(item),true);}});
+    const translate=()=>{for(const {b,en,ru} of controls)b.textContent=say(en,ru);};translate();new MutationObserver(translate).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
+    livePanel.addEventListener("pointerdown",e=>e.stopPropagation());livePanel.addEventListener("dblclick",e=>e.stopPropagation());
+  }
   const load = (index, autoplay = true) => {
     if (index < 0 || index >= state.queue.length) return;
     cancelNextCountdown();resetVoiceover();cancelNetworkRetry();
     const previous=current();
+    if(previous&&previous!==state.queue[index])resetTVBuffer(previous);
     if(previous?.remuxAbort){
       previous.remuxAbort.abort();
       previous.remuxAbort=null;
@@ -1372,7 +1430,7 @@
     if (mkvAudio) mkvAudio.stop();
     media.pause();
     state.current = index;
-    const item = current();
+    const item = current();refreshLiveControls();
     refreshPictureProfile?.();
     // Restore this file’s remembered subtitle offset immediately, including
     // for non-MKV files before any subtitle track is loaded.
@@ -1716,7 +1774,7 @@
   const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
   const recoverNetwork=(item,forceNative=false)=>{
     if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||item.networkRetries>=2||networkRetryTimer!==null)return false;
-    const epoch=item.playbackEpoch,at=item.liveChannel?0:Math.max(0,Number(item.networkLastPosition)||0);
+    const epoch=item.playbackEpoch,at=item.liveChannel&&!item.tvReplay?0:Math.max(0,Number(item.networkLastPosition)||0);
     const native=forceNative||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
     item.networkRetries++;
     status("Reconnecting to network media…");
@@ -1724,7 +1782,7 @@
       networkRetryTimer=null;
       if(current()!==item||item.playbackEpoch!==epoch||state.stopped)return;
       if(native&&item.requestedFormat!=="original"&&codecPlayback){
-        if(item.liveChannel){
+        if(item.liveChannel&&!item.tvReplay){
           const alternate=await window.DKLibraryBridge?.liveTvAlternate?.(item.networkToken).catch(()=>false);
           if(current()!==item||item.playbackEpoch!==epoch||state.stopped)return;
           if(alternate){item.networkError="";status(window.DKLocale?.pair("Trying another channel source…","Подключение к другому источнику телеканала…")||"Trying another channel source…");}
@@ -1753,7 +1811,7 @@
       item.compatSrc=null;
     }
   };
-  const releaseNetwork=item=>{if(item?.networkToken)void window.DKLibraryBridge?.networkRelease(item.networkToken).catch(()=>{});};
+  const releaseNetwork=item=>{if(item?.liveChannel)resetTVBuffer(item);if(item?.networkToken)void window.DKLibraryBridge?.networkRelease(item.networkToken).catch(()=>{});};
   const releaseArtwork = item => {
     if(item?.folderArtworkSrc){
       try{URL.revokeObjectURL(item.folderArtworkSrc);}catch(_){}
@@ -3235,6 +3293,7 @@
     const preserveLibraryPosition=Boolean(window.DKLibraryBridge?.internalPages);
     if(preserveLibraryPosition)rememberPosition();
     state.stopped = true;
+    resetTVBuffer(item);refreshLiveControls();
     resetTranslation();
     media.pause();
     if(codecPlayback?.isActive(item)||item.networkStarting) {
@@ -3377,9 +3436,11 @@
     media.textTracks.addEventListener("addtrack", () => setTimeout(applySubtitlePreference, 0));
     media.textTracks.addEventListener("removetrack", () => setTimeout(applySubtitlePreference, 0));
   }
+  media.addEventListener("playing",()=>{const item=current();if(item?.liveChannel&&!item.tvReplay&&!item.tvConfirmed){item.tvConfirmed=true;void window.DKLibraryBridge?.liveTvPlayed?.(item.networkToken).catch(()=>{});}});
   media.addEventListener("ended", () => {
     const completed = current();
     if (!completed) return;
+    if(completed.liveChannel){if(completed.tvReplay){returnToLive(completed);return;}if(!recoverNetwork(completed,true))status(networkErrorText(completed));return;}
     if(completed.kind==="network"&&completed.networkKnownDuration>0&&playbackSeconds()+5<completed.networkKnownDuration){
       if(!recoverNetwork(completed))status("Network stream ended unexpectedly.");
       return;

@@ -345,12 +345,14 @@ function rewriteHLS(text,base,entry,token,port){
 }
 async function serveNetwork(req,res){
   if((req.url||"").startsWith("/voiceover/"))return serveVoiceover(req,res);
+  if(serveBuffer(req,res))return;
   const root=/^\/media\/([a-f0-9]{48})$/.exec(req.url||"");
   const part=/^\/hls\/([a-f0-9]{48})\/([a-f0-9]{24})\.([a-z0-9]+)$/.exec(req.url||"");
   const token=(root||part)?.[1],entry=token&&networkGrants.get(token);
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
+  if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
   if(range&&!/^bytes=(?:\d{1,16}-\d{0,16}|-\d{1,16})$/.test(range))return fail(416);
   const controller=new AbortController();res.on("close",()=>controller.abort());
@@ -418,8 +420,47 @@ async function grantExplicitLiveStream(value){
  return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
 }
 let liveResourceBusy=0;
+const tvData=()=>path.join(app.getPath("userData"),"live-tv-v2");
+const tvHash=v=>require("node:crypto").createHash("sha256").update(String(v)).digest("hex");
+function tvRead(name,fallback){try{const file=path.join(tvData(),name);if(fs.statSync(file).size>12*1024*1024)return fallback;return JSON.parse(fs.readFileSync(file,"utf8"));}catch(_){return fallback;}}
+function tvWrite(name,value){
+ const root=tvData();fs.mkdirSync(root,{recursive:true,mode:0o700});const text=JSON.stringify(value);if(Buffer.byteLength(text)>12*1024*1024)throw Error("TV cache too large");
+ const file=path.join(root,name),tmp=file+".tmp";fs.writeFileSync(tmp,text,{mode:0o600});fs.renameSync(tmp,file);
+}
+function logoDiskGet(url){const row=tvRead("logo-"+tvHash(url)+".json",null);return row&&Date.now()-row.at<30*86400000&&typeof row.base64==="string"?row:null;}
+function logoDiskPut(url,row){try{
+ if(row.base64.length>400000)return;tvWrite("logo-"+tvHash(url)+".json",{...row,at:Date.now()});
+ const root=tvData(),files=fs.readdirSync(root).filter(x=>/^logo-[a-f0-9]{64}\.json$/.test(x)).map(name=>{const s=fs.statSync(path.join(root,name));return {name,size:s.size,mtime:s.mtimeMs};}).sort((a,b)=>b.mtime-a.mtime);
+ let total=0;for(const file of files){total+=file.size;if(total>64*1024*1024)fs.unlinkSync(path.join(root,file.name));}
+ }catch(_){}}
+const tvChecks=new Map(),tvCheckPending=new Map();let checksLoaded=false,checksTimer=null;
+function loadChecks(){if(checksLoaded)return;checksLoaded=true;const rows=tvRead("availability.json",[]);if(Array.isArray(rows))for(const [key,v] of rows){if(typeof key==="string"&&v&&Number.isFinite(v.at)&&Date.now()-v.at<7*86400000)tvChecks.set(key,v);}}
+function rememberCheck(url,state){
+ loadChecks();const k=tvHash(url);tvChecks.delete(k);tvChecks.set(k,{state,at:Date.now()});while(tvChecks.size>12000)tvChecks.delete(tvChecks.keys().next().value);
+ clearTimeout(checksTimer);checksTimer=setTimeout(()=>{try{tvWrite("availability.json",[...tvChecks]);}catch(_){}},1500);return tvChecks.get(k);
+}
+async function checkTV(value,force=false){
+ const url=tvURL(value);if(!url)return {state:"unknown",at:Date.now()};
+ loadChecks();const k=tvHash(url),previous=tvChecks.get(k);
+ if(previous&&!force&&Date.now()-previous.at<(previous.state==="working"?12:3)*3600000)return previous;
+ if(tvCheckPending.has(k))return tvCheckPending.get(k);
+ if(tvCheckPending.size>=3)return previous||{state:"unknown",at:Date.now()};
+ const work=(async()=>{
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),9000);
+  try{
+   const {reply,url:final}=await followStream(url,null,{signal:controller.signal,timeout:7000});
+   const code=reply.statusCode,mime=String(reply.headers["content-type"]||"").split(";")[0].toLowerCase();
+   if(code!==200&&code!==206){reply.destroy();return rememberCheck(url,[401,403,451].includes(code)?"denied":[404,410].includes(code)?"offline":"unknown");}
+   if(hlsMime(mime)||/\.m3u8?$/i.test(final.pathname)||mime==="text/plain"){
+    const text=(await boundedBody(reply,512*1024)).toString("utf8");return rememberCheck(url,/#EXTM3U/i.test(text)&&/#EXT-X-/i.test(text)?"reachable":"unknown");
+   }
+   reply.destroy();return rememberCheck(url,/^(video\/|audio\/|application\/(?:octet-stream|mp4|mpegts|x-mpegts)$)/.test(mime)?"reachable":"unknown");
+  }catch(_){return rememberCheck(url,"unknown");}finally{clearTimeout(timer);}
+ })().finally(()=>tvCheckPending.delete(k));tvCheckPending.set(k,work);return work;
+}
 async function liveResource(value,kind){
  if(typeof value!=="string"||value.length>4096||!["playlist","guide","logo","catalog"].includes(kind)||liveResourceBusy>=6)throw Error("TV resource unavailable");
+ if(kind==="logo"){const hit=logoDiskGet(value);if(hit)return hit;}
  const limit=kind==="logo"?2*1024*1024:kind==="guide"?32*1024*1024:kind==="catalog"?32*1024*1024:8*1024*1024;
  liveResourceBusy++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
@@ -433,7 +474,7 @@ async function liveResource(value,kind){
     const svg=data.toString("utf8");
     if(data.length>256*1024||/<!DOCTYPE|<!ENTITY|<script\b|<foreignObject\b|\bon[a-z]+\s*=|<iframe\b|<object\b/i.test(svg)||!/<svg[\s>]/i.test(svg))throw Error("Unsupported SVG logo");
    }
-   return {mime,base64:data.toString("base64")};
+   const result={mime,base64:data.toString("base64")};logoDiskPut(value,result);return result;
   }
   if(data[0]===31&&data[1]===139)data=require("node:zlib").gunzipSync(data,{maxOutputLength:kind==="guide"?64*1024*1024:limit});
   return {text:data.toString("utf8"),url:url.href};
@@ -488,6 +529,7 @@ async function resolveNetworkMedia(token){
   return "http://127.0.0.1:"+port+"/media/"+token;
 }
 function closeNetwork(){
+  stopTVJobs();
   for(const req of networkClients)req.destroy();
   networkClients.clear();networkGrants.clear();networkServers.clear();
   networkProxy?.close();networkProxy=null;
@@ -497,6 +539,99 @@ function closeNetwork(){
 // caller-controlled executable/path. Only a trusted separately provisioned
 // runtime and direct bilingual models in the application's data directory.
 const {spawn}=require("node:child_process");
+// Recording scheduler runs only during the lifetime of Kinehall.
+let dvrState=null,dvrTimer=null,dvrBusy=false,dvrChild=null,dvrStopping=false;
+function getDVR(){
+ if(!dvrState){const saved=tvRead("dvr.json",{});dvrState={folder:typeof saved.folder==="string"?saved.folder:"",jobs:Array.isArray(saved.jobs)?saved.jobs.slice(-500):[],series:Array.isArray(saved.series)?saved.series.slice(0,100):[]};for(const j of dvrState.jobs)if(j.state==="recording")j.state="interrupted";}
+ return dvrState;
+}
+function saveDVR(){tvWrite("dvr.json",getDVR());}
+function cleanTVTitle(v){return String(v||"TV").replace(/[\\/:*?"<>|\x00-\x1f]/g," ").trim().slice(0,60)||"TV";}
+function tvCodecEnv(){const base=app.getAppPath();return {...process.env,LD_LIBRARY_PATH:path.join(base,"lib")+path.delimiter+(process.env.LD_LIBRARY_PATH||"")};}
+function tvDecoder(){return path.join(app.getAppPath(),"bin","ffmpeg");}
+function tvInput(source){return ["-hide_banner","-loglevel","error","-nostdin","-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mpegts,mov,matroska,webm,flv,asf,aac,mp3","-rw_timeout","12000000","-http_proxy","","-i",source,"-map","0:v:0?","-map","0:a:0?","-c","copy"];}
+function dropTVGrant(token){const e=networkGrants.get(token);networkGrants.delete(token);for(const client of e?.clients||[])client.destroy();}
+function stopTVJobs(){dvrStopping=true;clearInterval(dvrTimer);dvrTimer=null;if(dvrChild)try{dvrChild.kill("SIGINT");}catch(_){}stopBuffer();}
+function newDVRJob(row){
+ const s=getDVR(),url=tvURL(row?.url),start=Number(row?.start),end=Number(row?.end),now=Date.now()/1000;
+ if(!s.folder||!url||!Number.isFinite(start)||!Number.isFinite(end)||end<=Math.max(now,start)||end-start>8*3600||start>now+30*86400)throw Error("Invalid recording schedule or no destination");
+ if(s.jobs.some(j=>j.url===url&&Math.abs(j.start-start)<2&&["scheduled","recording","complete"].includes(j.state)))return false;
+ if(s.jobs.filter(j=>["scheduled","recording"].includes(j.state)).length>=100)throw Error("Too many recordings");
+ if(s.jobs.length>=500){const i=s.jobs.findIndex(j=>!["scheduled","recording"].includes(j.state));if(i<0)throw Error("Too many recordings");s.jobs.splice(i,1);}
+ s.jobs.push({id:randomBytes(12).toString("hex"),url,start,end,name:cleanTVTitle(row.name),title:cleanTVTitle(row.title||row.name),state:"scheduled",file:""});saveDVR();void runDVR();return true;
+}
+function updateSeries(rows){const s=getDVR();if(!Array.isArray(rows)||rows.length>3000)throw Error("Invalid programme list");for(const row of rows)if(s.series.some(x=>x.url===row.url&&x.title===row.title)){try{newDVRJob(row);}catch(_){}}}
+async function runDVR(){
+ if(dvrStopping||dvrBusy||dvrChild)return;dvrBusy=true;let grant=null,job=null;
+ try{
+  const s=getDVR(),now=Date.now()/1000;let changed=false;
+  for(const j of s.jobs)if(j.state==="scheduled"&&j.end<=now){j.state="missed";changed=true;}
+  job=s.jobs.filter(j=>j.state==="scheduled"&&j.start<=now&&j.end>now).sort((a,b)=>a.start-b.start)[0];if(!job){if(changed)saveDVR();return;}
+  const folder=fs.realpathSync(s.folder),stat=fs.statSync(folder);if(!stat.isDirectory())throw Error("Recording folder unavailable");
+  const space=fs.statfsSync(folder);if(Number(space.bavail)*Number(space.bsize)<1024**3)throw Error("Insufficient disk space");
+  const filename=cleanTVTitle(job.name)+" - "+cleanTVTitle(job.title)+" - "+new Date(job.start*1000).toISOString().replace(/[:.]/g,"-")+" - "+job.id.slice(0,8)+".mkv";
+  const output=path.join(folder,filename);
+  grant=await grantExplicitLiveStream(job.url);const source=await resolveNetworkMedia(grant.token);
+  if(dvrStopping||job.state!=="scheduled"){dropTVGrant(grant.token);return;}
+  const child=spawn(tvDecoder(),[...tvInput(source),"-n","-t",String(Math.max(1,job.end-Date.now()/1000)),"-f","matroska",output],{env:tvCodecEnv(),stdio:["ignore","ignore","ignore"],shell:false});
+  dvrChild=child;job.state="recording";job.file=output;saveDVR();let cancelled=false;
+  const monitor=setInterval(()=>{try{const free=fs.statfsSync(folder);if(Number(free.bavail)*Number(free.bsize)<512*1024**2||Date.now()/1000>job.end+20){cancelled=true;child.kill("SIGINT");}}catch(_){cancelled=true;child.kill("SIGINT");}},5000);
+  const finish=code=>{if(dvrChild!==child)return;dvrChild=null;clearInterval(monitor);
+   if(job.state!=="cancelled")job.state=code===0&&!cancelled&&Date.now()/1000>=job.end-20?"complete":"interrupted";
+   try{saveDVR();}catch(_){}dropTVGrant(grant.token);void runDVR();};
+  child.once("error",()=>finish(-1));child.once("close",finish);
+ }catch(_){if(job&&job.state!=="cancelled"){job.state="failed";try{saveDVR();}catch(_){}}if(grant)dropTVGrant(grant.token);}
+ finally{dvrBusy=false;}
+}
+function ensureDVR(){if(!dvrTimer){dvrStopping=false;dvrTimer=setInterval(()=>void runDVR(),15000);void runDVR();}}
+// Opt-in disk timeshift: a capped rolling HLS buffer and a stable replay
+// snapshot. The user can seek within completed segments, then return live.
+let bufferJob=null,bufferStarting=false;
+function stopBuffer(){
+ const b=bufferJob;if(!b)return false;bufferJob=null;clearInterval(b.timer);try{b.child?.kill("SIGINT");}catch(_){}
+ dropTVGrant(b.input);for(const token of b.snapshots||[])dropTVGrant(token);
+ const remove=()=>{try{fs.rmSync(b.dir,{recursive:true,force:true});}catch(_){}};
+ if(b.child&&b.child.exitCode===null&&b.child.signalCode===null)b.child.once("close",remove);else remove();return true;
+}
+async function startBuffer(token){
+ const entry=networkGrants.get(token);if(!entry?.url||entry.snapshot||bufferStarting)throw Error("Live stream unavailable");
+ if(bufferJob?.source===token)return true;
+ bufferStarting=true;stopBuffer();let grant=null,dir=null;
+ try{
+  const root=path.join(tvData(),"timeshift");fs.mkdirSync(root,{recursive:true,mode:0o700});
+  const space=fs.statfsSync(root);if(Number(space.bavail)*Number(space.bsize)<2*1024**3)throw Error("Insufficient buffer space");
+  dir=fs.mkdtempSync(path.join(root,"session-"));grant=await grantExplicitLiveStream(entry.url.href);const source=await resolveNetworkMedia(grant.token);
+  if(dvrStopping||!networkGrants.has(token))throw Error("Live stream ended");
+  const args=[...tvInput(source),"-f","hls","-hls_time","6","-hls_list_size","60","-hls_flags","delete_segments+temp_file+omit_endlist","-hls_segment_filename",path.join(dir,"seg-%08d.ts"),path.join(dir,"live.m3u8")];
+  const child=spawn(tvDecoder(),args,{env:tvCodecEnv(),stdio:["ignore","ignore","ignore"],shell:false});
+  const b={source:token,input:grant.token,dir,child,snapshots:[],timer:null};bufferJob=b;
+  child.once("error",()=>{if(bufferJob===b)stopBuffer();});child.once("close",()=>{if(bufferJob===b)stopBuffer();try{fs.rmSync(b.dir,{recursive:true,force:true});}catch(_){}});
+  b.timer=setInterval(()=>{try{let size=0;for(const n of fs.readdirSync(dir)){const st=fs.statSync(path.join(dir,n));if(st.isFile())size+=st.size;}const free=fs.statfsSync(dir);if(size>1024**3||Number(free.bavail)*Number(free.bsize)<512*1024**2)stopBuffer();}catch(_){stopBuffer();}},5000);return true;
+ }catch(error){if(grant)dropTVGrant(grant.token);if(dir)fs.rmSync(dir,{recursive:true,force:true});throw error;}finally{bufferStarting=false;}
+}
+async function snapshotBuffer(sourceToken){
+ const b=bufferJob;if(!b||b.source!==sourceToken)throw Error("Live buffer unavailable");
+ const raw=fs.readFileSync(path.join(b.dir,"live.m3u8"),"utf8"),lines=raw.split(/\r?\n/),segments=lines.filter(x=>/^seg-\d{8}\.ts$/.test(x));
+ if(!segments.length)throw Error("Live buffer is not ready");
+ const id=randomBytes(24).toString("hex"),files=new Map(),snap=path.join(b.dir,"snap-"+id);fs.mkdirSync(snap,{mode:0o700});
+ try{
+  let bytes=0;for(const name of segments){const file=path.join(b.dir,name);bytes+=fs.statSync(file).size;if(bytes>512*1024**2)throw Error("Replay buffer too large");const target=path.join(snap,name);fs.linkSync(file,target);files.set(name,target);}
+  const port=await startNetworkProxy();if(bufferJob!==b)throw Error("Buffer stopped");
+  const manifest=lines.filter(x=>!/^#EXT-X-ENDLIST/.test(x)).map(x=>files.has(x)?"http://127.0.0.1:"+port+"/buffer/"+id+"/"+x:x).join("\n")+"\n#EXT-X-ENDLIST\n";
+  while(b.snapshots.length>=1){const old=b.snapshots.shift(),e=networkGrants.get(old);dropTVGrant(old);if(e?.snapshot?.dir)fs.rmSync(e.snapshot.dir,{recursive:true,force:true});}
+  networkGrants.set(id,{clients:new Set(),snapshot:{manifest,files,dir:snap}});b.snapshots.push(id);return {token:id,src:"http://127.0.0.1:"+port+"/media/"+id};
+ }catch(error){fs.rmSync(snap,{recursive:true,force:true});throw error;}
+}
+function serveBuffer(req,res){
+ const m=/^\/buffer\/([a-f0-9]{48})\/(seg-\d{8}\.ts)$/.exec(req.url||"");if(!m)return false;
+ const file=networkGrants.get(m[1])?.snapshot?.files.get(m[2]);
+ if(!file||!["GET","HEAD"].includes(req.method)){res.writeHead(404);res.end();return true;}
+ try{const st=fs.statSync(file);let start=0,end=st.size-1;const r=/^bytes=(\d+)-(\d*)$/.exec(req.headers.range||"");if(r){start=+r[1];end=r[2]?Math.min(+r[2],end):end;if(start>end){res.writeHead(416);res.end();return true;}}
+ const headers={"Content-Type":"video/mp2t","Content-Length":end-start+1,"Accept-Ranges":"bytes","Cache-Control":"no-store","Access-Control-Allow-Origin":"null"};if(r)headers["Content-Range"]="bytes "+start+"-"+end+"/"+st.size;
+ res.writeHead(r?206:200,headers);if(req.method==="HEAD")res.end();else{const stream=fs.createReadStream(file,{start,end});stream.on("error",()=>res.destroy());res.on("close",()=>stream.destroy());stream.pipe(res);}
+ }catch(_){res.destroy();}return true;
+}
+
 let translationJob=null;
 const translationWorker=String.raw`
 import json, sys
@@ -1736,6 +1871,37 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event)||typeof id!=="string")throw Error("Tuner request rejected");
     return grantLiveChannel(id);
   });
+  ensureDVR();
+  ipcMain.handle("dk-live-tv:check",(event,url,force)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("TV check rejected");return checkTV(url,force===true);
+  });
+  ipcMain.handle("dk-live-tv:played",(event,token)=>{
+    if(!onlyPlayer(event))return false;const e=networkGrants.get(token);if(!e?.url||e.lan)return false;rememberCheck(e.url.href,"working");return true;
+  });
+  ipcMain.handle("dk-live-tv:guide-cache",(event,action,value)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("Guide cache rejected");
+    if(action==="read")return tvRead("guide.json",null);
+    if(action==="write"&&value&&Array.isArray(value.programs)&&Array.isArray(value.names)&&value.programs.length<=10000&&value.names.length<=40000){tvWrite("guide.json",value);return true;}throw Error("Invalid guide cache");
+  });
+  ipcMain.handle("dk-live-tv:dvr",async(event,action,row)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("Recording request rejected");
+    const s=getDVR();
+    if(action==="folder"){const picked=await dialog.showOpenDialog(home,{properties:["openDirectory","createDirectory"]});if(!picked.canceled&&picked.filePaths[0]){s.folder=fs.realpathSync(picked.filePaths[0]);saveDVR();}}
+    else if(action==="add")newDVRJob(row);
+    else if(action==="series"){const url=tvURL(row?.url),title=tvString(row?.title);if(!url||!title||!s.folder)throw Error("Invalid series or recording folder");if(!s.series.some(x=>x.url===url&&x.title===title)&&s.series.length<100){s.series.push({url,title});saveDVR();}newDVRJob(row);}
+    else if(action==="sync")updateSeries(row);
+    else if(action==="cancel"){const j=s.jobs.find(x=>x.id===row);if(j&&["scheduled","recording"].includes(j.state)){const recording=j.state==="recording";j.state="cancelled";if(recording)dvrChild?.kill("SIGINT");saveDVR();}}
+    else if(action==="remove-series"){s.series=s.series.filter(x=>!(x.url===row?.url&&x.title===row?.title));saveDVR();}
+    else if(action!=="status")throw Error("Unknown recording action");
+    return s;
+  });
+  ipcMain.handle("dk-live-tv:buffer",async(event,action,token)=>{
+    if(!onlyPlayer(event))throw Error("Buffer request rejected");
+    if(action==="start")return startBuffer(token);
+    if(action==="snapshot")return snapshotBuffer(token);
+    if(action==="stop"){if(bufferJob?.source===token)return stopBuffer();return false;}
+    throw Error("Invalid buffer action");
+  });
   ipcMain.handle("dk-live-tv:catalog",(event,rows)=>{
     if(!allowed(event)||activePage!=="library")throw Error("TV catalog request rejected");
     return matchTvCatalog(rows);
@@ -1808,6 +1974,7 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))return false;
     const entry=networkGrants.get(token);
     if(!entry)return false;
+    if(bufferJob?.source===token)stopBuffer();
     networkGrants.delete(token);
     for(const client of entry.clients)client.destroy();
     return true;

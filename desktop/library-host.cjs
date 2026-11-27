@@ -3073,6 +3073,15 @@ function install(originalWindow,originalPlayer){
     return native.localArtwork(id,filePath,{
       series:Boolean(series),kind:kind==="tv"?"tv":"movie"});
   });
+  ipcMain.handle("dk-library:playback-availability",(event,id,filePath)=>{
+    if(!allowed(event))throw Error("File status request rejected");return native.playbackAvailability(id,filePath);
+  });
+  ipcMain.handle("dk-library:locate-file",async(event,language)=>{
+    if(!allowed(event))throw Error("File location request rejected");
+    const ru=language==="ru",picked=await dialog.showOpenDialog(home,{title:ru?"Найти перемещённое видео":"Locate moved video",properties:["openFile"]});
+    if(picked.canceled||!picked.filePaths[0])return null;
+    return native.relocationCandidate(picked.filePaths[0]);
+  });
   ipcMain.handle("dk-library:check-catalog-paths",(event,rows)=>{
     if(!allowed(event))throw Error("Catalog status request rejected");
     return native.checkCatalogPaths(rows);

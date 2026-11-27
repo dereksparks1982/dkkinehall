@@ -197,7 +197,7 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,pr
             if(valid===null){record(filePath,"inspect-video",{code:"UNVERIFIED_VIDEO"});continue;}
             items.push({id,nativePath:filePath,filename:entry.name,
               relative:path.relative(root,filePath).split(path.sep).join("/"),
-              size:stat.size,modified:stat.mtimeMs,root,volumeIdentity:mountFor(mounts,filePath)?.identity||null});
+              size:stat.size,modified:stat.mtimeMs,fileNode:stat.ino?String(stat.dev)+":"+String(stat.ino):null,root,volumeIdentity:mountFor(mounts,filePath)?.identity||null});
           }catch(error){if(!signal?.aborted)record(filePath,"inspect-video",error);}
         }
       }catch(error){if(!signal?.aborted)record(dir,"read-directory",error);}
@@ -209,6 +209,16 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,pr
   return {items,roots,rejected,complete:!cancelled&&errors.length===0,
     partial:cancelled||errors.length>0,cancelled,errors,
     found:items.length,visits,folders,skipped:errors.length,elapsedMs:Date.now()-start};
+}
+// Non-destructive availability check, independent of Empty Trash.
+async function playbackAvailability(id,filePath){
+ try{await checkVideo(id,filePath);return true;}catch(_){return false;}
+}
+async function relocationCandidate(filePath){
+ const target=path.resolve(filePath),id=fileIdentity(target),{stat}=await checkVideo(id,target);
+ const root=rootPath().find(r=>containment(r,target));
+ let mounts=[];try{mounts=await mountedPaths();}catch(_){}
+ return {id,nativePath:target,filename:path.basename(target),relative:path.relative(root,target).split(path.sep).join("/"),root,size:stat.size,modified:stat.mtimeMs,fileNode:stat.ino?String(stat.dev)+":"+String(stat.ino):null,volumeIdentity:mountFor(mounts,target)?.identity||null};
 }
 async function openVideo(id,filePath){
   const {target,stat}=await checkVideo(id,filePath);
@@ -308,5 +318,5 @@ async function deleteVideo(id,filePath,{dialog,shell,window}={}){
 }
 module.exports={
   discover,openVideo,readRange,localArtwork,deleteVideo,
-  fileIdentity,checkVideo,rootPath,chooseLocalPoster,checkCatalogPaths
+  fileIdentity,checkVideo,rootPath,chooseLocalPoster,checkCatalogPaths,playbackAvailability,relocationCandidate
 };

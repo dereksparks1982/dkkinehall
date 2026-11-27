@@ -5101,7 +5101,7 @@
   // a native file ID/path even if the library ID was not set at that time.
   function existingLibraryIndex(row){
     const matches=state.queue.map((item,index)=>({item,index})).filter(({item})=>
-      item.kind==="file"&&(item.libraryId===row.id||item.file?.nativeId===row.id||
+      item.kind==="file"&&(!item.file?.nativePath||item.file.nativePath===row.nativePath)&&(item.libraryId===row.id||item.file?.nativeId===row.id||
         (row.nativePath&&item.file?.nativePath===row.nativePath)));
     if(matches.length){
       return matches.find(entry=>entry.index===state.current)?.index??matches[0].index;
@@ -5127,6 +5127,9 @@
     try{
       const row=await window.DKLibraryStore.item(id);
       if(!row)throw new Error("The library item was not found");
+      if(row.source==="native"&&window.DKLibraryBridge?.playbackAvailability&&!await window.DKLibraryBridge.playbackAvailability(row.id,row.nativePath)){
+        await window.DKLibraryStore.setUnavailable(row.id,true);status(window.DKLocale?.pair("File moved or unavailable. Return to Library and choose Locate File.","Файл перемещён или недоступен. Вернитесь в медиатеку и найдите файл.")||"File moved or unavailable. Return to Library and choose Locate File.");return true;
+      }
       const metadataFilename=row.kind==="tv"&&
         window.DKMediaMetadata?.parseFilename(row.filename)?.type!=="episode"?
         row.series+".S"+String(row.season).padStart(2,"0")+

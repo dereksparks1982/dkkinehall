@@ -43,6 +43,7 @@
     "Could not generate subtitles from audio.":"Не удалось создать субтитры из звука.",
     "Generated subtitles saved.":"Созданные субтитры сохранены.",
     "Could not save generated subtitles.":"Не удалось сохранить созданные субтитры.",
+    "Locate File":"Найти файл",
     "Show in folder":"Показать в папке",
     "Could not locate this file. Reconnect its drive or scan the library.":"Не удалось найти файл. Подключите накопитель или проверьте медиатеку.",
     "Scan Library":"Проверить медиатеку",

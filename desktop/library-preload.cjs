@@ -126,6 +126,8 @@ const nativeLibrary=Object.freeze({
     String(id),String(filePath),Number(start),Number(end)),
   localCover:(id,filePath,series,kind)=>libIpc.invoke("dk-library:local-cover",
     String(id),String(filePath),Boolean(series),String(kind)),
+  playbackAvailability:(id,filePath)=>libIpc.invoke("dk-library:playback-availability",String(id),String(filePath)),
+  locateFile:language=>libIpc.invoke("dk-library:locate-file",String(language)),
   checkCatalogPaths:rows=>libIpc.invoke("dk-library:check-catalog-paths",rows),
   fileInfo:(id,filePath)=>libIpc.invoke("dk-library:file-info",String(id),String(filePath)),
   showInFolder:(id,filePath)=>libIpc.invoke("dk-library:show-in-folder",String(id),String(filePath)),

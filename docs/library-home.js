@@ -125,7 +125,7 @@ function currentProgress(row){
   return Number.isFinite(value)?value:0;
 }
 function needsContinue(row){
-  if(row.continueHidden)return false;
+  if(row.continueHidden||row.missing||row.unavailable)return false;
   const value=currentProgress(row),length=Number(row.duration)||0;
   // Unavailable media still has history; retain its disabled/unavailable card.
   const eligible=!nativeBridge?value>2:Number.isFinite(row.watchedSeconds)?row.watchedSeconds>=60:value>=60;
@@ -197,7 +197,7 @@ function refreshWatchedCards(){
 function createCard(row,{landscape=false,series=false}={}){
   // Separate native buttons for playback and watched status. A button
   // inside another button is invalid and can trigger the wrong action.
-  const card=create(nativeBridge?"div":"button","library-card"+(row.missing?" library-unavailable":""));
+  const card=create(nativeBridge?"div":"button","library-card"+((row.missing||row.unavailable)?" library-unavailable":""));
   if(!nativeBridge)card.type="button";
   card.dataset.libraryId=row.id;
   card.dataset.displayRole=series?"series":landscape?"resume":"entry";
@@ -227,7 +227,7 @@ function createCard(row,{landscape=false,series=false}={}){
       Math.max(3,Math.min(100,100*currentProgress(row)/duration))+"%":"10%";
     bar.append(fill);box.append(bar);
   }
-  if(row.missing)card.title=say("File unavailable: reconnect its drive",
+  if(row.missing||row.unavailable)card.title=say("File unavailable: reconnect its drive",
     "Файл недоступен: подключите накопитель");
   card.addEventListener("contextmenu",event=>{
     if(!nativeBridge)return;
@@ -485,7 +485,8 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
   $("removeFromLibrary").hidden=seriesOnly;
   $("showInFolder").hidden=seriesOnly||!nativeBridge.showInFolder;
-  $("showInFolder").disabled=!!row.missing;
+  $("showInFolder").disabled=!!(row.missing||row.unavailable);
+  $("locateFile").hidden=seriesOnly||!nativeBridge.locateFile;
   menu.hidden=false;
   const scale=nativeBridge?.internalPages?libraryZoom/100:1;
   menu.style.left=Math.max(4,Math.min(x/scale,
@@ -657,8 +658,47 @@ async function deleteFromDisk(){
       "Не удалось удалить файл с диска.",true);
   }
 }
+let recoveringFile=false;
+async function recoverFile(row,manual=false){
+ if(recoveringFile||!row?.nativePath||!nativeBridge?.playbackAvailability)return null;
+ recoveringFile=true;
+ try{
+  const latest=await store.item(row.id);if(!latest)return null;row=latest;
+  if(await nativeBridge.playbackAvailability(row.id,row.nativePath)){
+    if(row.missing||row.unavailable){row=await store.setUnavailable(row.id,false);await render();}
+    return row;
+  }
+  row=await store.setUnavailable(row.id,true);await render();if(!row)return null;
+  if(!manual&&!scanning&&!maintaining){
+   status("Searching for the moved video…","Поиск перемещённого видео…");
+   const discovered=await nativeBridge.discover(false);
+   if(!discovered.cancelled){
+    const matches=discovered.items.filter(file=>{
+     const info=store.classify(file.filename,file.relative);
+     return info&&store.relocationMatches(row,{...info,...file,source:"native"});
+    });
+    // A partial scan cannot establish uniqueness without a matching inode.
+    const hit=matches.length===1&&(!discovered.partial||(row.fileNode&&row.fileNode===matches[0].fileNode&&row.volumeIdentity===matches[0].volumeIdentity))?matches[0]:null;
+    if(hit&&await nativeBridge.playbackAvailability(hit.id,hit.nativePath)){
+     const updated=await store.relocateNative(row,hit);
+     if(updated){await render();status("Moved video found. History restored.","Перемещённое видео найдено. История восстановлена.");return updated;}
+    }
+   }
+  }
+  if(manual){
+   const file=await nativeBridge.locateFile(document.documentElement.lang);if(!file)return null;
+   if(file.id===row.id){await store.setUnavailable(row.id,false);await render();return store.item(row.id);}
+   if(!confirm(say("Use this file for "+row.title+"? Watch history will be transferred to the selected file.","Использовать выбранный файл для этой записи? История просмотра будет перенесена.")))return null;
+   const updated=await store.relocateNative(row,file);if(updated){await render();status("File location updated. History restored.","Расположение файла обновлено. История восстановлена.");return updated;}
+  }
+  status("File unavailable. Right-click its card and choose Locate File.","Файл недоступен. Откройте контекстное меню карточки и выберите поиск файла.",true);
+  return null;
+ }catch(_){status("Could not recover the video. Reconnect the drive or use Locate File.","Не удалось восстановить видео. Подключите накопитель или найдите файл вручную.",true);return null;}
+ finally{recoveringFile=false;}
+}
 async function openVideo(row){
-  if(row.missing){
+  if(row.source==="native"&&nativeBridge?.playbackAvailability){row=await recoverFile(row);if(!row)return;}
+  if(row.missing||row.unavailable){
     status("File unavailable. Reconnect its drive and scan again.",
       "Файл недоступен. Подключите накопитель и повторите сканирование.",true);
     return;
@@ -712,7 +752,7 @@ function paintContinueWatching(){
     const fill=card.querySelector(".library-progress>span");
     const duration=Number(row.duration)||0;
     if(fill)fill.style.width=duration>0?Math.max(3,Math.min(100,100*currentProgress(row)/duration))+"%":"10%";
-    card.classList.toggle("library-unavailable",!!row.missing);
+    card.classList.toggle("library-unavailable",!!(row.missing||row.unavailable));
     if(list.children[i]!==card)list.insertBefore(card,list.children[i]||null);
   });
   pumpArtwork();
@@ -1128,6 +1168,7 @@ function connect(){
   $("removeContinueWatching").addEventListener("click",()=>void removeContinueWatching());
   $("removeFromLibrary").addEventListener("click",()=>void removeFromLibrary());
   $("showInFolder").addEventListener("click",()=>void showInFolder());
+  $("locateFile").addEventListener("click",()=>{const row=contextRow;hideContextMenu();void recoverFile(row,true);});
   $("deleteFromDisk").addEventListener("click",()=>void deleteFromDisk());
   document.addEventListener("pointerdown",event=>{
     if(!event.target.closest("#libraryContextMenu"))hideContextMenu();

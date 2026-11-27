@@ -170,3 +170,9 @@ html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
 .dk-facet-links{display:flex;flex-wrap:wrap;gap:6px}
 
 .dk-collection-dialog{width:min(660px,92vw);max-height:85vh;overflow:auto;background:#211b17;color:#fff;border:1px solid #e2b956;border-radius:10px;padding:18px}.dk-collection-dialog h2{color:#e2b956}.dk-collection-dialog-body{display:grid;gap:8px;margin:12px 0}.dk-collection-membership{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dk-collection-membership span{flex:1;min-width:120px;overflow-wrap:anywhere}.dk-collection-membership input[type=text]{flex:1;min-width:130px}
+
+/* Persistent watched indicators, independent of Continue Watching. */
+.dk-watched-mark{position:absolute;top:7px;right:7px;display:grid;place-items:center;width:26px;height:26px;border:1px solid #432822;border-radius:50%;background:var(--dk-gold,#e2b956);color:#432822;font-size:18px;font-weight:900;z-index:3;line-height:1;pointer-events:none}
+.library-poster:has(.dk-watched-mark) .dk-watchlist-mark{left:7px;right:auto}
+.library-season-row{flex-wrap:wrap}
+#seasonWatchedCount{color:var(--dk-gold,#e2b956);font-size:.84rem}

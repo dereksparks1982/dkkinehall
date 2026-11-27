@@ -48,11 +48,12 @@
     <section class="library-section" aria-label="Entire Collection">
       <div class="section-heading">
         <div><h2 id="collectionTitle">Your Entire Movie Collection</h2><p id="collectionCount"></p></div>
+        <select id="watchedFilter" class="select" aria-label="Watched status" hidden><option value="">All viewing statuses</option><option value="watched">Watched</option><option value="unwatched">Unwatched</option><option value="progress">In progress</option></select>
       </div>
       <div id="seriesDetail" class="library-series-detail" hidden>
         <button type="button" class="btn ghost" id="backToSeries">Back to TV Shows</button>
         <h2 id="seriesTitle"></h2>
-        <div class="library-season-row"><label for="seasonSelect">Season</label><select id="seasonSelect" class="select"></select></div>
+        <div class="library-season-row"><label for="seasonSelect">Season</label><select id="seasonSelect" class="select"></select><span id="seasonWatchedCount" hidden></span><button type="button" id="markSeasonWatched" class="btn ghost" hidden>Mark Season as Watched</button><button type="button" id="markSeasonUnwatched" class="btn ghost" hidden>Mark Season as Unwatched</button></div>
       </div>
       <div id="libraryCollection" class="library-posters" role="tabpanel" aria-live="polite"></div>
       <button type="button" id="loadMoreLibrary" class="btn ghost library-load-more" hidden>Show More</button>
@@ -66,6 +67,8 @@
     <div class="library-footer-status" id="folderSummary" aria-live="polite"></div>
   </main>
   <div id="libraryContextMenu" class="library-context-menu" role="menu" hidden>
+    <button type="button" role="menuitem" id="markWatched" hidden>Mark as Watched</button>
+    <button type="button" role="menuitem" id="markUnwatched" hidden>Mark as Unwatched</button>
     <button type="button" role="menuitem" id="watchlistAction" hidden>Add to Watchlist</button>
     <button type="button" role="menuitem" id="manageMovieCollection" hidden>Manage Collections</button>
     <button type="button" role="menuitem" id="manageMovieEdition" hidden>Movie Editions</button>

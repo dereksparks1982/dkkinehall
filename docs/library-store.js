@@ -95,7 +95,7 @@ async function putBatch(table,rows){
         const live=request.result;
         if(live?.userHidden) return;
         s.put(live?{...row,position:live.position||0,duration:live.duration||0,
-          lastPlayed:live.lastPlayed||0,completed:!!live.completed,continueHidden:!!live.continueHidden}:row);
+          lastPlayed:live.lastPlayed||0,completed:!!live.completed,continueHidden:!!live.continueHidden,watchedSeconds:live.watchedSeconds,watchResetAt:live.watchResetAt,watchedChangedAt:live.watchedChangedAt}:row);
       };
     }
     tx.oncomplete=resolve;
@@ -329,7 +329,7 @@ async function scanFolder(folder,{manual=false,onProgress=()=>{},signal}={}){
       const from=previous[0],to=discovered[0];
       const merged={...to,
         position:from.position||0,duration:from.duration||0,
-        lastPlayed:from.lastPlayed||0,completed:from.completed||false,
+        lastPlayed:from.lastPlayed||0,completed:from.completed||false,watchedSeconds:from.watchedSeconds,watchResetAt:from.watchResetAt,watchedChangedAt:from.watchedChangedAt,continueHidden:!!from.continueHidden,
         episodeTitle:from.metadataVerified?
           from.episodeTitle:to.episodeTitle,
         metadataVerified:from.metadataVerified||false,
@@ -486,7 +486,10 @@ async function reconcileNative(){
         if(!recent.completed&&!(Number(recent.position)>2)&&
           !other.completed&&Number(other.position)>2)recent=other;
         const updated={...to,position:recent.position||0,duration:recent.duration||to.duration||0,
-          lastPlayed:recent.lastPlayed||0,completed:!!recent.completed};
+          lastPlayed:recent.lastPlayed||0,completed:!!recent.completed,watchedSeconds:recent.watchedSeconds,watchResetAt:recent.watchResetAt,watchedChangedAt:recent.watchedChangedAt,continueHidden:!!recent.continueHidden};
+        const watchedSource=(from.watchedChangedAt||0)>(to.watchedChangedAt||0)?from:(to.watchedChangedAt?to:(from.completed?from:to.completed?to:recent));
+        updated.completed=!!watchedSource.completed;updated.watchedChangedAt=watchedSource.watchedChangedAt;
+        if(updated.completed)updated.position=0;
         if(from.metadataVerified&&!to.metadataVerified){
           updated.episodeTitle=from.episodeTitle;updated.metadataVerified=true;
         }
@@ -543,7 +546,7 @@ async function hideEntry(id){
         nativeRoot:row.nativeRoot,volumeIdentity:row.volumeIdentity,filename:row.filename,
         relative:row.relative,size:row.size,modified:row.modified,userHidden:true,
         position:row.position,duration:row.duration,lastPlayed:row.lastPlayed,
-        completed:row.completed,continueHidden:true});
+        completed:row.completed,watchedSeconds:row.watchedSeconds,watchResetAt:row.watchResetAt,watchedChangedAt:row.watchedChangedAt,continueHidden:true});
       tx.objectStore("art").delete(id);hidden=true;
     };
     tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Remove from library failed"));
@@ -609,7 +612,27 @@ async function setContinueHidden(id,hidden=true){
   if(saved)changed({progress:true,id});
   return saved;
 }
-async function updateProgress(id,position,duration,completed=false){
+async function setWatched(ids,watched){
+  const unique=[...new Set(Array.isArray(ids)?ids:[ids])].filter(id=>typeof id==="string");
+  const db=await open();let saved=0;
+  const now=Date.now();
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction("entries","readwrite"),object=tx.objectStore("entries");
+    for(const id of unique){
+      const request=object.get(id);
+      request.onsuccess=()=>{
+        const row=request.result;if(!row)return;
+        object.put({...row,completed:!!watched,position:0,watchedSeconds:0,
+          watchResetAt:now,watchedChangedAt:now,continueHidden:false});
+        saved++;
+      };
+    }
+    tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Could not save watched status"));
+  });
+  if(saved)changed({progress:true,watched:true});
+  return saved;
+}
+async function updateProgress(id,position,duration,completed=false,playedDelta=0,observedAt=Date.now()){
   // One read/write transaction prevents overlapping updates from separate
   // library/player windows clobbering a newer playback position.
   const db=await open();
@@ -627,12 +650,18 @@ async function updateProgress(id,position,duration,completed=false){
       // Never classify a stopped or just-opened short video as finished.
       // Completion requires a positive playback position near the end.
       const standalone=typeof window!=="undefined"&&Boolean(window.DKLibraryBridge?.internalPages);
-      if(standalone&&!completed&&(!Number.isFinite(seconds)||progress<=2))return;
+      if(standalone&&Number(row.watchResetAt)>observedAt){saved=true;return;}
+      if(standalone&&!completed&&(!Number.isFinite(seconds)||progress<=2)){saved=true;return;}
       const finishWindow=Math.min(12,total*0.05);
-      const done=Boolean(completed)||(!standalone&&
+      const done=(standalone&&!!row.completed)||Boolean(completed)||(!standalone&&
         (total>0&&progress>0&&progress>=Math.max(1,total-finishWindow)));
+      const delta=Math.max(0,Math.min(120,Number(playedDelta)||0));
+      // Old records have only a saved position, not measured watch time.
+      // Preserve their existing eligibility when transitioning to the new clock.
+      const prior=Number.isFinite(row.watchedSeconds)?row.watchedSeconds:Math.min(60,Math.max(0,Number(row.position)||0));
       object.put({...row,position:done?0:progress,duration:total,
-        lastPlayed:Date.now(),completed:done});
+        lastPlayed:Date.now(),completed:done,
+        ...(standalone?{watchedSeconds:Math.min(60,prior+delta),watchedChangedAt:done&&!row.completed?Date.now():row.watchedChangedAt}: {})});
       saved=true;
     };
     tx.oncomplete=resolve;
@@ -698,7 +727,7 @@ async function saveArtwork(id,blob,credit=""){
 return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,reconcileNative,emptyTrash,removeEntry,hideEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setContinueHidden,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

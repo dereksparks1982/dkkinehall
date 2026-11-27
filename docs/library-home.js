@@ -19,7 +19,7 @@ let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
 let maintaining=false,refreshCancelled=false;
 let bottomObserver=null;
-let contextRow=null;
+let contextRow=null,contextSeries=false,watchedFilter="";
 let libraryZoom=100;
 const libraryZoomKey="dk-kinehall.library.zoom.v1";
 const applyLibraryZoom=(value,persist=true)=>{
@@ -116,7 +116,9 @@ function recoverLegacyProgress(rows){
   return result;
 }
 function currentProgress(row){
+  if(row.completed)return 0;
   if(Number(row.position)>2)return Number(row.position);
+  if(row.watchResetAt)return 0;
   if(nativeBridge)return legacyProgressById.get(row.id)||0;
   const key="file:"+row.filename+":"+row.size+":"+row.modified;
   const value=Number(legacyResume[key]);
@@ -126,7 +128,8 @@ function needsContinue(row){
   if(row.continueHidden)return false;
   const value=currentProgress(row),length=Number(row.duration)||0;
   // Unavailable media still has history; retain its disabled/unavailable card.
-  return !row.completed&&value>2&&(!length||value<length);
+  const eligible=!nativeBridge?value>2:Number.isFinite(row.watchedSeconds)?row.watchedSeconds>=60:value>=60;
+  return !row.completed&&eligible&&value>2&&(!length||value<length);
 }
 function coverShell(landscape){
   const shell=create("span","library-poster");
@@ -137,6 +140,43 @@ function coverShell(landscape){
   fallback.append(mark,label);
   shell.append(fallback);
   return shell;
+}
+function seriesRows(row){return all.filter(x=>x.kind==="tv"&&seriesKey(x.series)===seriesKey(row.series));}
+function historyBucket(row){return row.completed?"watched":currentProgress(row)>2?"progress":"unwatched";}
+function paintWatchedCard(card,row,series=false){
+  const box=card.querySelector(".library-poster");
+  if(!box)return;
+  const rows=series?seriesRows(row):[row],count=rows.filter(x=>x.completed).length;
+  const done=rows.length>0&&count===rows.length;
+  let mark=box.querySelector(".dk-watched-mark");
+  if(done){
+    if(!mark){mark=create("span","dk-watched-mark","✓");box.append(mark);}
+    mark.title=say("Watched","Просмотрено");mark.setAttribute("aria-label",mark.title);
+  }else mark?.remove();
+  let bar=box.querySelector(".library-progress");
+  const value=series?count:currentProgress(row),duration=series?rows.length:Number(row.duration)||0;
+  if(!done&&(series?count>0:value>2)){
+    if(!bar){bar=create("span","library-progress");bar.append(create("span"));box.append(bar);}
+    bar.firstElementChild.style.width=duration>0?Math.max(3,Math.min(100,100*value/duration))+"%":"10%";
+  }else bar?.remove();
+  if(series){
+    const detail=card.querySelector(".library-card-detail");
+    if(detail)detail.textContent=say(count+" of "+rows.length+" watched","Просмотрено "+count+" из "+rows.length);
+  }
+}
+function refreshSeasonWatched(){
+  const count=$("seasonWatchedCount");
+  if(!count||!selectedSeries)return;
+  const rows=all.filter(x=>x.kind==="tv"&&seriesKey(x.series)===seriesKey(selectedSeries)&&x.season===selectedSeason);
+  count.textContent=say(rows.filter(x=>x.completed).length+" of "+rows.length+" watched","Просмотрено "+rows.filter(x=>x.completed).length+" из "+rows.length);
+}
+function refreshWatchedCards(){
+  const map=new Map(all.map(row=>[row.id,row]));
+  for(const card of document.querySelectorAll("#libraryCollection .library-card,#continueWatching .library-card")){
+    const row=map.get(card.dataset.libraryId);
+    if(row)paintWatchedCard(card,row,card.dataset.displayRole==="series");
+  }
+  refreshSeasonWatched();
 }
 function createCard(row,{landscape=false,series=false}={}){
   const card=create("button","library-card"+(row.missing?" library-unavailable":""));
@@ -153,7 +193,8 @@ function createCard(row,{landscape=false,series=false}={}){
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
   if(window.DKCollections?.has(row))box.append(create("span","dk-watchlist-mark","★"));
-  if(landscape){
+  if(nativeBridge)paintWatchedCard(card,row,series);
+  else if(landscape){
     const bar=create("span","library-progress");
     const fill=create("span");
     const duration=Number(row.duration)||0;
@@ -395,14 +436,19 @@ async function pumpArtwork(){
   }
 }
 function hideContextMenu(){
-  contextRow=null;
+  contextRow=null;contextSeries=false;
   const menu=$("libraryContextMenu");
   if(menu)menu.hidden=true;
 }
 function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   const menu=$("libraryContextMenu");
   if(!menu||!nativeBridge||!row?.nativePath)return;
-  contextRow=row;
+  contextRow=row;contextSeries=seriesOnly;
+  const mark=$("markWatched"),unmark=$("markUnwatched");
+  mark.hidden=false;unmark.hidden=false;
+  mark.textContent=seriesOnly?say("Mark Entire Series as Watched","Отметить весь сериал просмотренным"):say("Mark as Watched","Отметить просмотренным");
+  unmark.textContent=seriesOnly?say("Mark Entire Series as Unwatched","Отметить весь сериал непросмотренным"):say("Отметить непросмотренным","Отметить непросмотренным");
+  if(!seriesOnly)unmark.textContent=say("Mark as Unwatched","Отметить непросмотренным");
   const watch=$("watchlistAction");
   if(watch){watch.hidden=!window.DKCollections;watch.textContent=window.DKCollections?.has(row)?say("Remove from Watchlist","Убрать из списка просмотра"):say("Add to Watchlist","Добавить в список просмотра");}
   const collection=$("manageMovieCollection"),edition=$("manageMovieEdition");
@@ -514,6 +560,27 @@ async function refreshMovie(){
       status("Movie metadata refreshed where available.","Доступные данные фильма обновлены.");
     }else status("No matching movie metadata found.","Данные фильма не найдены.",true);
   }catch(_){status("Could not refresh movie metadata.","Не удалось обновить данные фильма.",true);}
+}
+async function markHistory(rows,watched){
+  if(!rows.length)return;
+  if(rows.length>1&&!window.confirm(say((watched?"Mark as watched: ":"Mark as unwatched: ")+rows.length+" videos?",(watched?"Отметить просмотренными: ":"Отметить непросмотренными: ")+rows.length+" видео?")))return;
+  try{
+    await store.setWatched(rows.map(row=>row.id),watched);
+    // Old resume snapshots must not resurrect manually reset history.
+    const resume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};
+    const fingerprints=new Map(rows.map(row=>["file:"+row.filename+":"+row.size,row.modified]));
+    for(const key of Object.keys(resume)){
+      const split=key.lastIndexOf(":");
+      if(fingerprints.has(key.slice(0,split))&&Math.abs(Number(key.slice(split+1))-Number(fingerprints.get(key.slice(0,split))))<=1)delete resume[key];
+    }
+    localStorage.setItem("dkmedia.web.resume.v1",JSON.stringify(resume));
+    await render();
+    status(watched?"Marked as watched.":"Marked as unwatched.",watched?"Отмечено просмотренным.":"Отмечено непросмотренным.");
+  }catch(_){status("Could not save watched status.","Не удалось сохранить состояние просмотра.",true);}
+}
+function markContext(watched){
+  const row=contextRow,series=contextSeries;hideContextMenu();
+  if(row)void markHistory(series?seriesRows(row):[row],watched);
 }
 async function removeContinueWatching(){
   const row=contextRow;hideContextMenu();if(!row)return;
@@ -631,7 +698,7 @@ function scheduleHistoryRefresh(){
       all=all.map(row=>latest.get(row.id)||row);
       try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}catch(_){legacyResume={};}
       if(nativeBridge)legacyProgressById=recoverLegacyProgress(all);
-      paintContinueWatching();
+      paintContinueWatching();refreshWatchedCards();
     }catch(_){}
   },180);
 }
@@ -721,7 +788,10 @@ async function render(){
   window.DKLiveTV?.syncTabs();
   const unfiltered=all.filter(x=>x.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(x.filename)));
   syncCollectionTools(unfiltered,tv);
-  const active=window.DKCollections?window.DKCollections.filter(unfiltered,collectionFilter.kind,collectionFilter.value,collectionFilter.query,collectionFilter.saved):unfiltered;
+  const baseActive=window.DKCollections?window.DKCollections.filter(unfiltered,collectionFilter.kind,collectionFilter.value,collectionFilter.query,collectionFilter.saved):unfiltered;
+  const active=nativeBridge&&watchedFilter?baseActive.filter(row=>historyBucket(row)===watchedFilter):baseActive;
+  $("watchedFilter").hidden=!nativeBridge;
+  $("watchedFilter").value=watchedFilter;
   const resume=unfiltered.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed)
     .slice(0,30);
   const continueList=$("continueWatching");
@@ -732,7 +802,8 @@ async function render(){
   let cards=[];
   if(tv&&selectedSeries){
     const rows=active.filter(row=>seriesKey(row.series)===seriesKey(selectedSeries));
-    const seasons=[...new Set(rows.map(x=>x.season))].sort((a,b)=>a-b);
+    const seasonRows=unfiltered.filter(row=>seriesKey(row.series)===seriesKey(selectedSeries));
+    const seasons=[...new Set(seasonRows.map(x=>x.season))].sort((a,b)=>a-b);
     if(!seasons.includes(selectedSeason))
       selectedSeason=seasons.length?seasons[0]:null;
     const selected=$("seasonSelect");
@@ -744,6 +815,9 @@ async function render(){
       return opt;
     }));
     $("seriesTitle").textContent=selectedSeries;
+    $("seasonWatchedCount").hidden=!nativeBridge;
+    $("markSeasonWatched").hidden=!nativeBridge;$("markSeasonUnwatched").hidden=!nativeBridge;
+    refreshSeasonWatched();
     cards=rows.filter(row=>row.season===selectedSeason)
       .sort((a,b)=>a.episode-b.episode||nameSort(a.filename,b.filename));
     $("collectionTitle").textContent=
@@ -1012,6 +1086,12 @@ function connect(){
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
+  $("markWatched").addEventListener("click",()=>markContext(true));
+  $("markUnwatched").addEventListener("click",()=>markContext(false));
+  $("watchedFilter").addEventListener("change",event=>{watchedFilter=event.target.value;visibleCount=72;void render();});
+  for(const [id,watched] of [["markSeasonWatched",true],["markSeasonUnwatched",false]]){
+    $(id).addEventListener("click",()=>void markHistory(all.filter(row=>row.kind==="tv"&&seriesKey(row.series)===seriesKey(selectedSeries)&&row.season===selectedSeason),watched));
+  }
   $("removeContinueWatching").addEventListener("click",()=>void removeContinueWatching());
   $("removeFromLibrary").addEventListener("click",()=>void removeFromLibrary());
   $("showInFolder").addEventListener("click",()=>void showInFolder());

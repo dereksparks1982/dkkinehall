@@ -382,6 +382,24 @@
     if (codecPlayback?.isActive(item))void codecPlayback.seek(item,value);
     else media.currentTime=value;
   };
+  // Accumulate actual advancing playback time, not seek position. Reset
+  // samples at interruptions, and cap gaps so sleeping/buffering is not counted.
+  let watchSample=null;
+  const sampleWatchTime=()=>{
+    const item=current(),now=performance.now(),position=playbackSeconds();
+    if(!window.DKLibraryBridge?.internalPages||!item?.file||item.audio||item.file.dvdToken||
+       state.stopped||!item.historyReady||media.paused||media.seeking||media.readyState<2||
+       !Number.isFinite(position)){watchSample=null;return;}
+    if(watchSample?.item===item){
+      const elapsed=(now-watchSample.now)/1000,advance=position-watchSample.position;
+      const rate=Math.max(0.1,Number(media.playbackRate)||1);
+      if(elapsed>0&&elapsed<=2.5&&advance>0&&advance<=elapsed*rate+0.5)
+        item.watchPending=Math.min(120,(item.watchPending||0)+Math.min(elapsed,advance/rate));
+    }
+    watchSample={item,now,position};
+  };
+  for(const event of ["seeking","pause","waiting","emptied","ratechange"])
+    media.addEventListener(event,()=>{watchSample=null;});
   // Keep catalog writes ordered even if playback ends during identity recovery.
   const saveLibraryProgress=(item,position,duration,completed=false)=>{
     const catalog=window.DKLibraryStore;
@@ -391,22 +409,22 @@
       return;
     }
     if(!item.file||item.audio||item.file.dvdToken)return;
+    const delta=item.watchPending||0,observedAt=Date.now();item.watchPending=0;
     item.historyWrites=(item.historyWrites||Promise.resolve()).catch(()=>{}).then(async()=>{
       const id=item.libraryId||item.file.nativeId;
-      if(id&&await catalog.updateProgress(id,position,duration,completed)){
+      if(id&&await catalog.updateProgress(id,position,duration,completed,delta,observedAt)){
         item.libraryId=id;return;
       }
       // A scan may not have indexed this file yet. Retry periodically, not
       // on every clock tick, and always attempt a final completion write.
       const now=Date.now();
-      if(!completed&&now-(item.historyLookupAt||0)<15000)return;
+      if(!completed&&now-(item.historyLookupAt||0)<15000){item.watchPending=Math.min(120,(item.watchPending||0)+delta);return;}
       item.historyLookupAt=now;
       const row=await catalog.resolvePlaybackEntry(item.file,id);
-      if(!row)return;
-      if(await catalog.updateProgress(row.id,position,duration,completed)){
+      if(row&&await catalog.updateProgress(row.id,position,duration,completed,delta,observedAt)){
         item.libraryId=row.id;
-      }
-    }).catch(()=>{});
+      }else item.watchPending=Math.min(120,(item.watchPending||0)+delta);
+    }).catch(()=>{item.watchPending=Math.min(120,(item.watchPending||0)+delta);});
   };
   const rememberPosition = () => {
     if(state.stopped)return;
@@ -1951,6 +1969,7 @@
         key: file.dvdToken||("file:" + file.name + ":" + file.size + ":" + file.lastModified),
         embeddedSubtitles: [], embeddedAudio: [], embeddedVideo: [], mkvInspection: "not-mkv"};
       newItems.push(item);
+      if(artData?.libraryHistoryReset){delete state.resume[item.key];write(store.resume,state.resume);}
       if(item.libraryId&&Number(artData?.libraryPosition)>2 &&
          !Number.isFinite(Number(state.resume[item.key])))
         state.resume[item.key]=Number(artData.libraryPosition);
@@ -3532,6 +3551,7 @@
     updateChapterMarkers();
   });
   media.addEventListener("timeupdate", () => {
+    sampleWatchTime();
     const item=current();
     if(item?.kind==="network"&&!state.stopped&&!media.seeking&&media.readyState>=2){
       const at=playbackSeconds(),duration=playbackDuration();
@@ -5038,7 +5058,11 @@
           item.libraryId=id;
           item.episodeTitle=row.episodeTitle||item.episodeTitle||"";
           item.metadataFilename=metadataFilename;
-          if(!(Number(state.resume[item.key])>2)&&Number(row.position)>2)
+          if(row.completed||row.watchResetAt){
+            if(row.position>2&&!row.completed)state.resume[item.key]=Number(row.position);
+            else delete state.resume[item.key];
+            item.watchPending=0;write(store.resume,state.resume);
+          }else if(!(Number(state.resume[item.key])>2)&&Number(row.position)>2)
             state.resume[item.key]=Number(row.position);
           if(index===state.current&&!state.stopped){
             if(media.paused)playCurrent();
@@ -5053,7 +5077,7 @@
         await window.DKLibraryStore.openFile(row,{requestPermission:true});
 
       addFiles([selected.file],[selected.handle],"open",{
-        libraryId:id,libraryPosition:row.position||0,
+        libraryId:id,libraryPosition:row.position||0,libraryHistoryReset:!!(row.completed||row.watchResetAt),
         episodeTitle:row.episodeTitle||"",metadataFilename,
         nativeSrc:selected.src||null
       });

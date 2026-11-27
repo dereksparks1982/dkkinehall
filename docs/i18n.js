@@ -464,6 +464,8 @@
     "Media address":"Адрес медиафайла", "Optional title":"Название (необязательно)",
     "Title (optional)":"Название (необязательно)", "Play URL":"Воспроизвести ссылку",
     "Import local playlist…":"Импорт списка воспроизведения…",
+    "Watched status":"Состояние просмотра", "All viewing statuses":"Все состояния просмотра", "Watched":"Просмотрено", "Unwatched":"Не просмотрено", "In progress":"Начат просмотр",
+    "Mark as Watched":"Отметить просмотренным", "Mark as Unwatched":"Отметить непросмотренным", "Mark Season as Watched":"Отметить сезон просмотренным", "Mark Season as Unwatched":"Отметить сезон непросмотренным",
     "Playlist":"Плейлист", "Up Next":"Далее", "0 items":"0 файлов",
     "Your playlist is empty. Add a file to begin.":"Список воспроизведения пуст. Добавьте файл.",
     "＋ Add files":"＋ Добавить файлы", "Clear queue":"Очистить очередь",

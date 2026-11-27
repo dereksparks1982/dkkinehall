@@ -2220,58 +2220,94 @@ function connect(){
     if(serverControls)serverPanel.append(serverControls);
     const lifecycle=create("p","helper");
     const networkInfo=create("p","helper");
-    const diagnosticsTitle=create("h3",null,say("Diagnostics","Диагностика"));
-    const diagnostics=create("pre","dk-server-diagnostics");
-    diagnostics.setAttribute("aria-live","polite");
+    const diagnosticPanel=create("section","dk-server-settings dk-diagnostic-center");diagnosticPanel.hidden=true;dlg.append(diagnosticPanel);
+    const openDiagnostics=cinemaButton("Diagnostic Centre","Центр диагностики",()=>chooseCategory("diagnostics"));
+    const scanServer=cinemaButton("Scan Library","Проверить медиатеку",()=>{dlg.close();void scan(true);});
+    serverPanel.append(lifecycle,networkInfo,scanServer,openDiagnostics);
+    const diagnosticsTitle=create("h3",null,say("Diagnostic Centre","Центр диагностики"));
+    const diagnosticNote=create("p","helper",say("Read-only local checks. Reports exclude passwords, tokens, media paths and raw logs.","Локальные проверки без изменений. Отчёты не содержат пароли, ключи доступа, пути к медиафайлам и исходные журналы."));
+    const totals=create("div","dk-diagnostic-totals"),facts=create("p","helper"),checks=create("div","dk-diagnostic-checks");
+    const history=create("select","select");history.setAttribute("aria-label",say("Report history","История отчётов"));
+    const diagnostics=create("pre","dk-server-diagnostics");diagnostics.hidden=true;
     const reportActions=create("div","dk-server-report-actions");
-    const refreshReport=create("button","btn",say("Refresh Diagnostics","Обновить диагностику"));refreshReport.type="button";
-    const exportReport=create("button","btn",say("Export Report","Сохранить отчёт"));exportReport.type="button";exportReport.disabled=true;
-    reportActions.append(refreshReport,exportReport);
-    serverPanel.append(lifecycle,networkInfo,diagnosticsTitle,diagnostics,reportActions);
-    let report=null,reportEpoch=0;
+    const refreshReport=cinemaButton("Run Checks","Выполнить проверки",()=>void updateReport());
+    const exportReport=cinemaButton("Export JSON","Сохранить JSON",()=>exportDiagnostic("json"));
+    const exportText=cinemaButton("Export Text","Сохранить текст",()=>exportDiagnostic("txt"));
+    const copyReport=cinemaButton("Copy Report","Копировать отчёт",()=>void copyDiagnostic());
+    const viewText=cinemaButton("View Report Text","Показать текст отчёта",()=>{diagnostics.hidden=!diagnostics.hidden;});
+    const notice=create("p","helper");notice.setAttribute("role","status");
+    reportActions.append(refreshReport,exportReport,exportText,copyReport,viewText);
+    diagnosticPanel.append(diagnosticsTitle,diagnosticNote,reportActions,history,totals,facts,checks,notice,diagnostics);
+    let report=null,reportEpoch=0,reports=[];
+    const historyKey="dk-kinehall.server.diagnostics.history.v1";
+    try{const data=JSON.parse(localStorage.getItem(historyKey)||"[]");if(Array.isArray(data))reports=data.filter(x=>x?.schema===1&&Array.isArray(x.checks)&&x.facts&&x.totals).slice(0,10);}catch(_){}
+    const words={passed:["Passed","Пройдено"],attention:["Needs attention","Требует внимания"],problem:["Problem","Проблема"],notTested:["Not tested","Не проверено"],information:["Information","Сведения"]};
+    const labels={
+     runtime:["Private server executable","Исполняемый файл сервера"],powerPreference:["Startup preference","Настройка автозапуска"],managedProcess:["Owned server process","Управляемый процесс"],listener:["Loopback-only listener","Локальный сетевой порт"],residentMemory:["Resident memory","Оперативная память"],threads:["Process threads","Потоки процесса"],diskSpace:["Available disk space","Свободное место на диске"],codecTools:["FFmpeg and FFprobe executables","Исполняемые файлы FFmpeg и FFprobe"],assignedFolders:["Assigned folders","Назначенные папки"],availableFolders:["Available folders","Доступные папки"],logCount:["Log files (count)","Количество журналов"],logBytes:["Log files (size)","Размер журналов"],authenticatedHealth:["Authenticated server health / latency","Доступность сервера и задержка"],scanTask:["Library scan task","Задача проверки медиатеки"],catalogCounts:["Server catalog counts","Размер каталога сервера"],sessions:["Server session count","Количество сеансов сервера"],databaseIntegrity:["Database integrity","Целостность базы данных"],codecPlayback:["Actual codec playback","Воспроизведение с кодеками"],transcoding:["Actual transcoding","Перекодирование"],remoteReachability:["Remote reachability","Удалённый доступ"]};
+    const guidance={runtime:["Check the private runtime installation.","Проверьте установку частного сервера."],managedProcess:["Check server power and startup status.","Проверьте питание и запуск сервера."],listener:["Check local server network configuration.","Проверьте локальные сетевые настройки сервера."],diskSpace:["Free disk space before scanning.","Освободите место перед проверкой."],codecTools:["Verify the packaged playback tools.","Проверьте наличие средств воспроизведения."],assignedFolders:["Assign media folders in Library Management.","Назначьте папки в управлении медиатекой."],availableFolders:["Reconnect missing drives and check folder access.","Подключите накопители и проверьте доступ к папкам."],authenticatedHealth:["Try restarting the private server.","Попробуйте перезапустить частный сервер."],scanTask:["Review scan status and retry if needed.","Проверьте состояние задачи и повторите при необходимости."]};
+    const stateWords={off:["Off","Выключен"],starting:["Starting","Запускается"],stopping:["Stopping","Останавливается"],ready:["Running","Работает"],scanning:["Scanning","Сканирование"],external:["External server","Внешний сервер"],unavailable:["Unavailable","Недоступен"],unknown:["Unknown","Неизвестно"]};
     const updateServerLabels=()=>{
       lifecycle.textContent=say("The power choice is remembered for automatic startup. The private server is designed to remain running after the app closes.","Выбранное состояние питания сохраняется для автоматического запуска. Частный сервер может продолжать работу после закрытия приложения.");
       networkInfo.textContent=say("The integrated private server is local-only. Remote access is not enabled.","Встроенный частный сервер доступен только локально. Удалённый доступ не включён.");
-      diagnosticsTitle.textContent=say("Diagnostics","Диагностика");
-      refreshReport.textContent=say("Refresh Diagnostics","Обновить диагностику");
-      exportReport.textContent=say("Export Report","Сохранить отчёт");
+      openDiagnostics.textContent=say("Diagnostic Centre","Центр диагностики");scanServer.textContent=say("Scan Library","Проверить медиатеку");
     };
-    async function updateReport(){
-      const ticket=++reportEpoch;report=null;exportReport.disabled=true;
-      diagnostics.textContent=say("Reading server status…","Получение состояния сервера…");
-      try{
-        const d=await jfCall("diagnostics");
-        if(ticket!==reportEpoch||serverPanel.hidden)return;
-        report={generatedAt:new Date().toISOString(),...d};
-        const words={off:["Off","Выключен"],starting:["Starting","Запускается"],stopping:["Stopping","Останавливается"],ready:["Running","Работает"],scanning:["Scanning","Сканирование"],external:["External server","Внешний сервер"],unavailable:["Unavailable","Недоступен"],unknown:["Unknown","Неизвестно"]};
-        const state=words[d.state]||words.unknown;
-        const yn=v=>v?say("Yes","Да"):say("No","Нет");
-        diagnostics.textContent=[
-          say("State: ","Состояние: ")+say(...state),
-          say("Runtime executable present: ","Исполняемый файл доступен: ")+yn(d.runtimeExecutable),
-          say("Enabled for startup: ","Автозапуск включён: ")+yn(d.enabled),
-          say("Managed process running: ","Управляемый процесс работает: ")+yn(d.runningProcess),
-          say("Assigned media folders: ","Назначенные папки: ")+d.folderCount,
-          say("Local port: ","Локальный порт: ")+(d.port??say("Not assigned","Не назначен")),
-          ...(typeof d.progress==="number"?[say("Scan progress: ","Ход сканирования: ")+Math.round(d.progress)+"%"]:[]),
-          say("Last successful scan: ","Последнее успешное сканирование: ")+(d.completed||say("Unknown","Неизвестно"))
-        ].join("\n");
-        exportReport.disabled=false;
-      }catch(_){if(ticket===reportEpoch)diagnostics.textContent=say("Server diagnostics unavailable.","Диагностика сервера недоступна.");}
+    function valueText(check){
+     const value=check.value;if(value===null||value===undefined)return say("Unavailable","Недоступно");
+     if(typeof value==="boolean")return value?say("Yes","Да"):say("No","Нет");
+     if(["residentMemory","diskSpace","logBytes"].includes(check.id))return new Intl.NumberFormat(lang(),{maximumFractionDigits:1}).format(value/1048576)+say(" MiB"," МиБ");
+     if(check.id==="authenticatedHealth")return value+say(" ms"," мс");
+     if(check.id==="scanTask")return ({Idle:say("Idle","Ожидание"),Running:say("Running","Выполняется"),Cancelling:say("Cancelling","Отмена")})[value]||String(value);
+     if(check.id==="catalogCounts")return [["MovieCount","Movies","Фильмы"],["SeriesCount","Series","Сериалы"],["EpisodeCount","Episodes","Серии"],["BoxSetCount","Collections","Коллекции"]].filter(([k])=>Number.isFinite(value[k])).map(([k,en,ru])=>say(en,ru)+": "+value[k]).join(" · ");
+     return String(value);
     }
-    refreshReport.addEventListener("click",()=>{void pollJellyfin();void updateReport();});
-    exportReport.addEventListener("click",()=>{
-      if(!report)return;
-      const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)+"\n"],{type:"application/json"}));
-      const a=create("a");a.href=url;a.download="DK-Kinehall-Server-Diagnostics.json";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
-    });
+    function textReport(d){
+     if(!d)return "";
+     return [say("DK Kinehall Server Diagnostic Report","Отчёт диагностики сервера ДК Кинехолл"),d.generatedAt,say("Application version: ","Версия приложения: ")+d.facts.version,say("Server state: ","Состояние сервера: ")+say(...(stateWords[d.facts.state]||stateWords.unknown)),...d.checks.map(x=>say(...(words[x.status]||words.notTested))+" | "+say(...(labels[x.id]||[x.id,x.id]))+" | "+valueText(x)),say("Private data omitted. Untested checks are not passes.","Личные данные исключены. Невыполненные проверки не считаются пройденными.")].join("\n");
+    }
+    function drawReport(d){
+     report=d;totals.replaceChildren();checks.replaceChildren();
+     for(const [key,label] of Object.entries(words)){const item=create("div","dk-diagnostic-total");item.dataset.state=key;item.append(create("strong",null,String(d.totals[key]||0)),create("span",null,say(...label)));totals.append(item);}
+     facts.textContent=[d.generatedAt,say("Server: ","Сервер: ")+say(...(stateWords[d.facts.state]||stateWords.unknown)),d.facts.serverVersion||"",d.facts.port?say("Local port: ","Локальный порт: ")+d.facts.port:"",typeof d.facts.progress==="number"?say("Scan: ","Проверка: ")+Math.round(d.facts.progress)+"%":"",d.facts.completed?say("Last scan: ","Последняя проверка: ")+d.facts.completed:""].filter(Boolean).join(" · ");
+     for(const check of d.checks){const card=create("div","dk-diagnostic-check");card.dataset.state=check.status;
+      card.append(create("strong",null,say(...(labels[check.id]||[check.id,check.id]))),create("span","dk-diagnostic-status",say(...(words[check.status]||words.notTested))),create("span","helper",valueText(check)));
+      if(["problem","attention"].includes(check.status)&&guidance[check.id])card.append(create("p","helper",say(...guidance[check.id])));
+      checks.append(card);
+     }
+     diagnostics.textContent=textReport(d);for(const b of [exportReport,exportText,copyReport,viewText])b.disabled=false;
+    }
+    function drawHistory(){
+     history.replaceChildren(...reports.map((r,i)=>{const opt=create("option",null,new Date(r.generatedAt).toLocaleString(lang()));opt.value=String(i);return opt;}));history.hidden=!reports.length;
+    }
+    history.addEventListener("change",()=>{const d=reports[Number(history.value)];if(d)drawReport(d);});
+    async function updateReport(){
+     const ticket=++reportEpoch;refreshReport.disabled=true;notice.textContent=say("Running checks…","Выполнение проверок…");
+     try{const d=await jfCall("diagnostics");if(ticket!==reportEpoch||diagnosticPanel.hidden)return;if(d?.schema!==1||!Array.isArray(d.checks)||!d.facts||!d.totals)throw Error();
+      reports=[d,...reports].slice(0,10);try{localStorage.setItem(historyKey,JSON.stringify(reports));}catch(_){}
+      drawHistory();drawReport(d);notice.textContent=say("Checks complete.","Проверки завершены.");
+     }catch(_){if(ticket===reportEpoch)notice.textContent=say("Diagnostics unavailable. Previous report retained.","Диагностика недоступна. Предыдущий отчёт сохранён.");}
+     finally{if(ticket===reportEpoch)refreshReport.disabled=false;}
+    }
+    function exportDiagnostic(format){
+     if(!report)return;
+     const data=format==="json"?JSON.stringify(report,null,2)+"\n":textReport(report)+"\n";
+     const url=URL.createObjectURL(new Blob([data],{type:format==="json"?"application/json":"text/plain"}));
+     const a=create("a");a.href=url;a.download="DK-Kinehall-Server-Diagnostics."+format;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    }
+    async function copyDiagnostic(){if(!report)return;try{await navigator.clipboard.writeText(textReport(report));notice.textContent=say("Report copied.","Отчёт скопирован.");}catch(_){diagnostics.hidden=false;notice.textContent=say("Clipboard unavailable. Select report text or export it.","Буфер обмена недоступен. Выделите текст отчёта или сохраните его.");}}
+    function enterDiagnostics(){
+     diagnosticsTitle.textContent=say("Diagnostic Centre","Центр диагностики");drawHistory();
+     if(reports.length)drawReport(reports[0]);else for(const b of [exportReport,exportText,copyReport,viewText])b.disabled=true;
+     refreshReport.disabled=false;void updateReport();
+    }
     const chooseCategory=id=>{
       selectedCategory=id;
-      title.textContent=id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
+      title.textContent=id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
       back.hidden=!id;for(const [key,btn] of categoryButtons)btn.hidden=!!id;
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
-      serverPanel.hidden=id!=="server";if(id==="server"){body.hidden=true;updateServerLabels();void updateReport();void pollJellyfin();}else{reportEpoch++;}
+      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";
+      if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();}
+      if(id==="diagnostics"){body.hidden=true;enterDiagnostics();}else{reportEpoch++;refreshReport.disabled=false;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
       if(id==="network"||id==="disc"){
         if(nativeBridge.openMediaTool)toolButton(id==="network"?"Network media…":"Open DVD…",async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool(id);dlg.close();}catch(_){setFeedback("Could not open media tool.");}finally{busy=false;}});
@@ -2287,7 +2323,7 @@ function connect(){
       if(id==="general")extra.hidden=false;
       body.scrollTop=0;window.DKLocale?.apply();
     };
-    back.addEventListener("click",()=>chooseCategory(null));
+    back.addEventListener("click",()=>chooseCategory(selectedCategory==="diagnostics"?"server":null));
     for(const [key,label] of categories){const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",()=>chooseCategory(key));nav.append(btn);categoryButtons.set(key,btn);}
     chooseCategory(null);
     const setFeedback=message=>{feedback.textContent=message;window.DKLocale?.apply();};
@@ -2342,7 +2378,7 @@ function connect(){
     });
     close.addEventListener("click",()=>{if(!busy)dlg.close();});
     dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
-    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;body.replaceChildren();button.focus();});
+    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;body.replaceChildren();button.focus();});
     openCinemaSettings=async(category=null)=>{
       if(dlg.open){chooseCategory(category);return;}
       const ticket=++epoch;dlg.showModal();chooseCategory(category);setFeedback(category==="server"?"":"Loading settings…");body.inert=true;busy=true;

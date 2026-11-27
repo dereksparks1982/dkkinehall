@@ -2536,6 +2536,77 @@ async function jfStatus(){
     return jfJSON({enabled:true,controllable:true,state:running?"scanning":"ready",progress:running?progress:null,completed:task?.LastExecutionResult?.EndTimeUtc||null});
   }catch(_){return jfJSON({state:"unavailable",enabled:true,controllable:true,runningProcess:!!jfState});}
 }
+// Diagnostics contain allowlisted aggregate facts only: no credentials,
+ // private paths, raw logs, user names, device names or IP addresses.
+function diagnosticTotals(checks){
+ const totals={passed:0,attention:0,problem:0,notTested:0,information:0};
+ for(const check of checks)if(Object.hasOwn(totals,check.status))totals[check.status]++;
+ return totals;
+}
+async function jfDiagnostics(){
+ const generatedAt=new Date().toISOString(),checks=[],facts={version:VERSION};
+ const add=(id,status,value=null)=>checks.push({id,status,value});
+ const state=jfState,external=!!jellyfinConfig(),enabled=jfEnabled(),alive=!!jfAlive(state);
+ facts.enabled=enabled;facts.external=external;facts.runningProcess=alive;facts.port=alive?state.port:null;
+ facts.folderCount=getLibrarySources().length;
+ const executable=path.join(app.getPath("home"),".local","share","dk-kinehall","jellyfin","runtime","jellyfin");
+ function executableExists(file){try{fs.accessSync(file,fs.constants.X_OK);return fs.statSync(file).isFile();}catch(_){return false;}}
+ facts.runtimeExecutable=executableExists(executable);
+ add("runtime",external?"information":facts.runtimeExecutable?"passed":"problem",facts.runtimeExecutable);
+ add("powerPreference","information",enabled);
+ add("managedProcess",external?"notTested":alive?"passed":enabled?"attention":"information",alive);
+ let listener=false,unsafe=false;
+ if(alive){try{listener=jfOwnListener(state);}catch(_){unsafe=true;}}
+ add("listener",unsafe?"problem":listener?"passed":alive?"attention":"notTested",listener);
+ let memory=null,threads=null;
+ if(alive)try{
+  const status=fs.readFileSync("/proc/"+state.pid+"/status","utf8");
+  const rss=/^VmRSS:\s+(\d+)\s+kB$/m.exec(status),thread=/^Threads:\s+(\d+)$/m.exec(status);
+  if(rss)memory=Number(rss[1])*1024;if(thread)threads=Number(thread[1]);
+ }catch(_){}
+ add("residentMemory",memory===null?"notTested":"information",memory);
+ add("threads",threads===null?"notTested":"information",threads);
+ try{const st=fs.statfsSync(app.getPath("userData"));const free=Number(st.bavail)*Number(st.bsize);add("diskSpace",free<1024**3?"problem":free<5*1024**3?"attention":"passed",free);}catch(_){add("diskSpace","notTested");}
+ const ffmpeg=executableExists(path.join(app.getAppPath(),"bin","ffmpeg")),ffprobe=executableExists(path.join(app.getAppPath(),"bin","ffprobe"));
+ add("codecTools",ffmpeg&&ffprobe?"passed":"attention",Number(ffmpeg)+Number(ffprobe));
+ add("assignedFolders",facts.folderCount?"information":"attention",facts.folderCount);
+ let available=0;
+ for(const root of getLibrarySources()){try{if(fs.statSync(root.path).isDirectory())available++;}catch(_){}}
+ add("availableFolders",facts.folderCount===0?"notTested":available===facts.folderCount?"passed":"attention",available);
+ let logCount=null,logBytes=null;
+ try{
+  const dir=path.join(app.getPath("userData"),"jellyfin-private","logs");const names=fs.readdirSync(dir).slice(0,500);
+  logCount=0;logBytes=0;
+  for(const name of names){const st=fs.lstatSync(path.join(dir,name));if(st.isFile()){logCount++;logBytes+=st.size;}}
+ }catch(_){}
+ add("logCount",logCount===null?"notTested":"information",logCount);add("logBytes",logBytes===null?"notTested":"information",logBytes);
+ let status;
+ try{status=JSON.parse((await jfStatus()).text);}catch(_){status={state:"unknown"};}
+ facts.state=status.state;facts.progress=status.progress??null;facts.completed=status.completed??null;
+ if(listener&&state?.token&&!external){
+  const t=Date.now();let healthy=false;
+  try{const info=await jfAdmin(state,"GET","/System/Info",undefined,{},5000);healthy=typeof info?.Version==="string";if(healthy)facts.serverVersion=info.Version.slice(0,40);}catch(_){}
+  add("authenticatedHealth",healthy?"passed":"problem",healthy?Date.now()-t:null);
+  if(healthy){
+   try{const tasks=await jfAdmin(state,"GET","/ScheduledTasks",undefined,{},5000);
+    const scan=Array.isArray(tasks)?tasks.find(x=>x.Key==="RefreshLibrary"):null;
+    const scanState=scan?.State,final=scan?.LastExecutionResult?.Status;
+    add("scanTask",!scan?"notTested":final==="Failed"?"problem":"information",["Idle","Running","Cancelling"].includes(scanState)?scanState:null);
+    const result=scan?.LastExecutionResult?.EndTimeUtc;
+    if(typeof result==="string"&&Number.isFinite(Date.parse(result)))facts.completed=result.slice(0,40);
+    if(Number.isFinite(scan?.CurrentProgressPercentage))facts.progress=Math.max(0,Math.min(100,scan.CurrentProgressPercentage));
+   }catch(_){add("scanTask","notTested");}
+   try{const count=await jfAdmin(state,"GET","/Items/Counts",undefined,{},5000);
+    const values={};for(const k of ["MovieCount","SeriesCount","EpisodeCount","BoxSetCount"])if(Number.isSafeInteger(count?.[k])&&count[k]>=0)values[k]=count[k];
+    add("catalogCounts",Object.keys(values).length?"information":"notTested",Object.keys(values).length?values:null);
+   }catch(_){add("catalogCounts","notTested");}
+   try{const sessions=await jfAdmin(state,"GET","/Sessions",undefined,{},5000);add("sessions",Array.isArray(sessions)?"information":"notTested",Array.isArray(sessions)?sessions.length:null);}
+   catch(_){add("sessions","notTested");}
+  }else{for(const id of ["scanTask","catalogCounts","sessions"])add(id,"notTested");}
+ }else{for(const id of ["authenticatedHealth","scanTask","catalogCounts","sessions"])add(id,"notTested");}
+ for(const id of ["databaseIntegrity","codecPlayback","transcoding","remoteReachability"])add(id,"notTested");
+ return jfJSON({schema:1,generatedAt,facts,checks,totals:diagnosticTotals(checks)});
+}
 async function jfMatch(url,kind){
   const fail={ok:false,status:404};
   const state=jfState,cfg=jfConfig;
@@ -2798,15 +2869,7 @@ async function jellyfinMetadata(raw,kind){
     const url=new URL(raw);
     if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.username||url.password||url.port||url.hash)return missing;
     if(url.pathname==="/status"&&kind==="json")return await jfStatus();
-    if(url.pathname==="/diagnostics"&&kind==="json"){
-      const result=await jfStatus();
-      const status=JSON.parse(result.text);
-      let runtimeExecutable=false;
-      try{fs.accessSync(path.join(app.getPath("home"),".local","share","dk-kinehall","jellyfin","runtime","jellyfin"),fs.constants.X_OK);runtimeExecutable=true;}catch(_){}
-      return jfJSON({state:status.state,enabled:status.enabled===true,controllable:status.controllable===true,
-        runtimeExecutable,runningProcess:!!jfAlive(jfState),folderCount:getLibrarySources().length,
-        port:jfState?.port||null,progress:status.progress??null,completed:status.completed??null});
-    }
+    if(url.pathname==="/diagnostics"&&kind==="json")return await jfDiagnostics();
     if(url.pathname==="/collections"&&kind==="json"&&jfConfig&&!jellyfinConfig())return jfJSON(await jfBoxSets(jfConfig,url.searchParams.get("force")==="1"));
     if(url.pathname==="/collection-image"&&kind==="image"&&jfConfig&&!jellyfinConfig()){
       const id=url.searchParams.get("id");if(!jellyfinId(id))return missing;
@@ -3271,6 +3334,14 @@ function install(originalWindow,originalPlayer){
   // or filesystem API are exposed to the renderer.
   const snapshotDownloads=home.webContents.session;
   const onSnapshotDownload=(event,item,contents)=>{
+    if(contents===home.webContents&&/^DK-Kinehall-Server-Diagnostics\.(json|txt)$/.test(item.getFilename())&&item.getURL().startsWith("blob:")){
+      const size=item.getTotalBytes();
+      if(size>2*1024*1024||size<0){event.preventDefault();return;}
+      const ru=readInterfaceLanguage("en")==="ru";
+      const extension=item.getFilename().endsWith(".json")?"json":"txt";
+      item.setSaveDialogOptions({title:ru?"Сохранить отчёт диагностики":"Save diagnostic report",defaultPath:path.join(app.getPath("documents"),item.getFilename()),filters:[{name:extension==="json"?"JSON":ru?"Текст":"Text",extensions:[extension]}]});
+      return;
+    }
     if(!installedWindow()||contents!==player.webContents||
        !/^DK-Kinehall-Snapshot-\d{1,16}-\d{1,12}s\.png$/.test(item.getFilename())||
        !item.getURL().startsWith("blob:"))return;

@@ -229,3 +229,6 @@ English/Russian metadata foundation: optional independently saved local title an
 
 
 Person profiles now keep bounded offline biography/filmography and portrait caches in the existing catalog database (up to 400 records and 48 MiB of estimated payload). Profile refresh is explicit, cached profiles are identified, failed refresh falls back to saved data, and library filmographies link only to current verified local matches. Full external career filmography and live-provider verification remain outstanding.
+
+
+Server → Diagnostic Centre: explicit checks with Passed, Needs attention, Problem, Not tested and Information results. Checks cover runtime executable, owned process, loopback listener, authenticated server latency, RSS/threads, disk space, bundled FFmpeg/FFprobe presence, assigned/available media roots, scan status, server catalog/session counts and aggregate log size/count. Last ten reports stay local; TXT/JSON export and clipboard/report-text fallback. Database integrity, actual playback/transcoding and remote reachability remain explicitly not tested. No tokens, raw logs, names or media paths in reports. Independent lifecycle settings, scheduled scan controls, CPU/uptime samples and richer support bundles remain planned. Installed verification pending.

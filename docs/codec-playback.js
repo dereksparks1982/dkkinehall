@@ -106,6 +106,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         if(token===generation&&current()===item) {
           active=null;
           item.codecActive=false;
+          if(item.kind==="network")item.networkError=String(error?.message||error).slice(0,220).replace(/^.*?Error invoking remote method[^:]*:\s*(?:Error:\s*)?/i,"");
           onStatus("Included codec playback failed: "+String(error?.message||error));
         }
         return false;

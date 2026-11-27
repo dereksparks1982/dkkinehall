@@ -45,7 +45,7 @@ function parseDate(s){
 }
 function programRows(row){
  if(row.kind==="atsc"){const broadcast=broadcastPrograms.get(entryKey(row));if(broadcast?.length)return broadcast;}
- const ids=[row.guideId,row.name,row.number].filter(Boolean);let id=ids.find(x=>programs.has(x));
+ const ids=[row.guideId,row.guideId?.split("@")[0],row.name?.replace(/\s*\(\d+p\)\s*$/i,""),row.name,row.number].filter(Boolean);let id=ids.find(x=>programs.has(x));
  if(!id){id=ids.map(x=>xmlNames.get(normalize(x))).find(x=>x&&programs.has(x));}
  return programs.get(id)||[];
 }
@@ -72,7 +72,9 @@ async function play(row){
    if(!id)throw Error("Unavailable");
   }
   if(!epoch(rev))return;
-  await bridge.liveTvPlay(row.kind==="tuner"?"tuner":"url",row.kind==="tuner"?id:row.url,row.name);
+  const localArt=logo(row),logoURL=validURL(row.logo||"");
+  const art=localArt?"./assets/channel_logos/builtin/"+encodeURIComponent(localArt):logoCache.get(logoURL)||"";
+  await bridge.liveTvPlay(row.kind==="tuner"?"tuner":"url",row.kind==="tuner"?id:row.url,row.name,art);
   report("Channel sent to Player.","Канал открыт в проигрывателе.");
  }catch(_){if(epoch(rev))report("Cannot open channel or unsupported stream.","Не удалось открыть канал или поток не поддерживается.");}
  finally{setBusy(false);}
@@ -244,7 +246,7 @@ function readGuideHeader(text){
  const header=text.split(/\r?\n/,1)[0]||"";
  for(const m of header.matchAll(/(?:x-tvg-url|url-tvg|tvg-url)="([^"]+)"/gi))for(const url of m[1].split(",")){const u=validURL(url.trim());if(u&&guideSources.size<6)guideSources.add(u);}
 }
-const regionalGuides={US:"https://epgshare01.online/epgshare01/epg_ripper_US_SPORTS1.xml.gz",GB:"https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz"};
+const regionalGuides=Object.fromEntries(Object.entries({US:"US2",GB:"UK1",DE:"DE1",FR:"FR1",LT:"LT1",LV:"LV1",LU:"LU1",MX:"MX1",MY:"MY1",NG:"NG1",NL:"NL1",NO:"NO1",NZ:"NZ1",PA:"PA1",PE:"PE1",PH:"PH2",PL:"PL1",MT:"MT1",KZ:"KZ1",MN:"MN1"}).map(([country,tag])=>[country,"https://epgshare01.online/epgshare01/epg_ripper_"+tag+".xml.gz"]));
 let guideLoading=false;
 async function fetchGuide(value,manual=false){
  const url=validURL(value);if(!url||guideLoading||!active)return;
@@ -257,7 +259,7 @@ async function fetchGuide(value,manual=false){
  finally{guideLoading=false;}
 }
 async function autoGuide(force=false){
- const url=regionalGuides[country||directoryCountry]||[...guideSources][0];
+ const url=[...guideSources][0]||regionalGuides[country||directoryCountry];
  if(url)await fetchGuide(url,force);
  else if(force)report("Select a supported country or enter a free XMLTV guide URL.","Выберите поддерживаемую страну или введите адрес бесплатной телепрограммы.");
 }

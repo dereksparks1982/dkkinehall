@@ -24,7 +24,16 @@ let installed=false,windowRef=null,playerContents=null,server=null,session=null,
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
 let frameCache=null,frameProbeBusy=false;
-let deinterlaceCapability=null,smoothingCapability=null,dvdCapability=null,dvdPicking=false;
+let deinterlaceCapability=null,smoothingCapability=null,dvdCapability=null,dvdPicking=false,networkCapability=null;
+async function networkFeatures(){
+ if(!networkCapability)networkCapability=Promise.all(["ffmpeg","ffprobe"].map(async name=>{
+   const [d,p]=await Promise.all([processOutput(binary(name),["-hide_banner","-demuxers"],8000),processOutput(binary(name),["-hide_banner","-protocols"],8000)]);
+   const has=n=>d.split("\n").some(line=>{const m=/^\s*D\s+([^\s]+)/.exec(line);return m&&m[1].split(",").includes(n);});
+   const proto=n=>p.split("\n").some(line=>line.trim()===n);
+   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto")};
+ })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
+ return networkCapability;
+}
 const dvdGrants=new Map();
 const isDVD=source=>Boolean(source&&typeof source==="object"&&source.kind==="dvd");
 function dvdArgs(source){
@@ -223,7 +232,7 @@ async function status() {
   try {
     const encoders=await processOutput(ffmpeg,["-hide_banner","-encoders"]);
     await processOutput(ffprobe,["-version"],8000);
-    availability=capabilityFromEncoders(encoders);
+    availability={...capabilityFromEncoders(encoders),network:await networkFeatures()};
     return availability;
   }catch(error){
     return {ready:false,reason:String(error.message||error).slice(0,200)};
@@ -248,11 +257,23 @@ async function probe(localPath) {
   const cacheable=!network&&!dvd?.drive;
   if(cacheable&&probeCache.has(key))return probeCache.get(key);
   const work=(async()=>{
-  const stdout=await processOutput(binary("ffprobe"),[
+  let stdout;
+  try{stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json",...(network?networkInputArgs:dvd?dvdArgs(dvd):[]),"-i",file
-  ],dvd&&!dvd.drive?90000:30000);
+  ],dvd&&!dvd.drive?90000:30000);}catch(error){
+    if(!network)throw error;
+    const failure=require("./library-host.cjs").networkFailure(localPath.token);
+    const caps=await networkFeatures();
+    const msg=String(error?.message||"");
+    const reason={denied:"TV stream denied by broadcaster",offline:"TV stream no longer available",upstream:"TV broadcaster returned an error",format:"Unsupported TV stream format",manifest:"Unsupported HLS manifest",address:"TV stream destination rejected",timeout:"TV stream timed out",connection:"TV stream connection failed"}[failure];
+    if(reason)throw Error(reason);
+    if(caps&&!caps.hls)throw Error("Bundled decoder lacks HLS support");
+    if(caps&&!caps.http)throw Error("Bundled decoder lacks HTTP support");
+    if(/timed out/i.test(msg))throw Error("TV stream timed out");
+    throw Error("TV stream could not be decoded");
+  }
   const json=JSON.parse(stdout);
   const streams=Array.isArray(json.streams)?json.streams:[];
   const video=streams.find(s=>s.codec_type==="video"&&!Number(s.disposition?.attached_pic));

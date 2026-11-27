@@ -1105,6 +1105,7 @@
       fallback.className = "queue-artwork-fallback";
       fallback.textContent = item.audio ? "♫" : "▶";
       artworkBox.append(fallback);
+      if(item.kind==="network"&&item.channelArtwork){const image=document.createElement("img");image.alt="";image.loading="lazy";image.src=item.channelArtwork;image.style.objectFit="contain";image.addEventListener("error",()=>image.remove(),{once:true});artworkBox.append(image);}
       if (queueHover&&!item.file?.dvdToken&&item.kind!=="network") queueHover.bind(play, item, artworkBox);
       const labels = document.createElement("span");
       labels.className = "queue-item-labels";
@@ -1387,7 +1388,7 @@
     item.codecAttempted = false;
     item.dvdSubtitleIndex=-1;
     item.sourceVideoExpected=false;
-    item.networkStarting=false;item.networkRetries=0;item.networkResume=0;item.networkLastPosition=0;item.networkKnownDuration=0;
+    item.networkStarting=false;item.networkRetries=0;item.networkResume=0;item.networkLastPosition=0;item.networkKnownDuration=0;item.networkError="";
     item.nativeAlternateAttempted = false;
     item.codecActive = false;
     item.codecRestart = false;
@@ -1712,9 +1713,10 @@
     try{return await tryNativeCodec(item,at);}
     finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
   };
+  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
   const recoverNetwork=(item,forceNative=false)=>{
     if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||item.networkRetries>=2||networkRetryTimer!==null)return false;
-    const epoch=item.playbackEpoch,at=Math.max(0,Number(item.networkLastPosition)||0);
+    const epoch=item.playbackEpoch,at=item.liveChannel?0:Math.max(0,Number(item.networkLastPosition)||0);
     const native=forceNative||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
     item.networkRetries++;
     status("Reconnecting to network media…");
@@ -1725,13 +1727,13 @@
         item.codecAttempted=false;
         const ok=await startNetworkDecoder(item,at);
         if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){
-          if(!recoverNetwork(item,true))status("Network stream unavailable or unsupported.");
+          if(!recoverNetwork(item,true))status(networkErrorText(item));
         }
       }else{
         item.networkResume=at;
         media.pause();media.crossOrigin="anonymous";media.src=item.src;media.load();
         const play=media.play();
-        if(play?.catch)play.catch(()=>{if(current()===item&&item.playbackEpoch===epoch&&!state.stopped&&!media.error)status("Network stream unavailable or unsupported.");});
+        if(play?.catch)play.catch(()=>{if(current()===item&&item.playbackEpoch===epoch&&!state.stopped&&!media.error)status(networkErrorText(item));});
       }
     },item.networkRetries*1000);
     return true;
@@ -2766,6 +2768,7 @@
       if(!grant?.token||!grant?.src)return;
       deferStartup=false;settingsDetails.open=false;
       const item=makeNetworkItem(grant,payload.name||"Live TV",false);
+      item.channelArtwork=typeof payload.artwork==="string"?payload.artwork:"";item.liveChannel=true;
       const index=state.current<0?state.queue.length:state.current+1;
       state.queue.splice(index,0,item);load(index,true);
     });
@@ -3431,10 +3434,10 @@
         const epoch=item.playbackEpoch;
         void startNetworkDecoder(item,Math.max(0,Number(item.networkLastPosition)||0)).then(ok=>{
           if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){
-            if(!recoverNetwork(item,true))status("Network stream unavailable or unsupported.");
+            if(!recoverNetwork(item,true))status(networkErrorText(item));
           }
         });
-      }else if(!recoverNetwork(item))status("Network stream unavailable or unsupported.");
+      }else if(!recoverNetwork(item))status(networkErrorText(item));
       updateButtons();return;
     }
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;

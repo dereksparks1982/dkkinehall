@@ -363,7 +363,8 @@ async function serveNetwork(req,res){
     const {reply,url}=await followStream((resource?.url||entry.url).href,entry.lan||null,{method:req.method,range,track,signal:controller.signal});
     clearTimeout(timer);
     if(!networkGrants.has(token)||res.destroyed){reply.destroy();return;}
-    if(![200,206,416].includes(reply.statusCode)){reply.destroy();return fail(502);}
+    if(![200,206,416].includes(reply.statusCode)){entry.failure=[401,403,451].includes(reply.statusCode)?"denied":reply.statusCode===404||reply.statusCode===410?"offline":"upstream";reply.destroy();return fail(502);}
+    if(root)entry.failure=null;
     const mime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
     const manifest=hlsMime(mime)||resource?.kind==="playlist"||/\.m3u8?$/i.test(url.pathname)||(!resource&&mime==="text/plain");
     const headers={"Content-Type":mime||"application/octet-stream","Access-Control-Allow-Origin":"null","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
@@ -374,13 +375,13 @@ async function serveNetwork(req,res){
       res.writeHead(200,{...headers,"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(rewritten)});return res.end(rewritten);
     }
     if(reply.statusCode!==416&&!/^(video\/|audio\/|application\/(?:octet-stream|mp4|mpegts|x-mpegts)$|binary\/octet-stream$)/.test(mime)&&!(resource?.kind==="key"||resource?.kind==="init"||resource?.kind==="segment"&&/^text\/vtt$/.test(mime))){
-      reply.destroy();return fail(415);
+      entry.failure="format";reply.destroy();return fail(415);
     }
     for(const k of ["content-length","content-range","accept-ranges"]){if(typeof reply.headers[k]==="string")headers[k]=reply.headers[k];}
     res.writeHead(reply.statusCode,headers);
     reply.on("error",()=>res.destroy());reply.on("aborted",()=>res.destroy());
     if(req.method==="HEAD"){reply.resume();res.end();}else reply.pipe(res);
-  }catch(_){if(!res.destroyed)fail(502);}finally{clearTimeout(timer);}
+  }catch(error){if(!res.destroyed){const msg=String(error?.message||"");entry.failure=/manifest|HLS URI/i.test(msg)?"manifest":/destination|LAN host|address/i.test(msg)?"address":/timed out|abort/i.test(msg)?"timeout":"connection";fail(502);}}finally{clearTimeout(timer);}
 }
 async function startNetworkProxy(){
   if(networkProxy?.listening)return networkProxy.address().port;
@@ -1690,7 +1691,7 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event)||activePage!=="library")throw Error("TV resource request rejected");
     return liveResource(url,kind);
   });
-  ipcMain.handle("dk-live-tv:play",async(event,kind,value,name)=>{
+  ipcMain.handle("dk-live-tv:play",async(event,kind,value,name,artwork)=>{
     if(!allowed(event)||activePage!=="library"||!["tuner","url"].includes(kind)||
        typeof value!=="string"||typeof name!=="string"||name.length>250)throw Error("Live TV request rejected");
     let grant=null;
@@ -1699,7 +1700,8 @@ function install(originalWindow,originalPlayer){
       await openPlayer(null,false,true);
       if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
       showPage("player");
-      player.webContents.send("dk-live-tv:play-channel",{grant,name});
+      const art=typeof artwork==="string"&&artwork.length<=400000&&(/^(?:data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+|\.\/assets\/channel_logos\/builtin\/[A-Za-z0-9_.%()-]+\.bmp)$/.test(artwork))?artwork:"";
+      player.webContents.send("dk-live-tv:play-channel",{grant,name,artwork:art});
       grant=null;
       return true;
     }finally{if(grant){const entry=networkGrants.get(grant.token);networkGrants.delete(grant.token);for(const client of entry?.clients||[])client.destroy();}}
@@ -2062,4 +2064,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,networkFailure:token=>networkGrants.get(token)?.failure||null};

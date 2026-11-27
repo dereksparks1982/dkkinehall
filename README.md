@@ -60,3 +60,5 @@ World TV matches channels against the IPTV-ORG channel, feed, logo and stream da
 Live TV also has cached availability checks, persistent channel artwork and programme data, recently opened channels, time-selectable programme schedules, local recording and series rules, and opt-in disk replay for supported streams. Keep Kinehall open for recording. Recordings are written to a folder you choose. Commercial analysis suggests possible breaks in local videos for your review; skipping approved breaks is manual unless you enable automation.
 
 Standalone seek previews can use the included native decoder for supported local files. Create personal movie collections from the movie right-click menu, filter by collection in release order, and edit edition labels without changing filenames. Possible alternate versions are grouped by title and year for review.
+
+Live TV cards use aligned, fixed-size artwork, programme and action areas. The gold favourite star toggles saved channels without rebuilding the channel grid; full programme descriptions remain available through programme-title hover and the schedule.

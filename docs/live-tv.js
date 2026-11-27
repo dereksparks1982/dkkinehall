@@ -34,7 +34,33 @@ function logo(row){
 }
 const entryKey=row=>row.kind==="atsc"?"atsc:"+row.device+":"+row.number:row.kind==="tuner"?"tuner:"+row.host+":"+row.number:"url:"+row.url;
 const isSaved=row=>saved.some(x=>entryKey(x)===entryKey(row));
-function saveRow(row){const key=entryKey(row);saved=isSaved(row)?saved.filter(x=>entryKey(x)!==key):[...saved,{...row,id:undefined}].slice(0,3000);if(!write(keys.saved,saved))report("Could not save channels.","Не удалось сохранить каналы.");render();}
+function paintSavedStar(star,row){
+ const selected=isSaved(row),label=selected?tr("Remove from saved channels","Убрать из избранных каналов"):tr("Save channel","Сохранить канал");
+ star.textContent=selected?"★":"☆";
+ star.setAttribute("aria-pressed",String(selected));
+ star.setAttribute("aria-label",label);
+ star.title=label;
+}
+function saveRow(row,star){
+ const key=entryKey(row),removing=isSaved(row);
+ if(!removing&&saved.length>=3000){report("Saved channel limit reached.","Достигнут предел избранных каналов.");return;}
+ const next=removing?saved.filter(x=>entryKey(x)!==key):[...saved,{...row,id:undefined}];
+ if(!write(keys.saved,next)){report("Could not save channels.","Не удалось сохранить каналы.");return;}
+ saved=next;
+ // No full grid render: keep existing art, availability requests, focus,
+ // card geometry and scroll position stable when saving or unsaving.
+ if(mode==="saved"&&removing){
+  const card=star.closest(".dk-live-card");
+  const target=card?.nextElementSibling?.querySelector(".dk-live-save")||card?.previousElementSibling?.querySelector(".dk-live-save");
+  logoObserver?.unobserve(card?.querySelector(".dk-live-art")||star);
+  if(card)checkObserver?.unobserve(card);
+  card?.remove();
+  if(!grid.querySelector(".dk-live-card")){grid.replaceChildren(el("p","dk-live-muted",tr("No saved channels match this view.","Нет избранных каналов в этом разделе.")));return;}
+  target?.focus({preventScroll:true});
+ }else{
+  paintSavedStar(star,row);
+ }
+}
 function report(en,russian){if(notice)notice.textContent=tr(en,russian);}
 function setBusy(v){busy=v;panel?.setAttribute("aria-busy",String(v));}
 function epoch(v){return v===serial&&active;}
@@ -59,9 +85,10 @@ const clock=t=>new Date(t*1000).toLocaleTimeString(ru()?"ru-RU":undefined,{hour:
 function programBlock(label,translated,p){
  const d=el("div","dk-live-program");
  d.append(el("span","dk-live-label",tr(label,translated)));
- if(!p){d.append(el("span","dk-live-muted",tr("No guide data","Нет данных программы")));return d;}
- d.append(el("strong","",p.title),el("small","",clock(p.start)+" – "+clock(p.end)));
- if(p.desc)d.append(el("small","dk-live-description",p.desc));
+ if(!p){d.append(el("span","dk-live-muted dk-live-program-title",tr("No guide data","Нет данных программы")));return d;}
+ const title=el("strong","dk-live-program-title",p.title);
+ title.title=[p.title,p.desc].filter(Boolean).join("\n");
+ d.append(title,el("small","dk-live-program-time",clock(p.start)+" – "+clock(p.end)));
  return d;
 }
 async function play(row){
@@ -100,20 +127,21 @@ function render(){
  for(const row of rows.slice(0,250)){
   const card=el("article","dk-live-card"),identity=el("div","dk-live-identity"),art=el("div","dk-live-art"),name=el("div","dk-live-name");
   attachLogo(art,row);
-  name.append(el("strong","",row.name));
+  const channelTitle=el("strong","dk-live-channel-title",row.name);channelTitle.title=row.name;name.append(channelTitle);
   const location=row.country?flag(row.country)+" "+countryLabel(row.country):row.kind==="url"?tr("Country unknown","Страна неизвестна"):tr("Local tuner","Местный тюнер");
-  name.append(el("small","", [row.number,location].filter(Boolean).join(" · ")));
+  const locationText=[row.number,location].filter(Boolean).join(" · ");
+  const countryLine=el("small","dk-live-country",locationText);countryLine.title=locationText;name.append(countryLine);
   const details=[(row.categories||[]).map(categoryName).join(", "),(row.languages||[]).map(languageName).join(", ")].filter(Boolean).join(" · ");
-  if(details)name.append(el("small","dk-live-details",details));
+  if(details){const detailLine=el("small","dk-live-details",details);detailLine.title=details;name.append(detailLine);}
   if(row.kind==="url"){const badge=el("small","dk-live-check");paintCheck(badge,checks.get(row.url));name.append(badge);observeCheck(card,row.url,badge);}
-  const star=button(isSaved(row)?"Remove saved":"Save",isSaved(row)?"Убрать":"Сохранить",()=>saveRow(row),"dk-live-small dk-live-save");
+  const star=el("button","dk-live-small dk-live-save");star.type="button";paintSavedStar(star,row);star.addEventListener("click",()=>saveRow(row,star));
   identity.append(art,name,star);
   const {current,next}=guideInfo(row);
   const info=el("div","dk-live-programs");info.append(programBlock("Now","Сейчас",current),programBlock("Next","Далее",next));
   const watch=button("Watch Live","Смотреть",()=>void play(row),"dk-live-small dk-live-watch");
   if(row.kind==="atsc"){watch.disabled=true;watch.textContent=tr("Playback pending","Воспроизведение пока недоступно");}
   const actions=el("div","dk-live-card-actions");actions.append(watch,button("Schedule","Расписание",()=>showSchedule(row)));
-  if(row.kind==="url")actions.append(button("Record","Запись",()=>showRecord(row)));
+  const record=button("Record","Запись",()=>showRecord(row));record.disabled=row.kind!=="url";actions.append(record);
   card.append(identity,info,actions);frag.append(card);
  }
  grid.append(frag);
@@ -152,7 +180,7 @@ function showSchedule(row){
  const draw=()=>{listBox.replaceChildren();const time=new Date(from.value).getTime()/1000||Date.now()/1000;
  const list=programRows(row).filter(x=>x.end>time).slice(0,100);
  if(!list.length)listBox.append(el("p","dk-live-muted",tr("No published programme schedule.","Нет опубликованной телепрограммы.")));
- for(const programme of list){const line=el("div","dk-live-schedule-row");line.append(el("span","",new Date(programme.start*1000).toLocaleString(ru()?"ru-RU":undefined)+" · "+programme.title));
+ for(const programme of list){const line=el("div","dk-live-schedule-row");const summary=el("span","",new Date(programme.start*1000).toLocaleString(ru()?"ru-RU":undefined)+" · "+programme.title);if(programme.desc)summary.title=programme.desc;line.append(summary);
  if(row.kind==="url"&&programme.end>Date.now()/1000)line.append(button("Record","Записать",()=>void recordRow(row,programme)),button("Record Series","Записать сериал",()=>void recordRow(row,programme,true)));listBox.append(line);}};
  from.addEventListener("change",draw);draw();
 }

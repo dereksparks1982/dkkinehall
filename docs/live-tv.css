@@ -42,3 +42,23 @@ html.dk-standalone #libraryLiveTV[aria-selected=true]{box-shadow:inset 0 0 0 2px
 .dk-live-details{font-size:.8rem;line-height:1.25}.dk-live-art{font-weight:700;text-align:center}.dk-live-guidebar select{max-width:190px}
 
 .dk-live-card-actions{margin-top:auto;display:flex;flex-wrap:wrap;gap:6px}.dk-live-card-actions .dk-live-watch{flex:1 0 100%}.dk-live-card-actions .dk-live-small:not(.dk-live-watch){flex:1}.dk-live-check[data-state=working],.dk-live-check[data-state=reachable]{color:#e2b956}.dk-live-check[data-state=denied],.dk-live-check[data-state=offline]{color:#ff857b}.dk-live-schedule{width:100%;background:#211b17;border:1px solid #a58039;border-radius:8px;padding:12px;box-sizing:border-box}.dk-live-schedule-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid #a58039;padding:9px 0}.dk-live-schedule-row span{flex:1;min-width:160px}.dk-live-guidebar label{display:flex;align-items:center;gap:5px}
+
+/* Fixed geometry: no layout shift when a favourite changes state. */
+.dk-live-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));align-items:start}
+.dk-live-card{display:grid;grid-template-rows:116px 88px 86px;gap:10px;box-sizing:border-box;min-width:0;overflow:hidden}
+.dk-live-identity{display:grid;grid-template-columns:72px minmax(0,1fr) 36px;align-items:start;gap:9px;min-height:0;min-width:0;overflow:hidden}
+.dk-live-art{width:72px;height:52px;align-self:start;margin-top:3px}
+.dk-live-name{display:flex;flex-direction:column;gap:3px;min-width:0;overflow:hidden;line-height:1.23;overflow-wrap:break-word}
+.dk-live-channel-title{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.25;max-height:2.5em}
+.dk-live-country,.dk-live-details,.dk-live-check{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.dk-live-panel .dk-live-save{box-sizing:border-box;width:36px;min-width:36px;max-width:36px;height:36px;padding:0;display:grid;place-items:center;line-height:1;font-size:24px;align-self:start;flex:none;color:#e2b956;background:#432822;border:1px solid #a58039}
+.dk-live-panel .dk-live-save[aria-pressed=true]{color:#432822;background:#e2b956;border-color:#e2b956}
+.dk-live-programs{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;min-height:0;overflow:hidden;align-items:start}
+.dk-live-program{display:grid;grid-template-rows:1.15rem 2.5em 1.1rem;gap:3px;line-height:1.25;min-width:0;overflow:hidden;overflow-wrap:break-word}
+.dk-live-program-title{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-width:0}
+.dk-live-program-time{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dk-live-card-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:40px 40px;gap:6px;margin:0;align-items:stretch}
+.dk-live-card-actions .dk-live-watch{grid-column:1/-1;width:100%;margin:0}
+.dk-live-card-actions .dk-live-small{min-width:0;padding:4px 6px;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dk-live-card-actions .dk-live-small:disabled{opacity:.5;cursor:default}
+@media(max-width:560px){.dk-live-grid{grid-template-columns:1fr}}

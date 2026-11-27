@@ -1413,7 +1413,7 @@
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     media.removeAttribute("crossorigin");
     if(item.kind==="network")media.crossOrigin="anonymous";
-    if (item.file?.dvdToken || item.kind==="network"&&forcingContainer || needsRemux || cannotConvert) {
+    if (item.file?.dvdToken || item.kind==="network"&&(forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback) || needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");
     } else {
@@ -1459,7 +1459,7 @@
       return;
     }
     if(item.kind==="network"){
-      if(forcingContainer){void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&!state.stopped)status("Network decoder unavailable.");});}
+      if(forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item));}});}
       else if(autoplay)playCurrent();
       return;
     }
@@ -1724,6 +1724,11 @@
       networkRetryTimer=null;
       if(current()!==item||item.playbackEpoch!==epoch||state.stopped)return;
       if(native&&item.requestedFormat!=="original"&&codecPlayback){
+        if(item.liveChannel){
+          const alternate=await window.DKLibraryBridge?.liveTvAlternate?.(item.networkToken).catch(()=>false);
+          if(current()!==item||item.playbackEpoch!==epoch||state.stopped)return;
+          if(alternate){item.networkError="";status(window.DKLocale?.pair("Trying another channel source…","Подключение к другому источнику телеканала…")||"Trying another channel source…");}
+        }
         item.codecAttempted=false;
         const ok=await startNetworkDecoder(item,at);
         if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){

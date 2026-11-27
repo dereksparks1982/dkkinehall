@@ -365,12 +365,14 @@ async function serveNetwork(req,res){
     if(!networkGrants.has(token)||res.destroyed){reply.destroy();return;}
     if(![200,206,416].includes(reply.statusCode)){entry.failure=[401,403,451].includes(reply.statusCode)?"denied":reply.statusCode===404||reply.statusCode===410?"offline":"upstream";reply.destroy();return fail(502);}
     if(root)entry.failure=null;
-    const mime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
+    const suppliedMime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
+    const mime=suppliedMime||(/\.m3u8?$/i.test(url.pathname)?"application/vnd.apple.mpegurl":/\.ts$/i.test(url.pathname)?"video/mp2t":resource?"application/octet-stream":"");
     const manifest=hlsMime(mime)||resource?.kind==="playlist"||/\.m3u8?$/i.test(url.pathname)||(!resource&&mime==="text/plain");
     const headers={"Content-Type":mime||"application/octet-stream","Access-Control-Allow-Origin":"null","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
     if(manifest){
       if(req.method==="HEAD"){reply.destroy();res.writeHead(200,{...headers,"Content-Type":"application/vnd.apple.mpegurl"});return res.end();}
-      const body=await boundedBody(reply,2*1024*1024);
+      const manifestTimer=setTimeout(()=>controller.abort(),15000);
+      let body;try{body=await boundedBody(reply,2*1024*1024);}finally{clearTimeout(manifestTimer);}
       const rewritten=rewriteHLS(body.toString("utf8"),url,entry,token,networkProxy.address().port);
       res.writeHead(200,{...headers,"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(rewritten)});return res.end(rewritten);
     }
@@ -421,14 +423,14 @@ async function liveResource(value,kind){
  const limit=kind==="logo"?2*1024*1024:kind==="guide"?32*1024*1024:8*1024*1024;
  liveResourceBusy++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
  try{
-  const {reply}=await followStream(value,null,{signal:controller.signal,timeout:15000});
+  const {reply,url}=await followStream(value,null,{signal:controller.signal,timeout:15000});
   if(reply.statusCode!==200){reply.destroy();throw Error("TV resource unavailable");}
   const mime=String(reply.headers["content-type"]||"").split(";")[0].toLowerCase();
   if(kind==="logo"&&!/^image\/(?:png|jpeg|webp|gif)$/.test(mime)){reply.destroy();throw Error("Unsupported logo");}
   let data=await boundedBody(reply,limit);
   if(kind==="logo")return {mime,base64:data.toString("base64")};
   if(data[0]===31&&data[1]===139)data=require("node:zlib").gunzipSync(data,{maxOutputLength:kind==="guide"?64*1024*1024:limit});
-  return {text:data.toString("utf8")};
+  return {text:data.toString("utf8"),url:url.href};
  }finally{clearTimeout(timer);liveResourceBusy--;}
 }
  // Only the native decoder receives a validated, session-scoped loopback URL.
@@ -1691,12 +1693,23 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event)||activePage!=="library")throw Error("TV resource request rejected");
     return liveResource(url,kind);
   });
-  ipcMain.handle("dk-live-tv:play",async(event,kind,value,name,artwork)=>{
+  ipcMain.handle("dk-live-tv:play",async(event,kind,value,name,artwork,alternates=[])=>{
     if(!allowed(event)||activePage!=="library"||!["tuner","url"].includes(kind)||
        typeof value!=="string"||typeof name!=="string"||name.length>250)throw Error("Live TV request rejected");
     let grant=null;
     try{
-      grant=kind==="tuner"?await grantLiveChannel(value):await grantExplicitLiveStream(value);
+      const candidates=kind==="url"?[value,...(Array.isArray(alternates)?alternates.slice(0,2):[])]:[value];
+      let selected=-1;
+      for(let i=0;i<candidates.length;i++){
+        if(typeof candidates[i]!=="string"||candidates[i].length>4096)continue;
+        try{
+          if(i>0){const other=new URL(candidates[i]);if(privateIPv4(other.hostname))continue;}
+          grant=kind==="tuner"?await grantLiveChannel(candidates[i]):await grantExplicitLiveStream(candidates[i]);selected=i;break;
+        }catch(_){}
+      }
+      if(!grant)throw Error("No compatible stream address");
+      const entry=networkGrants.get(grant.token);
+      if(kind==="url"&&entry&&!entry.lan)entry.alternates=[...new Set(candidates.slice(selected+1).filter(x=>typeof x==="string"&&x.length<=4096))].slice(0,2);
       await openPlayer(null,false,true);
       if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
       showPage("player");
@@ -1721,6 +1734,24 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return grantNetwork(id,url);
+  });
+  ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
+    if(!onlyPlayer(event))return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.switching)return false;
+    entry.switching=true;
+    try{
+      while(entry.alternates?.length){
+        const next=entry.alternates.shift();
+        try{
+          const target=await streamTarget(next);
+          if(networkGrants.get(token)!==entry)return false;
+          for(const client of entry.clients)client.destroy();
+          entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;
+          return true;
+        }catch(_){}
+      }
+      return false;
+    }finally{entry.switching=false;}
   });
   ipcMain.handle("dk-network:release",(event,token)=>{
     if(!onlyPlayer(event))return false;

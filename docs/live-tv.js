@@ -74,7 +74,8 @@ async function play(row){
   if(!epoch(rev))return;
   const localArt=logo(row),logoURL=validURL(row.logo||"");
   const art=localArt?"./assets/channel_logos/builtin/"+encodeURIComponent(localArt):logoCache.get(logoURL)||"";
-  await bridge.liveTvPlay(row.kind==="tuner"?"tuner":"url",row.kind==="tuner"?id:row.url,row.name,art);
+  const alternates=row.kind==="url"&&row.guideId?[...new Set([...imported,...directory].filter(x=>x.guideId===row.guideId&&x.url!==row.url&&validURL(x.url)).map(x=>x.url))].slice(0,2):[];
+  await bridge.liveTvPlay(row.kind==="tuner"?"tuner":"url",row.kind==="tuner"?id:row.url,row.name,art,alternates);
   report("Channel sent to Player.","Канал открыт в проигрывателе.");
  }catch(_){if(epoch(rev))report("Cannot open channel or unsupported stream.","Не удалось открыть канал или поток не поддерживается.");}
  finally{setBusy(false);}
@@ -186,7 +187,7 @@ async function discover(){
 }
 function direct(){
  if(busy)return;clearWork();const input=makeInput("url","HTTP or HTTPS stream address","Адрес потока HTTP или HTTPS");
- const open=()=>{const url=validURL(input.value.trim());if(!url){report("Enter a valid HTTP or HTTPS address.","Введите действительный адрес HTTP или HTTPS.");return;}const name=new URL(url).hostname;void play({kind:"url",url,name});};
+ const open=()=>{const url=validURL(input.value.trim());if(!url){report("Enter a valid HTTP or HTTPS address.","Введите действительный адрес HTTP или HTTPS.");return;}if(/\.m3u$/i.test(new URL(url).pathname)){void remotePlaylist(url,false);return;}const name=new URL(url).hostname;void play({kind:"url",url,name});};
  workspace.append(input,button("Play Stream","Воспроизвести поток",open),button("Import URL","Импорт по адресу",()=>void remotePlaylist(input.value.trim(),false)));input.addEventListener("keydown",e=>{if(e.key==="Enter")open();});input.focus();
 }
 function parseM3U(text,base=null){
@@ -270,7 +271,7 @@ async function remotePlaylist(value,worldMode,chosen=""){
   const data=await bridge.liveTvResource(url,"playlist");if(!epoch(rev))return;
   if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/i.test(data.text)){setBusy(false);await play({kind:"url",url,name:new URL(url).hostname});return;}
   if(!/^\uFEFF?#EXTM3U/i.test(data.text))throw Error("Invalid list");
-  readGuideHeader(data.text);const rows=parseM3U(data.text,url);
+  readGuideHeader(data.text);const rows=parseM3U(data.text,validURL(data.url)||url);
   if(!rows.length)throw Error("Empty playlist");
   if(worldMode){directory=rows.map(x=>chosen&&!x.country?{...x,country:chosen}:x);directoryCountry=chosen;mode="world";country=chosen;render();}
   else{imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);write(keys.playlist,imported);showAll();}
@@ -284,8 +285,8 @@ function world(){
  const countries=new Set([...("US GB CA AU NZ DE FR ES IT RU UA PL BR MX AR IN PK SA AE EG TR JP KR CN NL BE SE NO FI DK IE CH AT GR PT RO ZA NG KE MA TN DZ IQ IR IL ID MY PH TH VN SG CZ SK HU BG HR RS BA SI LT LV EE IS LU MT CY GE AM AZ KZ UZ BD LK NP CL CO PE VE EC UY PY BO CR PA DO CU JM TT").split(" "),...imported.map(x=>x.country).filter(Boolean)]);
  for(const c of [...countries].sort()){const opt=el("option","",countryLabel(c));opt.value=c;select.append(opt);}
  select.value=country;
- const load=()=>{const chosen=select.value;const url="https://iptv-org.github.io/iptv/"+(chosen?"countries/"+chosen.toLowerCase()+".m3u":"index.m3u");void remotePlaylist(url,true,chosen);};
- select.addEventListener("change",()=>{country=select.value;render();load();});
+ const load=()=>{if(busy){select.value=country;return;}const chosen=select.value;const url="https://iptv-org.github.io/iptv/"+(chosen?"countries/"+chosen.toLowerCase()+".m3u":"index.m3u");void remotePlaylist(url,true,chosen);};
+ select.addEventListener("change",()=>{if(busy){select.value=country;return;}country=select.value;render();load();});
  workspace.append(select,button("Refresh Free Channels","Обновить бесплатные каналы",load),button("Refresh Free Guide","Обновить бесплатную телепрограмму",()=>void autoGuide(true)));render();
  if(!directory.length&&!busy)load();else void autoGuide();
 }

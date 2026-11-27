@@ -69,7 +69,7 @@ function verifyDVD(source){
 const isNetwork=source=>source?.kind==="network";
 // Restrict remote inputs to ordinary media containers, excluding playlists,
 // concat, image sequences, and other external-resource demuxers.
-const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","12000000","-http_proxy","","-probesize","8388608","-analyzeduration","5000000"];
+const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","12000000","-http_proxy","","-probesize","4194304","-analyzeduration","3000000"];
 async function resolvePlaybackSource(value){
   if(value?.kind==="network")return {kind:"network",token:value.token,url:await require("./library-host.cjs").resolveNetworkMedia(value.token)};
   if(value?.kind!=="dvd")return resolveSource(value,checkVideo);

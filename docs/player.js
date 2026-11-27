@@ -1553,7 +1553,7 @@
     item.codecRestart = false;
     item.compatPending = false;
     inspectSelectedMkv(item);
-    item.requestedFormat = item.file?.dvdToken||["udp","rtp","rtsp","rtmp","rtmps","srt","rist","dash","mms"].includes(item.networkTransport)?"auto":playbackSettings.format;
+    item.requestedFormat = item.file?.dvdToken||["udp","rtp","rtsp","rtmp","rtmps","srt","rist","dash","mms","ftp","sftp"].includes(item.networkTransport)?"auto":playbackSettings.format;
     item.deinterlaceMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
     item.smoothingMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
@@ -1572,7 +1572,7 @@
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     media.removeAttribute("crossorigin");
     if(item.kind==="network")media.crossOrigin="anonymous";
-    if (item.file?.dvdToken || item.kind==="network"&&(["dash","mms"].includes(item.networkTransport)||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback) || needsRemux || cannotConvert) {
+    if (item.file?.dvdToken || item.kind==="network"&&(["dash","mms","ftp","sftp"].includes(item.networkTransport)||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback) || needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");
     } else {
@@ -1618,7 +1618,7 @@
       return;
     }
     if(item.kind==="network"){
-      if(["dash","mms"].includes(item.networkTransport)||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);}});}
+      if(["dash","mms","ftp","sftp"].includes(item.networkTransport)||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);}});}
       else if(autoplay)playCurrent();
       return;
     }
@@ -1876,12 +1876,12 @@
       return ok;
     }finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
   };
-  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["Bundled decoder lacks MMS support","Встроенный декодер не поддерживает MMS"],["MMS stream could not be opened","Не удалось открыть поток MMS"],["Bundled decoder lacks RIST support","Встроенный декодер не поддерживает RIST"],["RIST stream could not be opened","Не удалось открыть поток RIST"],["Bundled decoder lacks RTMPS support","Встроенный декодер не поддерживает RTMPS"],["Bundled RTMPS TLS backend requires verification","Требуется проверка модуля TLS для RTMPS"],["RTMPS stream could not be opened securely","Не удалось безопасно открыть поток RTMPS"],["Bundled decoder lacks DASH support","Встроенный декодер не поддерживает DASH"],["DASH manifest could not be opened","Не удалось открыть манифест DASH"],["Bundled decoder lacks SRT support","Встроенный декодер не поддерживает SRT"],["SRT stream could not be opened","Не удалось открыть поток SRT"],["RTMP stream could not be opened","Не удалось открыть поток RTMP"],["RTSP stream could not be opened","Не удалось открыть поток RTSP"],["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
+  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["Bundled decoder lacks FTP support","Встроенный декодер не поддерживает FTP"],["Bundled decoder lacks SFTP support","Встроенный декодер не поддерживает SFTP"],["Bundled SFTP decoder cannot verify server identity","Встроенный декодер SFTP не может проверить ключ сервера"],["SFTP file could not be opened or server key is untrusted","Не удалось открыть файл SFTP или ключ сервера не доверен"],["FTP file could not be opened","Не удалось открыть файл FTP"],["Bundled decoder lacks MMS support","Встроенный декодер не поддерживает MMS"],["MMS stream could not be opened","Не удалось открыть поток MMS"],["Bundled decoder lacks RIST support","Встроенный декодер не поддерживает RIST"],["RIST stream could not be opened","Не удалось открыть поток RIST"],["Bundled decoder lacks RTMPS support","Встроенный декодер не поддерживает RTMPS"],["Bundled RTMPS TLS backend requires verification","Требуется проверка модуля TLS для RTMPS"],["RTMPS stream could not be opened securely","Не удалось безопасно открыть поток RTMPS"],["Bundled decoder lacks DASH support","Встроенный декодер не поддерживает DASH"],["DASH manifest could not be opened","Не удалось открыть манифест DASH"],["Bundled decoder lacks SRT support","Встроенный декодер не поддерживает SRT"],["SRT stream could not be opened","Не удалось открыть поток SRT"],["RTMP stream could not be opened","Не удалось открыть поток RTMP"],["RTSP stream could not be opened","Не удалось открыть поток RTSP"],["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
   const recoverNetwork=(item,forceNative=false)=>{
     if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||networkRetryTimer!==null)return false;
     if(item.networkRetries>=5){cancelBufferGate();item.streamBuffering=false;item.autoplayRequested=false;media.pause();if(codecPlayback?.isActive(item))void codecPlayback.stop();updateButtons();status(networkErrorText(item),false,true);return false;}
     const epoch=item.playbackEpoch,at=item.liveChannel&&!item.tvReplay?0:Math.max(0,Number(item.networkLastPosition)||0);
-    const native=forceNative||["dash","mms"].includes(item.networkTransport)||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
+    const native=forceNative||["dash","mms","ftp","sftp"].includes(item.networkTransport)||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
     cancelBufferGate();item.networkRetries++;if(isIPTV(item))item.networkSoftwareOnly=true;item.streamPrimed=false;item.streamBuffering=true;item.streamLevel=Math.min(5,Math.max(item.streamLevel||0,item.networkRetries-1));updateButtons();
     status(streamSay("Reconnecting to network media…","Повторное подключение к сетевому потоку…"));
     networkRetryTimer=setTimeout(async()=>{
@@ -2965,7 +2965,7 @@
     };
     const heading=document.createElement("strong");heading.textContent="Network media";
     const note=document.createElement("p");note.className="helper";
-    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP, RTSPS, RTMP, RTMPS, SRT, RIST, MMS or MPEG-DASH media address.";
+    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP, RTSPS, RTMP, RTMPS, SRT, RIST, MMS, FTP, SFTP or MPEG-DASH media address.";
     const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
     const results=document.createElement("div");results.className="dk-network-results";
     const url=document.createElement("input");url.type="text";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
@@ -3030,9 +3030,9 @@
       if(opening)return;opening=true;const epoch=generation;
       try{
         say("Opening network media…");
-        const grant=datagram==="mms"?await bridge.networkMMSGrant(address,document.documentElement.lang):datagram==="rist"?await bridge.networkRISTGrant(address,document.documentElement.lang):datagram==="dash"?await bridge.networkDASHGrant(address,document.documentElement.lang):datagram==="srt"?await bridge.networkSRTGrant(address,document.documentElement.lang):datagram==="rtmp"?await bridge.networkRTMPGrant(address,document.documentElement.lang):datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang,rtspMode.value):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
+        const grant=datagram==="transfer"?await bridge.networkTransferGrant(address,document.documentElement.lang):datagram==="mms"?await bridge.networkMMSGrant(address,document.documentElement.lang):datagram==="rist"?await bridge.networkRISTGrant(address,document.documentElement.lang):datagram==="dash"?await bridge.networkDASHGrant(address,document.documentElement.lang):datagram==="srt"?await bridge.networkSRTGrant(address,document.documentElement.lang):datagram==="rtmp"?await bridge.networkRTMPGrant(address,document.documentElement.lang):datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang,rtspMode.value):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
-        const item=makeNetworkItem(grant,name,audio);if(datagram&&!["dash","mms"].includes(datagram))item.liveChannel=true;
+        const item=makeNetworkItem(grant,name,audio);if(datagram&&!["dash","mms","transfer"].includes(datagram))item.liveChannel=true;
         if(queueOnly.checked){
           state.queue.push(item);
           if(state.current<0)load(state.queue.length-1,false);else{renderQueue();updateButtons();}
@@ -3141,6 +3141,11 @@
         if(bridge.networkDASHGrant&&/^https?:\/\//i.test(value)){
           const address=new URL(value);
           if(dashMode.checked||/\.mpd$/i.test(address.pathname)){url.value="";void addNetwork(null,address.href,address.host+" · DASH",false,"dash");return;}
+        }
+        if(/^(ftp|sftp):\/\//i.test(value)){
+          if(!bridge.networkTransferGrant)throw Error("Remote files unavailable");
+          const address=new URL(value),name=decodeURIComponent(address.pathname.split("/").filter(Boolean).pop()||address.host);url.value="";
+          void addNetwork(null,address.href,name,/\.(mp3|flac|wav|m4a|aac|opus|ogg|aiff|wv)$/i.test(name),"transfer");return;
         }
         if(/^mms[th]?:\/\//i.test(value)){
           if(!bridge.networkMMSGrant)throw Error("MMS unavailable");

@@ -30,8 +30,8 @@ async function networkFeatures(){
    const [d,p]=await Promise.all([processOutput(binary(name),["-hide_banner","-demuxers"],8000),processOutput(binary(name),["-hide_banner","-protocols"],8000)]);
    const has=n=>d.split("\n").some(line=>{const m=/^\s*D\s+([^\s]+)/.exec(line);return m&&m[1].split(",").includes(n);});
    const proto=n=>p.split("\n").some(line=>line.trim()===n);
-   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto"),srt:proto("srt"),rist:proto("rist"),mmst:proto("mmst")&&has("asf"),mmsh:proto("mmsh")&&has("asf"),dash:has("dash"),https:proto("https")&&proto("tls"),rtmps:proto("rtmps")&&proto("tls")&&has("flv")};
- })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto","srt","rist","mmst","mmsh","dash","https","rtmps"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
+   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto"),srt:proto("srt"),rist:proto("rist"),ftp:proto("ftp")&&proto("tcp"),sftp:proto("sftp"),mmst:proto("mmst")&&has("asf"),mmsh:proto("mmsh")&&has("asf"),dash:has("dash"),https:proto("https")&&proto("tls"),rtmps:proto("rtmps")&&proto("tls")&&has("flv")};
+ })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto","srt","rist","ftp","sftp","mmst","mmsh","dash","https","rtmps"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
  return networkCapability;
 }
 const dvdGrants=new Map();
@@ -90,6 +90,23 @@ async function requireRTMPSTLS(){
    return flags().includes("--enable-gnutls")&&!flags().includes("--enable-librtmp")&&!flags().includes("--enable-openssl")&&!flags().includes("--enable-mbedtls")&&!flags().includes("--enable-libtls");
  })).then(rows=>rows.every(Boolean)).catch(()=>false);
  if(!await rtmpsTLSCapability)throw Error("Bundled RTMPS TLS backend requires verification");
+}
+// Restrict nested demuxers to ordinary media files; don't interpret remote
+// playlists as access grants to additional hosts or local files.
+const transferFormats="mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,eac3,ape,rm,ivf,mpc,mpc8,dsf,dff,aiff,wv,tta,au,amr,opus,m4v,h264,hevc";
+function transferInputArgs(transport){
+ return ["-protocol_whitelist",transport==="sftp"?"sftp":"ftp,tcp","-format_whitelist",transferFormats,"-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000",...(transport==="sftp"?["-verify","1"]:[])];
+}
+let sftpVerification=null;
+async function requireTransfer(transport){
+ const caps=await networkFeatures();
+ if(!caps?.[transport])throw Error(transport==="sftp"?"Bundled decoder lacks SFTP support":"Bundled decoder lacks FTP support");
+ if(transport!=="sftp")return;
+ if(!sftpVerification)sftpVerification=Promise.all(["ffmpeg","ffprobe"].map(async name=>{
+  const help=await processOutput(binary(name),["-hide_banner","-h","protocol=sftp"],8000);
+  return /^\s+-verify\s+.*(?:known_hosts|host key)/im.test(help);
+ })).then(rows=>rows.every(Boolean)).catch(()=>false);
+ if(!await sftpVerification)throw Error("Bundled SFTP decoder cannot verify server identity");
 }
 const mmsInputArgs=["-protocol_whitelist","mmst,mmsh,http,tcp","-format_whitelist","asf","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","asf"];
 const dashInputArgs=["-protocol_whitelist","http,https,tcp,tls","-format_whitelist","dash,mov,matroska,webm,mpegts","-tls_verify","1","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","dash"];
@@ -306,12 +323,13 @@ async function probe(localPath) {
   if(cacheable&&probeCache.has(key))return probeCache.get(key);
   const work=(async()=>{
   if(transport==="rtmps")await requireRTMPSTLS();
+  if(["ftp","sftp"].includes(transport))await requireTransfer(transport);
   let stdout;
   try{
     const args=[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="rtmps"?rtmpsInputArgs:transport==="dash"?dashInputArgs:transport==="mms"?mmsInputArgs:[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i"
+    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="rtmps"?rtmpsInputArgs:transport==="dash"?dashInputArgs:transport==="mms"?mmsInputArgs:["ftp","sftp"].includes(transport)?transferInputArgs(transport):[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i"
     ];
     if(transport==="mms"){
       const host=require("./library-host.cjs"),caps=await networkFeatures();
@@ -329,6 +347,7 @@ async function probe(localPath) {
     const reason={denied:"TV stream denied by broadcaster",offline:"TV stream no longer available",upstream:"TV broadcaster returned an error",format:"Unsupported TV stream format",manifest:"Unsupported HLS manifest",address:"TV stream destination rejected",timeout:"TV stream timed out",connection:"TV stream connection failed"}[failure];
     if(reason)throw Error(reason);
     if(transport==="rtsp")throw Error("RTSP stream could not be opened");
+    if(transport==="ftp"||transport==="sftp")throw Error(transport==="sftp"?"SFTP file could not be opened or server key is untrusted":"FTP file could not be opened");
     if(transport==="mms"){if(/lacks MMS support/.test(msg))throw Error("Bundled decoder lacks MMS support");throw Error("MMS stream could not be opened");}
     if(transport==="rtmp")throw Error("RTMP stream could not be opened");
     if(transport==="rtmps")throw Error("RTMPS stream could not be opened securely");
@@ -486,7 +505,7 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     ...(hardware?["-hwaccel","vaapi","-hwaccel_device",hardware.device,"-hwaccel_output_format","vaapi"]:[]),
-    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:active.transport==="rtmps"?rtmpsInputArgs:active.transport==="dash"?dashInputArgs:active.transport==="mms"?mmsInputArgs:[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(active.transport)?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:active.transport==="rtmps"?rtmpsInputArgs:active.transport==="dash"?dashInputArgs:active.transport==="mms"?mmsInputArgs:["ftp","sftp"].includes(active.transport)?transferInputArgs(active.transport):[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(active.transport)?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];

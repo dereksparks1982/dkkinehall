@@ -645,7 +645,7 @@ async function serveNetwork(req,res){
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
-  if(entry.rtsp||entry.rtmp||entry.dash||entry.mms)return fail();
+  if(entry.rtsp||entry.rtmp||entry.dash||entry.mms||entry.transfer)return fail();
   if(entry.srt||entry.rist){if(!root)return fail();return serveSRT(req,res,entry);}
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
@@ -1084,12 +1084,35 @@ function selectMMS(token,address){
  if(!entry?.mmsCandidates?.includes(address))throw Error("MMS selection expired");
  entry.mms=address;
 }
+// Direct remote files, not directory listings or renderer-controlled paths.
+async function grantTransfer(value,language){
+ if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid remote file URL");
+ const url=new URL(value);
+ if(!["ftp:","sftp:"].includes(url.protocol)||!url.hostname||url.hash||url.search||!url.pathname||url.pathname==="/"||url.pathname.endsWith("/"))throw Error("A remote file URL is required");
+ const normalized=new URL("http://"+url.host);url.hostname=normalized.hostname;
+ for(const part of [url.username,url.password,url.pathname]){
+  if(/[\x00-\x1f\x7f\\]/.test(decodeURIComponent(part)))throw Error("Invalid remote file URL");
+ }
+ if(url.hostname.includes("%")||(url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Invalid remote host");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const ru=language==="ru",secure=url.protocol==="sftp:",transport=secure?"sftp":"ftp";
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Открыть удалённый файл?":"Open remote media file?",
+  detail:url.host+"\n"+(secure?(ru?"Ключ сервера должен быть проверен по списку известных узлов SSH.":"The SSH server key must match your trusted known_hosts file."):(ru?"FTP не шифрует данные и пароль.":"FTP sends data and credentials without encryption.")),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex");
+ networkGrants.set(token,{transfer:url.href,transferProtocol:transport,clients:new Set()});
+ return {token,src:"",transport};
+}
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
   const entry=networkGrants.get(token);
   if(entry.rtsp)return entry.rtsp;
   if(entry.rtmp)return entry.rtmp;
   if(entry.mms)return entry.mms;
+  if(entry.transfer)return entry.transfer;
   if(entry.dash)return entry.dash;
   const port=await startNetworkProxy();
   if(!networkGrants.has(token))throw Error("Network media selection expired");
@@ -2709,6 +2732,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:dash-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("DASH request rejected");return grantDASH(url,language);
   });
+  ipcMain.handle("dk-network:transfer-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("Remote file request rejected");return grantTransfer(url,language);
+  });
   ipcMain.handle("dk-network:mms-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("MMS request rejected");return grantMMS(url,language);
   });
@@ -2744,7 +2770,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.rist||entry.dash||entry.mms||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.rist||entry.dash||entry.mms||entry.transfer||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -3107,4 +3133,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,mmsCandidates,selectMMS,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.rist?"rist":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.mms?"mms":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,mmsCandidates,selectMMS,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.rist?"rist":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.mms?"mms":networkGrants.get(token)?.transferProtocol||networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

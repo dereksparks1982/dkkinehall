@@ -1495,6 +1495,10 @@ function install(originalWindow,originalPlayer){
     if((!allowed(event)&&!onlyPlayer(event))||!["en","ru"].includes(value))throw Error("Language request rejected");
     return writeInterfaceLanguage(value);
   });
+  ipcMain.handle("dk-live-tv:discover",event=>{
+    if(!onlyPlayer(event))throw Error("Tuner request rejected");
+    return discoverLiveTuners();
+  });
   ipcMain.handle("dk-live-tv:lineup",(event,host)=>{
     if(!onlyPlayer(event))throw Error("Tuner request rejected");
     return loadLiveLineup(host);

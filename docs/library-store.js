@@ -379,7 +379,7 @@ function excludedDiscovery(row){
 }
 function sourceFor(row,sources){
  if(row?.source!=="native"||!row.nativePath)return null;
- return sources.find(source=>(source.kind===row.kind||!!row.manualClassification||!!row.featureClassification||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
+ return sources.find(source=>(source.kind===row.kind||!!row.manualClassification||!!row.verifiedClassification||!!row.featureClassification||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
 }
 // Standalone South Park films, streaming specials and concert presentations
 // belong in Movies even when their files are stored alongside TV episodes.
@@ -484,8 +484,9 @@ async function ingestNative(scan){
     const previous=old.get(file.id);
     if(previous?.userHidden)continue;
     if(previous?.manualClassification)info={...previous.manualClassification};
+    else if(previous?.verifiedClassification&&previous.size===file.size&&previous.modified===file.modified)info={...previous.verifiedClassification};
     else if(previous?.featureClassification&&previous.nativePath===file.nativePath&&previous.size===file.size&&previous.modified===file.modified)info={...previous.featureClassification};
-    if(!previous?.manualClassification&&info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
+    if(!previous?.manualClassification&&!previous?.verifiedClassification&&info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
       info={...info,title:"The Man with the Golden Gun",year:1974};
     // A provider label must not preserve an obviously wrong title/year
     // once the original filename has been classified correctly.
@@ -838,6 +839,28 @@ async function updateMetadata(id,{episodeTitle,episodeDetails,movieTitle,movieYe
 }
 // Manual values are local catalog overrides, not media-file or server writes.
 // Explicit classification applies only to this catalog identity, never the source file.
+async function applyVerifiedClassification(snapshot,match){
+ if(!snapshot?.id||!match)return false;
+ const db=await open();let saved=false;
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction("entries","readwrite"),s=tx.objectStore("entries"),req=s.get(snapshot.id);
+  req.onsuccess=()=>{
+   const row=req.result;
+   if(!row||row.source!=="native"||row.manualClassification||row.manualMatch||row.manualFields||row.userHidden||row.scopeExcluded||row.resetArchived||row.missing||row.nativePath!==snapshot.nativePath||row.size!==snapshot.size||row.modified!==snapshot.modified)return;
+   if(match.ambiguous){if(!row.classificationReview){s.put({...row,classificationReview:true});saved=true;}return;}
+   if(!["movie","tv"].includes(match.kind)||!["Cinemeta","TVmaze","TMDb"].includes(match.provider)||!match.title)return;
+   if(match.kind==="tv"&&(!match.series||!Number.isInteger(match.season)||match.season<0||!Number.isInteger(match.episode)||match.episode<1))return;
+   const {provider,...info}=match;
+   const changedKind=row.kind!==info.kind;
+   const changedEpisode=info.kind==="tv"&&(row.season!==info.season||row.episode!==info.episode||row.series!==info.series);
+   s.put({...row,...info,verifiedClassification:info,classificationProvider:provider,classificationReview:false,
+    ...((changedKind||changedEpisode)?{jellyfinIdentity:null,manualMatch:null,movieMetadataVerified:false,movieDetails:null,movieProvider:null,metadataVerified:false,episodeDetails:null,episodeDescription:null}:{})});
+   saved=true;
+  };
+  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Classification update failed"));
+ });
+ if(saved)changed({entries:true,id:snapshot.id});return saved;
+}
 async function reclassifyNative(id,fields){
  const kind=fields?.kind, title=String(fields?.title||"").trim().slice(0,180);
  if(!["movie","tv"].includes(kind)||!title)return false;
@@ -851,7 +874,7 @@ async function reclassifyNative(id,fields){
  await new Promise((resolve,reject)=>{
   const tx=db.transaction("entries","readwrite"),s=tx.objectStore("entries"),req=s.get(id);
   req.onsuccess=()=>{const row=req.result;if(!row||row.source!=="native"||row.userHidden||row.scopeExcluded||row.resetArchived||row.kind===kind)return;
-   s.put({...row,...info,manualClassification:info,manualMatch:null,manualFields:null,jellyfinIdentity:null,
+   s.put({...row,...info,manualClassification:info,verifiedClassification:null,classificationReview:false,manualMatch:null,manualFields:null,jellyfinIdentity:null,
     movieMetadataVerified:false,movieDetails:null,movieProvider:null,metadataVerified:false,episodeDetails:null,episodeDescription:null});
    saved=true;};
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Classification save failed"));
@@ -924,7 +947,7 @@ async function saveArtwork(id,blob,credit="",manual=false){
 return Object.freeze({excludedDiscovery,knownFeatureSpecial,repairCachedFeature,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,reclassifyNative,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,applyVerifiedClassification,reclassifyNative,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

@@ -66,7 +66,7 @@ const nameSort=(a,b)=>String(a).localeCompare(String(b),undefined,{
 const seriesKey=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").trim().toLowerCase();
 const formatCode=row=>"S"+String(row.season).padStart(2,"0")+
   "E"+String(row.episode).padStart(2,"0");
-const metadataFilename=row=>row.kind==="movie"&&Number(row.year)===2024&&seriesKey(row.title)===seriesKey("South Park: The End of Obesity")?"South Park The End of Obesity (2024).mkv":row.kind==="movie"&&Number(row.year)===1974&&
+const metadataFilename=row=>row.kind==="movie"&&store.knownFeatureSpecial(row.filename,row.relative)?row.title.replace(/[:]/g,"")+" ("+row.year+").mkv":row.kind==="movie"&&Number(row.year)===1974&&
   seriesKey(row.title)==="the man with the golden gun"?"The Man with the Golden Gun (1974).mkv":row.kind==="tv"&&
   window.DKMediaMetadata?.parseFilename?.(row.filename)?.type!=="episode"?
   row.series+".S"+String(row.season).padStart(2,"0")+

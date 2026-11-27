@@ -474,6 +474,6 @@ function init(){
 }
 function syncTabs(){if(!active)return;for(const id of ["tabMovies","tabTV"])$(id)?.setAttribute("aria-selected","false");$("libraryLiveTV")?.setAttribute("aria-selected","true");}
 function open(){init();active=true;serial++;panel.hidden=false;panel.parentElement.classList.add("dk-live-active");syncTabs();render();void restoreGuide();void enrichCatalog();clearInterval(guideRefreshTimer);guideRefreshTimer=setInterval(()=>{if(active){render();void autoGuide();}},5*60*1000);}
-function close(){if(!active)return;clearInterval(guideRefreshTimer);if(atscRunning){atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
+function close(){if(!active)return;logoObserver?.disconnect();checkObserver?.disconnect();logoQueue=[];checkQueue=[];clearInterval(guideRefreshTimer);if(atscRunning){atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
 window.DKLiveTV={open,close,syncTabs};
 })();

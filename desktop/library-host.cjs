@@ -312,8 +312,42 @@ async function boundedBody(reply,limit){
   return Buffer.concat(chunks);
 }
 const hlsMime=m=>/^(?:application\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)|audio\/(?:mpegurl|x-mpegurl))$/i.test(m);
+// Reuse completed, small HLS segments between probe and decoder. No
+// manifests, keys, range replies or incomplete segments enter this cache.
+const tvSegments=new Map();let tvSegmentBytes=0;
+function clearTVSegments(token){for(const [k,v] of tvSegments)if(k.startsWith(token+":")){tvSegmentBytes-=v.data.length;tvSegments.delete(k);}}
+function saveTVSegment(key,data,headers){
+ if(data.length>2*1024**2||!data.length)return;
+ const prior=tvSegments.get(key);if(prior){tvSegmentBytes-=prior.data.length;tvSegments.delete(key);}
+ tvSegments.set(key,{data,headers,at:Date.now()});tvSegmentBytes+=data.length;
+ while(tvSegmentBytes>16*1024**2||tvSegments.size>32){const first=tvSegments.keys().next().value;tvSegmentBytes-=tvSegments.get(first).data.length;tvSegments.delete(first);}
+}
+function chooseTVVariant(text,entry){
+ if(!entry.streamPolicy||entry.streamPolicy.quality==="source")return text;
+ const lines=text.split(/\r?\n/),variants=[];
+ for(let i=0;i<lines.length;i++){
+  if(!/^#EXT-X-STREAM-INF:/i.test(lines[i].trim()))continue;
+  let end=i+1;while(end<lines.length&&!lines[end].trim())end++;
+  if(end>=lines.length||lines[end].trim().startsWith("#"))return text;
+  const tag=lines[i],bandwidth=Number(/(?:^|[:,])BANDWIDTH=(\d+)/i.exec(tag)?.[1]),height=Number(/(?:^|[:,])RESOLUTION=\d+x(\d+)/i.exec(tag)?.[1])||0;
+  if(!bandwidth)return text;
+  variants.push({i,end,url:lines[end].trim(),bandwidth,height,avc:/CODECS="[^"]*avc[13]/i.test(tag)});
+ }
+ if(variants.length<2)return text;
+ const policy=entry.streamPolicy,cap=policy.quality==="auto"?(entry.measuredBps?Math.max(350000,Math.min(5000000,entry.measuredBps*.65)):3500000)/(1.6**policy.level):Infinity;
+ const maxHeight=policy.quality==="auto"?Infinity:Number(policy.quality);
+ let pool=variants.filter(v=>(!v.height||v.height<=maxHeight)&&v.bandwidth<=cap);
+ if(!pool.length)pool=[...variants].sort((a,b)=>a.bandwidth-b.bandwidth).slice(0,1);
+ const avc=pool.filter(v=>v.avc);if(avc.length)pool=avc;
+ const chosen=variants.find(v=>v.url===entry.variantLock)||pool.sort((a,b)=>b.bandwidth-a.bandwidth)[0];
+ entry.variantLock=chosen.url;
+ entry.selectedBitrate=chosen.bandwidth;entry.selectedHeight=chosen.height;
+ const remove=new Set();for(const v of variants)if(v!==chosen)for(let i=v.i;i<=v.end;i++)remove.add(i);
+ return lines.filter((_,i)=>!remove.has(i)).join("\n");
+}
 function rewriteHLS(text,base,entry,token,port){
   if(!/^\uFEFF?#EXTM3U(?:\r?\n|$)/.test(text)||!/#EXT-X-/i.test(text)||/#EXT-X-DEFINE:|\{\$|#EXT-X-CONTENT-STEERING:/i.test(text))throw Error("Unsupported HLS manifest");
+  text=chooseTVVariant(text,entry);
   entry.parts??=new Map();entry.partKeys??=new Map();
   function ref(raw,kind){
     const url=new URL(raw,base);
@@ -355,6 +389,9 @@ async function serveNetwork(req,res){
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
   if(range&&!/^bytes=(?:\d{1,16}-\d{0,16}|-\d{1,16})$/.test(range))return fail(416);
+  const cacheKey=req.method==="GET"&&!range&&resource?.kind==="segment"?token+":"+part[2]:null;
+  const cached=cacheKey&&tvSegments.get(cacheKey);
+  if(cached&&Date.now()-cached.at<45000){res.writeHead(200,cached.headers);return res.end(cached.data);}
   const controller=new AbortController();res.on("close",()=>controller.abort());
   const track=upstream=>{
     networkClients.add(upstream);entry.clients.add(upstream);
@@ -362,7 +399,8 @@ async function serveNetwork(req,res){
   };
   const timer=setTimeout(()=>controller.abort(),20000);
   try{
-    const {reply,url}=await followStream((resource?.url||entry.url).href,entry.lan||null,{method:req.method,range,track,signal:controller.signal});
+    const openedAt=Date.now();
+    const {reply,url}=await followStream((resource?.url||entry.url).href,entry.lan||null,{method:req.method,range,track,signal:controller.signal,timeout:25000});
     clearTimeout(timer);
     if(!networkGrants.has(token)||res.destroyed){reply.destroy();return;}
     if(![200,206,416].includes(reply.statusCode)){entry.failure=[401,403,451].includes(reply.statusCode)?"denied":reply.statusCode===404||reply.statusCode===410?"offline":"upstream";reply.destroy();return fail(502);}
@@ -384,7 +422,21 @@ async function serveNetwork(req,res){
     for(const k of ["content-length","content-range","accept-ranges"]){if(typeof reply.headers[k]==="string")headers[k]=reply.headers[k];}
     res.writeHead(reply.statusCode,headers);
     reply.on("error",()=>res.destroy());reply.on("aborted",()=>res.destroy());
-    if(req.method==="HEAD"){reply.resume();res.end();}else reply.pipe(res);
+    if(req.method==="HEAD"){reply.resume();res.end();}else{
+      if(cacheKey&&reply.statusCode===200){
+        let chunks=[],bytes=0;
+        const expected=Number(reply.headers["content-length"]);
+        if(expected>2*1024**2)chunks=null;
+        reply.on("data",chunk=>{bytes+=chunk.length;if(chunks){if(bytes<=2*1024**2)chunks.push(chunk);else chunks=null;}});
+        reply.once("end",()=>{
+          if(!reply.complete||!networkGrants.has(token))return;
+          const ms=Math.max(250,Date.now()-openedAt),bps=bytes*8000/ms;
+          if(bytes>32768&&Number.isFinite(bps))entry.measuredBps=entry.measuredBps?entry.measuredBps*.75+bps*.25:bps;
+          if(chunks&&(!expected||expected===bytes))saveTVSegment(cacheKey,Buffer.concat(chunks,bytes),headers);
+        });
+      }
+      reply.pipe(res);
+    }
   }catch(error){if(!res.destroyed){const msg=String(error?.message||"");entry.failure=/manifest|HLS URI/i.test(msg)?"manifest":/destination|LAN host|address/i.test(msg)?"address":/timed out|abort/i.test(msg)?"timeout":"connection";fail(502);}}finally{clearTimeout(timer);}
 }
 async function startNetworkProxy(){
@@ -433,6 +485,8 @@ function logoDiskPut(url,row){try{
  const root=tvData(),files=fs.readdirSync(root).filter(x=>/^logo-[a-f0-9]{64}\.json$/.test(x)).map(name=>{const s=fs.statSync(path.join(root,name));return {name,size:s.size,mtime:s.mtimeMs};}).sort((a,b)=>b.mtime-a.mtime);
  let total=0;for(const file of files){total+=file.size;if(total>64*1024*1024)fs.unlinkSync(path.join(root,file.name));}
  }catch(_){}}
+const tvBackground=new Set();
+function stopTVBackground(){for(const c of tvBackground)c.abort();tvBackground.clear();}
 const tvChecks=new Map(),tvCheckPending=new Map();let checksLoaded=false,checksTimer=null;
 function loadChecks(){if(checksLoaded)return;checksLoaded=true;const rows=tvRead("availability.json",[]);if(Array.isArray(rows))for(const [key,v] of rows){if(typeof key==="string"&&v&&Number.isFinite(v.at)&&Date.now()-v.at<7*86400000)tvChecks.set(key,v);}}
 function rememberCheck(url,state){
@@ -446,7 +500,7 @@ async function checkTV(value,force=false){
  if(tvCheckPending.has(k))return tvCheckPending.get(k);
  if(tvCheckPending.size>=3)return previous||{state:"unknown",at:Date.now()};
  const work=(async()=>{
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),9000);
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),9000);tvBackground.add(controller);
   try{
    const {reply,url:final}=await followStream(url,null,{signal:controller.signal,timeout:7000});
    const code=reply.statusCode,mime=String(reply.headers["content-type"]||"").split(";")[0].toLowerCase();
@@ -455,14 +509,14 @@ async function checkTV(value,force=false){
     const text=(await boundedBody(reply,512*1024)).toString("utf8");return rememberCheck(url,/#EXTM3U/i.test(text)&&/#EXT-X-/i.test(text)?"reachable":"unknown");
    }
    reply.destroy();return rememberCheck(url,/^(video\/|audio\/|application\/(?:octet-stream|mp4|mpegts|x-mpegts)$)/.test(mime)?"reachable":"unknown");
-  }catch(_){return rememberCheck(url,"unknown");}finally{clearTimeout(timer);}
+  }catch(_){return controller.signal.aborted?previous||{state:"unknown",at:Date.now()}:rememberCheck(url,"unknown");}finally{clearTimeout(timer);tvBackground.delete(controller);}
  })().finally(()=>tvCheckPending.delete(k));tvCheckPending.set(k,work);return work;
 }
 async function liveResource(value,kind){
  if(typeof value!=="string"||value.length>4096||!["playlist","guide","logo","catalog"].includes(kind)||liveResourceBusy>=6)throw Error("TV resource unavailable");
  if(kind==="logo"){const hit=logoDiskGet(value);if(hit)return hit;}
  const limit=kind==="logo"?2*1024*1024:kind==="guide"?32*1024*1024:kind==="catalog"?32*1024*1024:8*1024*1024;
- liveResourceBusy++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+ liveResourceBusy++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);if(kind==="logo")tvBackground.add(controller);
  try{
   const {reply,url}=await followStream(value,null,{signal:controller.signal,timeout:15000});
   if(reply.statusCode!==200){reply.destroy();throw Error("TV resource unavailable");}
@@ -478,7 +532,7 @@ async function liveResource(value,kind){
   }
   if(data[0]===31&&data[1]===139)data=require("node:zlib").gunzipSync(data,{maxOutputLength:kind==="guide"?64*1024*1024:limit});
   return {text:data.toString("utf8"),url:url.href};
- }finally{clearTimeout(timer);liveResourceBusy--;}
+ }finally{clearTimeout(timer);tvBackground.delete(controller);liveResourceBusy--;}
 }
 // Join the current public catalog schemas in main, and return only compact
 // matches for the channels actually requested by the Library.
@@ -531,7 +585,7 @@ async function resolveNetworkMedia(token){
 function closeNetwork(){
   stopTVJobs();
   for(const req of networkClients)req.destroy();
-  networkClients.clear();networkGrants.clear();networkServers.clear();
+  networkClients.clear();networkGrants.clear();networkServers.clear();tvSegments.clear();tvSegmentBytes=0;
   networkProxy?.close();networkProxy=null;
 }
 
@@ -550,7 +604,7 @@ function cleanTVTitle(v){return String(v||"TV").replace(/[\\/:*?"<>|\x00-\x1f]/g
 function tvCodecEnv(){const base=app.getAppPath();return {...process.env,LD_LIBRARY_PATH:path.join(base,"lib")+path.delimiter+(process.env.LD_LIBRARY_PATH||"")};}
 function tvDecoder(){return path.join(app.getAppPath(),"bin","ffmpeg");}
 function tvInput(source){return ["-hide_banner","-loglevel","error","-nostdin","-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mpegts,mov,matroska,webm,flv,asf,aac,mp3","-rw_timeout","12000000","-http_proxy","","-i",source,"-map","0:v:0?","-map","0:a:0?","-c","copy"];}
-function dropTVGrant(token){const e=networkGrants.get(token);networkGrants.delete(token);for(const client of e?.clients||[])client.destroy();}
+function dropTVGrant(token){clearTVSegments(token);const e=networkGrants.get(token);networkGrants.delete(token);for(const client of e?.clients||[])client.destroy();}
 function stopTVJobs(){dvrStopping=true;clearInterval(dvrTimer);dvrTimer=null;if(dvrChild)try{dvrChild.kill("SIGINT");}catch(_){}stopBuffer();}
 function newDVRJob(row){
  const s=getDVR(),url=tvURL(row?.url),start=Number(row?.start),end=Number(row?.end),now=Date.now()/1000;
@@ -1728,6 +1782,7 @@ function showPage(page,remember=true){
   if(!home||home.isDestroyed())return false;
   if(page==="player"&&!installedWindow())return false;
   activePage=page;
+  if(page==="player")stopTVBackground();
   if(remember)recordNavigation(page);
   if(installedWindow()){
     resizePlayer();
@@ -1952,6 +2007,18 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return grantNetwork(id,url);
   });
+  ipcMain.handle("dk-network:stream-policy",(event,token,policy)=>{
+    if(!onlyPlayer(event))throw Error("Network policy rejected");
+    const e=networkGrants.get(token);if(!e)return false;
+    const quality=["auto","source","360","480","720","1080"].includes(policy?.quality)?policy.quality:"auto";
+    e.streamPolicy={quality,level:Math.max(0,Math.min(4,Math.floor(Number(policy?.level)||0)))};e.variantLock=null;
+    return true;
+  });
+  ipcMain.handle("dk-network:stream-stats",(event,token)=>{
+    if(!onlyPlayer(event))throw Error("Network statistics rejected");
+    const e=networkGrants.get(token);if(!e)return null;
+    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes};
+  });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
     const entry=networkGrants.get(token);if(!entry||entry.lan||entry.switching)return false;
@@ -1963,7 +2030,7 @@ function install(originalWindow,originalPlayer){
           const target=await streamTarget(next);
           if(networkGrants.get(token)!==entry)return false;
           for(const client of entry.clients)client.destroy();
-          entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;
+          clearTVSegments(token);entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;entry.measuredBps=0;entry.selectedBitrate=0;entry.selectedHeight=0;entry.variantLock=null;
           return true;
         }catch(_){}
       }
@@ -1975,7 +2042,7 @@ function install(originalWindow,originalPlayer){
     const entry=networkGrants.get(token);
     if(!entry)return false;
     if(bufferJob?.source===token)stopBuffer();
-    networkGrants.delete(token);
+    clearTVSegments(token);networkGrants.delete(token);
     for(const client of entry.clients)client.destroy();
     return true;
   });

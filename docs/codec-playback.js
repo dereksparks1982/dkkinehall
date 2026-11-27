@@ -92,7 +92,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         // This is still a startup attempt. Only "playing" confirms success.
         onStatus(autoplay?"Decoding with included codecs…":
           "Included codec stream ready.",false);
-        if(autoplay) {
+        if(autoplay&&(item.kind!=="network"||item.autoplayRequested!==false)) {
           try {
             const request=media.play();
             if(request?.catch)request.catch(error=>{

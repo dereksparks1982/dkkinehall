@@ -1458,3 +1458,5 @@ html.dk-standalone .playback-settings-panel .player-settings-section>strong {col
 .dk-live-player-tools{position:absolute;left:12px;top:12px;display:flex;gap:5px;flex-wrap:wrap;max-width:70%;z-index:14}.dk-live-player-tools[hidden],.screen.ui-hidden .dk-live-player-tools,.screen.stopped .dk-live-player-tools{display:none!important}.dk-live-player-tools .btn{background:#432822;color:#e2b956;border:1px solid #a58039}
 
 .screen .controls .seek-preview .dk-native-seek-frame{display:block;width:100%;height:90px;object-fit:contain;margin:0 0 4px;background:#171717;border-radius:3px}.screen .controls .seek-preview .dk-native-seek-frame[hidden]{display:none!important}
+
+.dk-stream-statistics{position:absolute;left:12px;bottom:86px;z-index:18;max-width:85%;white-space:pre-line;background:#211b17e8;color:#e2b956;border:1px solid #a58039;border-radius:6px;padding:8px;font-size:.8rem;pointer-events:none}.dk-stream-statistics[hidden]{display:none!important}

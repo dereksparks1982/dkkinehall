@@ -19,6 +19,8 @@ const nativeLibrary=Object.freeze({
   liveTvAtscRun:(action,device)=>libIpc.invoke("dk-live-tv:atsc-run",String(action),String(device)),
   liveTvAtscCancel:()=>libIpc.invoke("dk-live-tv:atsc-cancel"),
   onLiveTvAtscProgress:callback=>subscribe("dk-live-tv:atsc-progress",callback),
+  networkStreamPolicy:(token,policy)=>libIpc.invoke("dk-network:stream-policy",String(token),policy),
+  networkStreamStats:token=>libIpc.invoke("dk-network:stream-stats",String(token)),
   liveTvCheck:(url,force=false)=>libIpc.invoke("dk-live-tv:check",String(url),force===true),
   liveTvPlayed:token=>libIpc.invoke("dk-live-tv:played",String(token)),
   liveTvGuideCache:(action,value=null)=>libIpc.invoke("dk-live-tv:guide-cache",String(action),value),

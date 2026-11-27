@@ -69,7 +69,7 @@ function verifyDVD(source){
 const isNetwork=source=>source?.kind==="network";
 // Restrict remote inputs to ordinary media containers, excluding playlists,
 // concat, image sequences, and other external-resource demuxers.
-const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","12000000","-http_proxy","","-probesize","4194304","-analyzeduration","3000000"];
+const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","25000000","-http_proxy","","-probesize","4194304","-analyzeduration","3000000"];
 async function resolvePlaybackSource(value){
   if(value?.kind==="network")return {kind:"network",token:value.token,url:await require("./library-host.cjs").resolveNetworkMedia(value.token)};
   if(value?.kind!=="dvd")return resolveSource(value,checkVideo);
@@ -432,7 +432,7 @@ function serve(req,res) {
     if(filters.length)args.push("-fps_mode","passthrough");
   }else if(filters.length)args.push("-vf",filters.join(","),"-fps_mode","passthrough");
   if(active.format==="webm") {
-    if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used","5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
+    if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used",active.network?"7":"5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
     if(active.hasAudio)args.push("-c:a","libopus","-b:a","160k","-ac","2");
     args.push("-f","webm","pipe:1");
   }else{
@@ -524,7 +524,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
       .then(filters=>/\bbwdif\s+V->V\b/.test(filters)).catch(error=>{deinterlaceCapability=null;throw error;});
     if(!await deinterlaceCapability)throw Error("Bundled decoder does not include the deinterlacing filter");
   }
-  const targetFps=smoothing==="auto"?(info.autoSmoothing?60:0):smoothing==="60"?60:smoothing==="120"?120:0;
+  const targetFps=smoothing==="auto"?(!network&&info.autoSmoothing?60:0):smoothing==="60"?60:smoothing==="120"?120:0;
   const smoothFps=info.hasVideo&&!frameStep&&targetFps&&info.sourceFps&&info.sourceFps<targetFps-0.5?targetFps:0;
   if(smoothFps){
     if(!smoothingCapability)smoothingCapability=processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000)

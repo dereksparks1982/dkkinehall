@@ -62,3 +62,5 @@ Live TV also has cached availability checks, persistent channel artwork and prog
 Standalone seek previews can use the included native decoder for supported local files. Create personal movie collections from the movie right-click menu, filter by collection in release order, and edit edition labels without changing filenames. Possible alternate versions are grouped by title and year for review.
 
 Live TV cards use aligned, fixed-size artwork, programme and action areas. The gold favourite star toggles saved channels without rebuilding the channel grid; full programme descriptions remain available through programme-title hover and the schedule.
+
+Network settings include Automatic or adjustable 1–30-second buffer targets, HLS quality preferences and optional streaming statistics. Small completed HLS segments are reused, automatic quality can select a lower bitrate on reconnection, and prolonged stalls trigger bounded recovery. Buffer targets are best effort and depend on the source and browser.

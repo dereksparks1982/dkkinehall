@@ -181,3 +181,25 @@ html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
 /* Standalone library source management, approved palette. */
 html.dk-standalone .dk-library-management{width:min(640px,calc(100vw - 24px));max-height:90vh;overflow:auto}
 .dk-library-management-body,.dk-library-source-group{display:grid;gap:8px}.dk-library-source-group{padding:12px;border-radius:8px;border:1px solid #a58039;color:#462a25}.dk-library-source-group.movie{background:#e2b956}.dk-library-source-group.tv{background:#fff}.dk-library-source-group .helper{color:#462a25}.dk-library-source-row{display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}.dk-library-source-row span{flex:1;min-width:0}.dk-library-source-row button{flex:none}html.dk-standalone .dk-library-management .dk-source-brown{background:#462a25;color:#e2b956;border-color:#a58039}html.dk-standalone .dk-library-management .dk-source-red{background:#d52b1e;color:#fff;border-color:#d52b1e}
+
+/* Standalone library: one header row in either language. Use the labels'
+   natural widths rather than oversized equal-width navigation boxes. */
+html.dk-standalone .library-shell>.topbar{
+  display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;
+  gap:clamp(6px,1vw,14px);overflow-x:auto;overflow-y:hidden;
+}
+html.dk-standalone .library-shell>.topbar>.brand{flex:0 0 auto;white-space:nowrap}
+html.dk-standalone .library-shell>.topbar>.library-tools{
+  display:flex;flex:0 0 auto;flex-wrap:nowrap;align-items:center;
+  justify-content:flex-end;width:auto;gap:clamp(5px,.65vw,9px);margin-left:auto;
+}
+html.dk-standalone .library-shell>.topbar>.library-tools>button.btn,
+html.dk-standalone[lang="ru"] .library-shell>.topbar>.library-tools>button:is(#showPlayer.dk-window-nav,#scanLibrary,#librarySettings.btn){
+  box-sizing:border-box;flex:0 0 auto;width:auto;min-width:0;height:46px;min-height:46px;
+  padding:8px clamp(8px,.85vw,12px);font-size:clamp(.73rem,1.05vw,.88rem);
+  white-space:nowrap;line-height:1.15;
+}
+html.dk-standalone .library-shell>.topbar>.library-tools>select.language-select{
+  flex:0 0 auto;order:10;width:auto;min-width:0;max-width:none;
+  height:46px;min-height:46px;white-space:nowrap;padding-left:12px;padding-right:42px;
+}

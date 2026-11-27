@@ -148,3 +148,5 @@ Video snapshots (standalone): choose Video → Take video snapshot, use the righ
 Standalone display toolbar: Float is now the original Lucide external-link detach icon, retained when docking/undocking; Fullscreen uses the approved two-opposing-corner glyph instead of the four-corner maximize icon. Both are square, retain approved colours and positions, and keep localized action labels. Hosted Float text is unchanged. Installed visual verification pending.
 
 Standalone CC control: the gold square button displays only the brown outlined CC glyph, without On/Off wording in either interface language. The active outline, localized action tooltip, accessible pressed state and existing subtitle availability and switching behavior remain.
+
+Standalone Library: Movies and TV Shows both use Add Folder (Добавить папку); the active category still determines folder assignment. Compact natural-width header controls stay in one row with the title and the language selector at the far right. Narrow windows scroll the header horizontally rather than stacking buttons.

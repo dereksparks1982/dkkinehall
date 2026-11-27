@@ -905,7 +905,7 @@ async function render(){
   if(nativeBridge){
     $("addLibraryFolder").hidden=false;
     $("addFirstFolder").hidden=false;
-    $("addLibraryFolder").textContent=say(mode==="movie"?"Add Movies Folder":"Add TV Shows Folder",mode==="movie"?"Добавить папку фильмов":"Добавить папку сериалов");
+    $("addLibraryFolder").textContent=say("Add Folder","Добавить папку");
     const empty=$("emptyLibrary");
     const heading=empty?.querySelector("h3");
     const info=empty?.querySelector("p");

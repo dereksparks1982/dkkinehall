@@ -220,3 +220,5 @@ html.dk-standalone #jellyfinScanStatus{font-size:.78rem;margin:0 0 6px;color:var
 .dk-fix-match form{display:flex;flex-wrap:wrap;gap:8px}.dk-fix-match form input{min-width:0;flex:1 1 120px}.dk-fix-match-results{display:grid;gap:6px;max-height:45vh;overflow-y:auto}.dk-fix-match-results .btn{text-align:left;white-space:normal}
 
 .dk-local-edit form,.dk-local-edit form label{display:grid;gap:8px}.dk-local-edit input,.dk-local-edit textarea{width:100%;min-width:0;box-sizing:border-box}.dk-local-edit textarea{resize:vertical}.dk-art-options{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.dk-art-preview{display:block;max-width:100%;max-height:40vh;object-fit:contain;margin:8px auto}.dk-art-preview[hidden]{display:none}
+
+.dk-tv-summary{max-width:95ch;font-size:.88rem;line-height:1.5;white-space:pre-line;margin:8px 0}.dk-tv-summary:empty{display:none}#tvMetadataActions[hidden]{display:none}

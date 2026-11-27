@@ -320,7 +320,8 @@ async function jellyfinArtwork(row,id,series,force){
     const result=JSON.parse(response.text);
     if(!result?.title)return null;
     if(row.kind==="movie")await saveMovieResult(row,result);
-    else if(!series)await store.updateMetadata(row.id,{episodeTitle:result.title,jellyfinIdentity:result.identity});
+    else if(!series)await store.updateMetadata(row.id,{episodeTitle:result.title,episodeDetails:result.details,jellyfinIdentity:result.identity});
+    else await store.saveHierarchyMetadata(artId(row,true),result);
     const image=await nativeBridge.metadataRequest(url,"image");
     if(!image.ok)return null;
     const blob=new Blob([image.bytes],{type:image.mime});
@@ -506,12 +507,13 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   if(collection){collection.hidden=seriesOnly||row.kind!=="movie"||!window.DKCollections;collection.textContent=say("Manage Collections","Управление коллекциями");}
   if(edition){edition.hidden=seriesOnly||row.kind!=="movie"||!window.DKCollections;edition.textContent=say("Movie Editions","Версии фильма");}
   $("deleteFromDisk").hidden=seriesOnly;
-  $("movieDetailsAction").hidden=seriesOnly||row.kind!=="movie";
+  $("movieDetailsAction").hidden=false;
+  $("movieDetailsAction").textContent=row.kind==="movie"?say("Movie Details","О фильме"):seriesOnly?say("Series Details","О сериале"):say("Episode Details","О серии");
   $("refreshMovieMetadata").hidden=!["movie","tv"].includes(row.kind);
   $("refreshMovieMetadata").disabled=scanning||maintaining;
   $("fixMatch").hidden=!["movie","tv"].includes(row.kind);
   $("fixMatch").disabled=scanning||maintaining;
-  $("editLocalMetadata").hidden=seriesOnly; $("editLocalMetadata").disabled=scanning||maintaining;
+  $("editLocalMetadata").hidden=false; $("editLocalMetadata").disabled=scanning||maintaining;
   $("chooseArtwork").hidden=false; $("chooseArtwork").disabled=scanning||maintaining;
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
   $("removeFromLibrary").hidden=seriesOnly;
@@ -588,8 +590,9 @@ function showFileFields(row,info=null,loading=false){
   $("movieFileStatus").textContent=loading?say("Reading local file…","Чтение локального файла…"):info?.probeStatus==="ok"?"":say("Stream details unavailable; format and file size are based on the catalog or file extension.","Сведения о потоках недоступны; формат и размер указаны по каталогу или расширению файла.");
 }
 async function showMovieDetails(){
-  const row=contextRow;hideContextMenu();
-  if(row?.kind!=="movie")return;
+  const row=contextRow,series=contextSeries;hideContextMenu();
+  if(!row)return;
+  if(row.kind==="tv"){await showTVDetails(row,series?"series":"item");return;}
   const latest=await store.item(row.id)||row;
   displayMovieDetails(latest);
   const revision=++fileInfoRevision;
@@ -896,6 +899,8 @@ async function render(){
       return opt;
     }));
     $("seriesTitle").textContent=selectedSeries;
+    $("tvMetadataActions").hidden=!nativeBridge;
+    void displayHierarchy();
     $("seasonWatchedCount").hidden=!nativeBridge;
     $("markSeasonWatched").hidden=!nativeBridge;$("markSeasonUnwatched").hidden=!nativeBridge;
     refreshSeasonWatched();
@@ -1289,7 +1294,8 @@ function localEditDialog(title){
   document.body.append(dialog);return {dialog,message,close};
 }
 async function editMetadataDialog(){
-  const row=contextRow;hideContextMenu();if(!row)return;
+  const row=contextRow,series=contextSeries;hideContextMenu();if(!row)return;
+  if(series){await editHierarchyDialog(row,"series");return;}
   const latest=await store.item(row.id)||row;
   const {dialog,message,close}=localEditDialog(say("Edit Metadata","Редактировать метаданные"));
   const form=document.createElement("form");
@@ -1305,9 +1311,9 @@ async function editMetadataDialog(){
   unlock.addEventListener("click",async()=>{try{await store.editLocalMetadata(latest.id,{},true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
   dialog.showModal();
 }
-async function chooseArtworkDialog(){
-  const row=contextRow,series=contextSeries;hideContextMenu();if(!row)return;
-  const id=artId(row,series),{dialog,message,close}=localEditDialog(say("Choose Artwork","Выбрать обложку"));
+async function chooseArtworkDialog(target=null,scope=null){
+  const row=target||contextRow,series=scope==="series"||(!target&&contextSeries);hideContextMenu();if(!row)return;
+  const id=scope==="season"?hierarchyKey(row,"season"):artId(row,series),{dialog,message,close}=localEditDialog(say("Choose Artwork","Выбрать обложку"));
   const preview=create("img","dk-art-preview");preview.alt="";preview.hidden=true;
   let blob=null,objectURL=null,busy=false;
   const select=next=>{if(objectURL)URL.revokeObjectURL(objectURL);blob=next;objectURL=next?URL.createObjectURL(next):null;preview.hidden=!next;if(next)preview.src=objectURL;save.disabled=!next;};
@@ -1321,7 +1327,7 @@ async function chooseArtworkDialog(){
   source.addEventListener("change",()=>{const file=source.files?.[0];if(!file)return;if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>3*1024*1024||!file.size){message.textContent=say("Choose a JPEG, PNG or WebP image up to 3 MB.","Выберите изображение до 3 МБ в поддерживаемом формате.");return;}select(file);message.textContent="";});
   for(const [kind,en,ru] of [["Primary","Poster / primary","Основная обложка"],["Backdrop","Background","Фоновое изображение"],["Thumb","Thumbnail","Миниатюра"]]){
     const button=create("button","btn",say(en,ru));button.type="button";choices.append(button);
-    button.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const url="dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",series:series?"1":"0",image:kind});const result=await nativeBridge.metadataRequest(url,"image");if(!result.ok)throw Error();select(new Blob([result.bytes],{type:result.mime}));message.textContent="";}catch(_){message.textContent=say("This image is not available from the metadata engine.","Это изображение недоступно в службе метаданных.");}finally{setBusy(false);}});
+    button.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const url="dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",series:series?"1":"0",scope:scope||(series?"series":"item"),image:kind});const result=await nativeBridge.metadataRequest(url,"image");if(!result.ok)throw Error();select(new Blob([result.bytes],{type:result.mime}));message.textContent="";}catch(_){message.textContent=say("This image is not available from the metadata engine.","Это изображение недоступно в службе метаданных.");}finally{setBusy(false);}});
   }
   save.addEventListener("click",async()=>{if(!blob||busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));if(!await store.saveArtwork(id,blob,"Manual",true))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save artwork.","Не удалось сохранить обложку.");setBusy(false);}});
   reset.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));await store.removeArtwork(id);artAttempted.delete(id);jfChecked.delete(id);dialog.close();await render();}catch(_){message.textContent=say("Could not restore automatic artwork.","Не удалось восстановить автоматический выбор.");setBusy(false);}});
@@ -1329,8 +1335,85 @@ async function chooseArtworkDialog(){
   const current=await store.artwork(id);if(dialog.open&&current?.blob&&!blob)select(current.blob);
 }
 
+const hierarchyKey=(row,scope)=>scope==="season"?"tv-season:"+String(row.series||"").normalize("NFKC").toLowerCase()+":"+row.season:artId(row,true);
+const tvRepresentative=(scope)=>all.find(row=>row.kind==="tv"&&!row.missing&&!row.unavailable&&seriesKey(row.series)===seriesKey(selectedSeries)&&(scope!=="season"||row.season===selectedSeason));
+async function tvRecord(row,scope,force=false){
+  const latest=await store.item(row.id)||row;
+  const key=scope==="item"?null:hierarchyKey(row,scope);
+  const cached=key?await store.hierarchyMetadata(key):null;
+  if(cached?.manual||cached?.record&&!force)return cached.record;
+  const local=scope==="item"?{title:latest.episodeTitle||formatCode(latest),details:{...latest.episodeDetails,description:latest.episodeDescription||latest.episodeDetails?.description||""}}:cached?.record||{title:scope==="series"?row.series:say("Season "+row.season,"Сезон "+row.season),details:{}};
+  if(!nativeBridge?.metadataRequest)return local;
+  try{
+    const response=await jfCall("item",{id:row.id,path:row.nativePath,type:"Episode",scope,force:force?"1":"0"});
+    if(!response?.title)return local;
+    if(key){await store.saveHierarchyMetadata(key,response);return (await store.hierarchyMetadata(key))?.record||response;}
+    await store.updateMetadata(row.id,{episodeTitle:response.title,episodeDetails:response.details,jellyfinIdentity:response.identity});
+    const saved=await store.item(row.id);
+    return {...response,title:saved?.episodeTitle||response.title,details:{...response.details,description:saved?.manualFields?.description?saved.episodeDescription:response.details?.description}};
+  }catch(_){return local;}
+}
+async function showTVDetails(row,scope){
+  const {dialog,message,close}=localEditDialog(scope==="series"?say("Series Details","О сериале"):scope==="season"?say("Season Details","О сезоне"):say("Episode Details","О серии"));
+  const image=create("img","dk-art-preview");image.alt="";image.hidden=true;
+  let url=null;
+  dialog.addEventListener("close",()=>{if(url)URL.revokeObjectURL(url);});
+  const heading=create("h3"),description=create("p"),fields=create("dl");
+  message.textContent=say("Loading metadata…","Загрузка метаданных…");
+  dialog.append(image,heading,description,fields,message,close);dialog.showModal();
+  const cached=await store.artwork(scope==="item"?artId(row):hierarchyKey(row,scope));
+  let blob=cached?.blob;
+  if(!blob&&nativeBridge?.metadataRequest){
+    try{const r=await nativeBridge.metadataRequest("dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:"Episode",scope,image:"Primary"}),"image");if(r.ok){blob=new Blob([r.bytes],{type:r.mime});await store.saveArtwork(scope==="item"?artId(row):hierarchyKey(row,scope),blob,"Jellyfin");}}catch(_){}
+  }
+  if(!dialog.open)return;
+  if(blob){url=URL.createObjectURL(blob);image.src=url;image.hidden=false;}
+  const data=await tvRecord(row,scope,true);if(!dialog.open)return;
+  heading.textContent=data.title+(data.year?" ("+data.year+")":"");
+  description.textContent=data.details?.description||say("No description available.","Описание недоступно.");
+  const add=(label,value)=>{if(value)fields.append(create("dt",null,label),create("dd",null,String(value)));};
+  add(say("Genre","Жанр"),data.details?.genres?.join(", "));
+  add(say("Cast","В ролях"),data.details?.cast?.join(", "));
+  add(say("Director","Режиссёр"),data.details?.directors?.join(", "));
+  add(say("Rating","Рейтинг"),data.details?.rating);
+  if(scope==="item")add(say("Episode","Серия"),formatCode(row));
+  message.textContent="";
+}
+async function editHierarchyDialog(row,scope){
+  const key=hierarchyKey(row,scope);
+  const data=await tvRecord(row,scope),prior=await store.hierarchyMetadata(key);
+  const {dialog,message,close}=localEditDialog(scope==="season"?say("Edit Season Metadata","Редактировать сведения о сезоне"):say("Edit Series Metadata","Редактировать сведения о сериале"));
+  const form=document.createElement("form");
+  const field=(label,tag,value)=>{const l=create("label",null,label),n=document.createElement(tag);n.value=value??"";l.append(n);form.append(l);return n;};
+  const title=field(say("Title","Название"),"input",data.title);title.required=true;title.maxLength=180;
+  const year=field(say("Year","Год"),"input",data.year);year.type="number";year.min="1800";year.max="2100";
+  const description=field(say("Description","Описание"),"textarea",data.details?.description);description.rows=5;description.maxLength=6000;
+  const save=create("button","btn",say("Save and lock fields","Сохранить и защитить поля"));save.type="submit";
+  const unlock=create("button","btn",say("Unlock fields","Разблокировать поля"));unlock.type="button";unlock.disabled=!prior?.manual;
+  form.append(save,unlock,close);dialog.append(form,message);
+  form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{if(!await store.saveHierarchyMetadata(key,{...data,title:title.value.trim(),year:Number(year.value)||null,details:{...data.details,description:description.value}},true))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
+  unlock.addEventListener("click",async()=>{await store.saveHierarchyMetadata(key,null,false,true);dialog.close();await render();});
+  dialog.showModal();
+}
+let hierarchyRender=0;
+async function displayHierarchy(){
+  const revision=++hierarchyRender,show=tvRepresentative("series"),season=tvRepresentative("season"),seriesName=selectedSeries,seasonNumber=selectedSeason;
+  const summary=$("seriesMetadataSummary"),seasonSummary=$("seasonMetadataSummary");
+  summary.textContent="";seasonSummary.textContent="";
+  const valid=()=>revision===hierarchyRender&&selectedSeries===seriesName&&selectedSeason===seasonNumber;
+  if(!show||!nativeBridge)return;
+  const seriesData=await tvRecord(show,"series");
+  if(!valid())return;
+  $("seriesTitle").textContent=seriesData.title||seriesName;
+  summary.textContent=seriesData.details?.description||"";
+  if(season){const data=await tvRecord(season,"season");if(valid())seasonSummary.textContent=data.details?.description||"";}
+}
+
 function connect(){
   setupCollectionTools();
+  for(const [id,scope,action] of [["seriesDetails","series",showTVDetails],["seasonDetails","season",showTVDetails],["editSeriesDetails","series",editHierarchyDialog],["editSeasonDetails","season",editHierarchyDialog],["seasonArtwork","season",chooseArtworkDialog]]){
+    $(id)?.addEventListener("click",()=>{const row=tvRepresentative(scope);if(row)void action(row,scope);});
+  }
   $("watchlistAction")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();if(!row||!window.DKCollections)return;if(!window.DKCollections.toggle(row)){status("Could not save watchlist.","Не удалось сохранить список просмотра.",true);return;}void render();});
   $("manageMovieCollection")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"collection");});
   $("manageMovieEdition")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"edition");});

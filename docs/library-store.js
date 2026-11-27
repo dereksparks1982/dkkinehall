@@ -745,7 +745,7 @@ async function updateProgress(id,position,duration,completed=false,playedDelta=0
   if(saved)changed({progress:true,id});
   return saved;
 }
-async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails,movieProvider,jellyfinIdentity,manualMatch}={}){
+async function updateMetadata(id,{episodeTitle,episodeDetails,movieTitle,movieYear,movieDetails,movieProvider,jellyfinIdentity,manualMatch}={}){
   // Only verified metadata (from an actual provider result) is written.
   // Use a read/write transaction so a simultaneous playback-position save
   // cannot be overwritten by an older copy of a catalog record.
@@ -769,8 +769,10 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails
       if(!title&&!film&&identityChanged){s.put({...row,jellyfinIdentity:identity,manualMatch:lockedMatch});changedRow=true;return;}
       if(row.kind==="tv"&&title){
         const episode=locks.title?row.episodeTitle:title;
-        if(row.episodeTitle===episode&&row.metadataVerified&&!identityChanged)return;
-        s.put({...row,episodeTitle:episode,metadataVerified:true,jellyfinIdentity:identity,manualMatch:lockedMatch});
+        const details=episodeDetails&&typeof episodeDetails==="object"?episodeDetails:row.episodeDetails;
+        const description=locks.description?row.episodeDescription:(details?.description||row.episodeDescription||"");
+        if(row.episodeTitle===episode&&row.metadataVerified&&!identityChanged&&JSON.stringify(details)===JSON.stringify(row.episodeDetails)&&description===row.episodeDescription)return;
+        s.put({...row,episodeTitle:episode,episodeDescription:description,episodeDetails:details,metadataVerified:true,jellyfinIdentity:identity,manualMatch:lockedMatch});
       }else if(row.kind==="movie"&&film){
         // Reject a stale provider result which would reintroduce the bad title.
         if(!locks.title&&!lockedMatch&&goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
@@ -812,6 +814,26 @@ async function editLocalMetadata(id,fields,unlock=false){
   if(saved)changed({metadata:true,id});return saved;
 }
 
+// Hierarchy records are kept apart from episode/history records. Use the
+// existing cache store and distinct keys, avoiding a database migration.
+async function hierarchyMetadata(key){return get("art","meta:"+key);}
+async function saveHierarchyMetadata(key,record,manual=false,unlock=false){
+  if(typeof key!=="string"||!/^tv-(series|season):/.test(key)||key.length>1024)return false;
+  const db=await open();let saved=false;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction("art","readwrite"),s=tx.objectStore("art"),id="meta:"+key,req=s.get(id);
+    req.onsuccess=()=>{
+      const old=req.result;
+      if(unlock){if(old){s.put({...old,manual:false});saved=true;}return;}
+      if(old?.manual&&!manual)return;
+      if(!record||typeof record.title!=="string"||!record.title.trim())return;
+      s.put({id,record,manual:!!manual,updatedAt:Date.now()});saved=true;
+    };
+    tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Hierarchy metadata save failed"));
+  });
+  return saved;
+}
+
 async function artwork(id){return get("art",id);}
 async function removeArtwork(id){await erase("art",id);}
 async function saveArtwork(id,blob,credit="",manual=false){
@@ -836,7 +858,7 @@ async function saveArtwork(id,blob,credit="",manual=false){
 return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,editLocalMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

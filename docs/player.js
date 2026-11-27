@@ -75,7 +75,7 @@
   const deinterlaceKey="dk-kinehall.deinterlace.v1";
   const standaloneDeinterlace=Boolean(window.DKLibraryBridge?.internalPages&&window.DKCodecBridge?.probe);
   const savedDeinterlace=standaloneDeinterlace?read(deinterlaceKey,"off"):"off";
-  let deinterlacePreference=["off","auto","on"].includes(savedDeinterlace)?savedDeinterlace:"off";
+  let deinterlacePreference=["off","auto","on","auto-bob","on-bob","on-yadif","on-yadif-bob","on-bob-tff","on-bob-bff"].includes(savedDeinterlace)?savedDeinterlace:"off";
   const smoothingKey="dk-kinehall.smoothing.v1";
   const savedSmoothing=standaloneDeinterlace?read(smoothingKey,"off"):"off";
   let smoothingPreference=["off","auto","60","120"].includes(savedSmoothing)?savedSmoothing:"off";
@@ -1782,8 +1782,8 @@
           const info=await localCodecBridge.probe(item.file);
           if(!valid())return;
           mergeChapters(item,info.chapters);
-          const deinterlaceNeeded=info.hasVideo&&(item.deinterlaceMode==="on"||
-            item.deinterlaceMode==="auto"&&["tt","bb","tb","bt"].includes(info.fieldOrder));
+          const deinterlaceNeeded=info.hasVideo&&(item.deinterlaceMode.startsWith("on")||
+            item.deinterlaceMode.startsWith("auto")&&["tt","bb","tb","bt"].includes(info.fieldOrder));
           const target=item.smoothingMode==="auto"?(info.autoSmoothing?60:0):Number(item.smoothingMode)||0;
           const smoothingNeeded=info.hasVideo&&target>0&&info.sourceFps>0&&info.sourceFps<target-0.5;
           if(deinterlaceNeeded||smoothingNeeded){
@@ -2951,7 +2951,7 @@
     const title=document.createElement("strong");title.textContent="Deinterlacing";
     const label=document.createElement("label");label.htmlFor="deinterlaceMode";label.textContent="Deinterlacing mode";
     const select=document.createElement("select");select.id="deinterlaceMode";
-    for(const [value,text] of [["off","Off"],["auto","Automatic"],["on","On"]]){
+    for(const [value,text] of [["off","Off"],["auto","Automatic"],["on","On"],["auto-bob","Automatic double rate (BWDIF)"],["on-bob","Double rate (BWDIF)"],["on-yadif","Single rate (YADIF)"],["on-yadif-bob","Double rate (YADIF)"],["on-bob-tff","Double rate, top field first"],["on-bob-bff","Double rate, bottom field first"]]){
       const option=document.createElement("option");option.value=value;option.textContent=text;select.append(option);
     }
     select.value=deinterlacePreference;
@@ -2960,7 +2960,7 @@
       status("Deinterlacing preference applies the next time a video opens.",true);
     });
     const note=document.createElement("p");note.className="helper";
-    note.textContent="Automatic uses interlaced stream metadata. On forces native deinterlacing. Original playback format bypasses conversion. Changes apply when a video next opens.";
+    note.textContent="Automatic uses interlaced stream metadata. Double rate outputs one frame per field (typically 50 or 60 frames per second). Manual modes force deinterlacing; field order overrides can correct reversed motion. Original format bypasses conversion. Changes apply when a video next opens.";
     section.append(title,label,select,note);
     byId("playerSettingsPanel").append(section);
     window.DKLocale?.apply();

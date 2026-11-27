@@ -510,7 +510,7 @@ function serve(req,res) {
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];
-  if(active.deinterlace)filters.push("bwdif=mode=send_frame:parity=auto:deint="+(active.deinterlace==="on"?"all":"interlaced"));
+  if(active.deinterlaceFilter)filters.push(active.deinterlaceFilter);
   // Motion-compensated interpolation generates intermediate frames; no
   // fps-only duplication. Deinterlace before interpolation when enabled.
   if(active.smoothing)filters.push("minterpolate=fps="+active.smoothing+":mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1");
@@ -624,6 +624,17 @@ function audioOutputPlan(track,format,network=false,dvd=false){
   return {channels,args};
 }
 
+const deinterlaceModes=["off","auto","on","auto-bob","on-bob","on-yadif","on-yadif-bob","on-bob-tff","on-bob-bff"];
+function deinterlacePlan(mode,info,frameStep=false){
+  if(!info.hasVideo||!deinterlaceModes.includes(mode)||mode==="off")return null;
+  const auto=mode.startsWith("auto");
+  if(auto&&!["tt","bb","tb","bt"].includes(info.fieldOrder))return null;
+  const algorithm=mode.includes("yadif")?"yadif":"bwdif";
+  const doubleRate=mode.includes("bob")&&!frameStep;
+  const parity=mode.endsWith("-tff")?"tff":mode.endsWith("-bff")?"bff":"auto";
+  return {algorithm,doubleRate,expression:algorithm+":mode="+(doubleRate?"send_field":"send_frame")+":parity="+parity+":deint="+(auto?"interlaced":"all")};
+}
+
 async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off",subtitleIndex=-1,hardwareEnabled=true) {
   const info=await probe(localPath);
   const available=await status();
@@ -643,14 +654,22 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const position=Math.max(0,Math.min(
     Number.isFinite(Number(offset))?Number(offset):0,
     info.duration===null?24*60*60:Math.max(0,info.duration-(frameStep===true?0.001:0.5))));
-  const filterMode=info.hasVideo&&(deinterlace==="on"||deinterlace==="auto"&&["tt","bb","tb","bt"].includes(info.fieldOrder))?deinterlace:null;
-  if(filterMode){
+  const fieldPlan=deinterlacePlan(deinterlace,info,frameStep);
+  const filterMode=fieldPlan?deinterlace:null;
+  if(fieldPlan){
     if(!deinterlaceCapability)deinterlaceCapability=processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000)
-      .then(filters=>/\bbwdif\s+V->V\b/.test(filters)).catch(error=>{deinterlaceCapability=null;throw error;});
-    if(!await deinterlaceCapability)throw Error("Bundled decoder does not include the deinterlacing filter");
+      .then(filters=>({bwdif:/\bbwdif\s+V->V\b/.test(filters),yadif:/\byadif\s+V->V\b/.test(filters)})).catch(error=>{deinterlaceCapability=null;throw error;});
+    const supported=await deinterlaceCapability;
+    if(!supported[fieldPlan.algorithm]){
+      const alternate=fieldPlan.algorithm==="bwdif"?"yadif":"bwdif";
+      if(!supported[alternate])throw Error("Bundled decoder does not include a supported deinterlacing filter");
+      fieldPlan.expression=alternate+fieldPlan.expression.slice(fieldPlan.algorithm.length);
+      fieldPlan.algorithm=alternate;
+    }
   }
   const targetFps=smoothing==="auto"?(!network&&info.autoSmoothing?60:0):smoothing==="60"?60:smoothing==="120"?120:0;
-  const smoothFps=info.hasVideo&&!frameStep&&targetFps&&info.sourceFps&&info.sourceFps<targetFps-0.5?targetFps:0;
+  const effectiveFps=info.sourceFps*(fieldPlan?.doubleRate?2:1);
+  const smoothFps=info.hasVideo&&!frameStep&&targetFps&&effectiveFps&&effectiveFps<targetFps-0.5?targetFps:0;
   if(smoothFps){
     if(!smoothingCapability)smoothingCapability=processOutput(binary("ffmpeg"),["-hide_banner","-filters"],8000)
       .then(filters=>/\bminterpolate\s+V->V\b/.test(filters)).catch(error=>{smoothingCapability=null;throw error;});
@@ -667,7 +686,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,dvd,network,transport,rtspOptions:transport==="rtsp"?require("./library-host.cjs").rtspOptions(localPath.token):null,networkToken:network?localPath.token:null,position,duration:info.duration,format:selectedFormat,hardware,hardwareMode:hardware?"vaapi-pending":selectedFormat==="mp4"&&copyVideo?"copy":"software",hardwareFallback:false,decoderStalled:false,decodeSpeed:null,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
-    copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,audioOutput,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,audioOutput,deinterlace:filterMode,deinterlaceFilter:fieldPlan?.expression||null,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};
   return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",smoothing:smoothFps,
     copyVideo:session.copyVideo,copyAudio:session.copyAudio,outputAudioChannels:info.hasAudio?audioOutput.channels:0,
@@ -891,7 +910,7 @@ function install(win,contents=win?.webContents) {
   ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing,subtitleIndex=-1,hardwareEnabled=true)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return start(await resolvePlaybackSource(localPath),
-      offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off",
+      offset,format,audioIndex,frameStep===true,deinterlaceModes.includes(deinterlace)?deinterlace:"off",
       ["auto","60","120"].includes(smoothing)?smoothing:"off",Number.isInteger(subtitleIndex)?subtitleIndex:-1,hardwareEnabled!==false);
   });
   ipcMain.handle("dk-codec:stop",async event=>{

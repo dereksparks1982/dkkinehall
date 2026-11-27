@@ -2257,7 +2257,9 @@ async function readPlayableRange(id,filePath,start,end){
  */
 // Private, separately licensed Jellyfin runtime. Never adopt an external
 // process or modify the explicitly configured read-only Jellyfin server.
-let jfState=null,jfConfig=null,jfStarting=false,jfStopping=false,jfQueue=Promise.resolve();
+let jfState=null,jfConfig=null,jfStarting=false,jfStopping=false,jfClosing=false,jfQueue=Promise.resolve();
+const jfPowerFile=()=>path.join(app.getPath("userData"),"jellyfin-power.json");
+function jfEnabled(){try{return JSON.parse(fs.readFileSync(jfPowerFile(),"utf8")).enabled!==false;}catch(_){return true;}}
 function jfWrite(file,data){
   const tmp=file+"."+randomBytes(8).toString("hex");
   fs.writeFileSync(tmp,data,{mode:0o600,flag:"wx"});
@@ -2310,12 +2312,20 @@ async function jfAdmin(state,method,route,body,query={},timeout=10000){
   for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2*1024*1024){await reader.cancel();throw Error("Jellyfin response too large");}chunks.push(Buffer.from(value));}
   return size?JSON.parse(Buffer.concat(chunks).toString("utf8")):null;
 }
-function jfStop(){
+function jfStop(closing=true){
+  if(closing!==false)jfClosing=true;
   jfStopping=true;jfConfig=null;jellyfinCatalog=null;
-  const state=jfState;jfState=null;
+  const state=jfState;
   if(state?.child&&state.child.exitCode===null&&state.child.signalCode===null){
     try{state.child.kill("SIGTERM");}catch(_){}
   }
+  if(!jfState&&!jfStarting&&!jfClosing)jfStopping=false;
+}
+function jfSetPower(enabled){
+  if(typeof enabled!=="boolean"||jellyfinConfig()||jfClosing||jfStopping)throw Error("Private Jellyfin control unavailable");
+  jfWrite(jfPowerFile(),JSON.stringify({enabled}));
+  if(enabled){void jfStart();}else jfStop(false);
+  return true;
 }
 async function jfReconcile(state,refresh=false){
   if(jfState!==state||!state.token)return;
@@ -2344,7 +2354,7 @@ function jfSync(refresh=false){
   jfQueue=jfQueue.catch(()=>{}).then(()=>jfReconcile(state,refresh)).catch(()=>console.warn("Private Jellyfin sync unavailable; Kinehall library retained."));
 }
 async function jfStart(){
-  if(jfStarting||jfStopping||jellyfinConfig()||process.platform!=="linux")return;
+  if(jfStarting||jfStopping||jfClosing||jfState||!jfEnabled()||jellyfinConfig()||process.platform!=="linux")return;
   const executable=path.join(app.getPath("home"),".local","share","dk-kinehall","jellyfin","runtime","jellyfin");
   try{fs.accessSync(executable,fs.constants.X_OK);}catch(_){return;}
   jfStarting=true;let state=null,unlock=null;
@@ -2369,7 +2379,8 @@ async function jfStart(){
     if(fs.existsSync(ffmpeg))args.push("--ffmpeg",ffmpeg);
     const child=require("node:child_process").spawn(executable,args,{cwd:path.dirname(executable),stdio:"ignore",env:{...process.env,ASPNETCORE_URLS:"http://127.0.0.1:"+port}});
     state={child,port,device:saved.device,token:null};jfState=state;
-    const finished=()=>{if(jfState===state){jfState=null;jfConfig=null;jellyfinCatalog=null;}unlock();};
+    let finalized=false;
+    const finished=()=>{if(finalized)return;finalized=true;if(jfState===state){jfState=null;jfConfig=null;jellyfinCatalog=null;}unlock();if(!jfStarting&&!jfClosing)jfStopping=false;};
     child.once("error",finished);child.once("exit",finished);
     let info=null;
     const deadline=Date.now()+90000;
@@ -2392,10 +2403,10 @@ async function jfStart(){
     if(jfStopping||jfState!==state)return;
     jfConfig={port,token:state.token,userId:auth.User.Id,managed:true};jellyfinCatalog=null;
   }catch(_){
-    if(state&&jfState===state){try{state.child.kill("SIGTERM");}catch(_){}jfState=null;jfConfig=null;}
+    if(state&&jfState===state){try{state.child.kill("SIGTERM");}catch(_){}jfConfig=null;}
     else if(!state&&unlock)unlock();
     console.warn("Private Jellyfin unavailable; using existing metadata providers.");
-  }finally{jfStarting=false;}
+  }finally{jfStarting=false;if(!jfState&&!jfClosing)jfStopping=false;}
 }
 
 let jellyfinCatalog=null;
@@ -2455,16 +2466,18 @@ function jfProviderIds(value){
   return Object.fromEntries(Object.entries(value||{}).filter(([key,val])=>/^[A-Za-z0-9_-]{1,40}$/.test(key)&&typeof val==="string"&&/^[A-Za-z0-9_.:-]{1,100}$/.test(val)).slice(0,24));
 }
 async function jfStatus(){
-  if(jfStarting)return jfJSON({state:"starting"});
-  if(jellyfinConfig())return jfJSON({state:"external"});
-  if(!jfConfig||!jfState)return jfJSON({state:"unavailable"});
+  if(jellyfinConfig())return jfJSON({state:"external",enabled:true,controllable:false});
+  if(jfStopping)return jfJSON({state:"stopping",enabled:jfEnabled(),controllable:false});
+  if(jfStarting)return jfJSON({state:"starting",enabled:true,controllable:true});
+  if(!jfEnabled())return jfJSON({state:"off",enabled:false,controllable:true});
+  if(!jfConfig||!jfState)return jfJSON({state:"unavailable",enabled:true,controllable:true});
   try{
     const tasks=await jfAdmin(jfState,"GET","/ScheduledTasks");
     const task=Array.isArray(tasks)?tasks.find(x=>x.Key==="RefreshLibrary"):null;
     const running=task?.State==="Running"||task?.State==="Cancelling";
     const progress=typeof task?.CurrentProgressPercentage==="number"?Math.max(0,Math.min(100,task.CurrentProgressPercentage)):null;
-    return jfJSON({state:running?"scanning":"ready",progress:running?progress:null,completed:task?.LastExecutionResult?.EndTimeUtc||null});
-  }catch(_){return jfJSON({state:"unavailable"});}
+    return jfJSON({enabled:true,controllable:true,state:running?"scanning":"ready",progress:running?progress:null,completed:task?.LastExecutionResult?.EndTimeUtc||null});
+  }catch(_){return jfJSON({state:"unavailable",enabled:true,controllable:true});}
 }
 async function jfMatch(url,kind){
   const fail={ok:false,status:404};
@@ -3531,6 +3544,7 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);
   });
+  ipcMain.handle("dk-library:jellyfin-power",(event,enabled)=>{if(!allowed(event))throw Error("Server control rejected");return jfSetPower(enabled);});
   ipcMain.handle("dk-library:metadata-request",(event,url,kind)=>{
     if(!allowed(event))throw Error("Metadata request rejected");
     return metadataRequest(url,kind);

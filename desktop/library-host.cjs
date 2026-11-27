@@ -23,7 +23,7 @@ function inSource(root,target){
 function saveLibrarySources(rows){
  const dest=sourceFile(),temp=dest+".tmp";fs.mkdirSync(path.dirname(dest),{recursive:true});
  fs.writeFileSync(temp,JSON.stringify(rows),{mode:0o600});fs.renameSync(temp,dest);
- librarySources=rows;native.setSelectedRoots(rows.map(r=>r.path));return rows;
+ librarySources=rows;native.setSelectedRoots(rows.map(r=>r.path));jfSync(false);return rows;
 }
 
 /* Explicit, bounded IPv4 LAN discovery and read-only network playback.
@@ -2255,6 +2255,149 @@ async function readPlayableRange(id,filePath,start,end){
  * playback commands, or paths outside the selected Kinehall library folders.
  * Only exact file-path and item-kind matches can supply metadata.
  */
+// Private, separately licensed Jellyfin runtime. Never adopt an external
+// process or modify the explicitly configured read-only Jellyfin server.
+let jfState=null,jfConfig=null,jfStarting=false,jfStopping=false,jfQueue=Promise.resolve();
+function jfWrite(file,data){
+  const tmp=file+"."+randomBytes(8).toString("hex");
+  fs.writeFileSync(tmp,data,{mode:0o600,flag:"wx"});
+  try{fs.renameSync(tmp,file);}finally{try{fs.unlinkSync(tmp);}catch(_){}}
+}
+function jfDirectory(dir){
+  fs.mkdirSync(dir,{recursive:true,mode:0o700});
+  const st=fs.lstatSync(dir);
+  if(!st.isDirectory()||st.uid!==process.getuid()||(st.mode&0o077))throw Error("Unsafe private Jellyfin directory");
+  return dir;
+}
+function jfFreePort(){
+  return new Promise((resolve,reject)=>{
+    const server=require("node:net").createServer();
+    server.once("error",reject);
+    server.listen(0,"127.0.0.1",()=>{const port=server.address().port;server.close(error=>error?reject(error):resolve(port));});
+  });
+}
+function jfOwnListener(state){
+  if(!state?.child||state.child.exitCode!==null||state.child.signalCode!==null)return false;
+  const fd="/proc/"+state.child.pid+"/fd",sockets=new Set();
+  try{
+    for(const name of fs.readdirSync(fd)){
+      try{const m=/^socket:\[(\d+)\]$/.exec(fs.readlinkSync(path.join(fd,name)));if(m)sockets.add(m[1]);}catch(_){}
+    }
+    let ready=false;
+    for(const table of ["/proc/net/tcp","/proc/net/tcp6"]){
+      if(!fs.existsSync(table))continue;
+      for(const line of fs.readFileSync(table,"utf8").trim().split("\n").slice(1)){
+        const cols=line.trim().split(/\s+/),[addr,port]=cols[1].split(":");
+        if(cols[3]!=="0A"||!sockets.has(cols[9]))continue;
+        if(table.endsWith("tcp6")||addr!=="0100007F")throw Error("Non-loopback Jellyfin listener");
+        if(parseInt(port,16)===state.port)ready=true;
+      }
+    }
+    return ready;
+  }catch(error){if(error.message==="Non-loopback Jellyfin listener")throw error;return false;}
+}
+async function jfAdmin(state,method,route,body,query={}){
+  if(jfState!==state||!jfOwnListener(state))throw Error("Private Jellyfin not ready");
+  const u=new URL("http://127.0.0.1:"+state.port+route);
+  for(const [k,v] of Object.entries(query))u.searchParams.set(k,String(v));
+  const headers={Authorization:'MediaBrowser Client="DK Kinehall", Device="Local", DeviceId="'+state.device+'", Version="0.9.3"'+(state.token?', Token="'+state.token+'"':"")};
+  if(body!==undefined)headers["Content-Type"]="application/json";
+  const response=await fetch(u,{method,headers,body:body===undefined?undefined:JSON.stringify(body),redirect:"error",signal:AbortSignal.timeout(10000)});
+  if(!response.ok){await response.body?.cancel();throw Error("Jellyfin request failed");}
+  if(response.status===204)return null;
+  const reader=response.body?.getReader();if(!reader)return null;
+  let size=0;const chunks=[];
+  for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>2*1024*1024){await reader.cancel();throw Error("Jellyfin response too large");}chunks.push(Buffer.from(value));}
+  return size?JSON.parse(Buffer.concat(chunks).toString("utf8")):null;
+}
+function jfStop(){
+  jfStopping=true;jfConfig=null;jellyfinCatalog=null;
+  const state=jfState;jfState=null;
+  if(state?.child&&state.child.exitCode===null&&state.child.signalCode===null){
+    try{state.child.kill("SIGTERM");}catch(_){}
+  }
+}
+async function jfReconcile(state,refresh=false){
+  if(jfState!==state||!state.token)return;
+  const wanted=new Map(getLibrarySources().map(root=>["DK-"+root.kind+"-"+root.id,root]));
+  const folders=await jfAdmin(state,"GET","/Library/VirtualFolders");
+  if(!Array.isArray(folders))throw Error("Private Jellyfin folder query failed");
+  if(folders.some(folder=>!/^DK-(movie|tv)-[a-f0-9]{32}$/.test(folder?.Name||"")))throw Error("Unexpected private library");
+  let changed=false;
+  for(const folder of folders){
+    const root=wanted.get(folder.Name),locations=folder.Locations||[];
+    if(!root||locations.length!==1||locations[0]!==root.path){
+      await jfAdmin(state,"DELETE","/Library/VirtualFolders",undefined,{name:folder.Name,refreshLibrary:false});
+      changed=true;
+    }else wanted.delete(folder.Name);
+  }
+  for(const [name,root] of wanted){
+    try{if(!fs.statSync(root.path).isDirectory())continue;}catch(_){continue;}
+    await jfAdmin(state,"POST","/Library/VirtualFolders",{LibraryOptions:{PathInfos:[{Path:root.path}],EnableRealtimeMonitor:false,SaveLocalMetadata:false,MetadataSavers:[],EnableChapterImageExtraction:false,ExtractChapterImagesDuringLibraryScan:false,EnableTrickplayImageExtraction:false,ExtractTrickplayImagesDuringLibraryScan:false}},{name,collectionType:root.kind==="movie"?"movies":"tvshows",refreshLibrary:false});
+    changed=true;
+  }
+  if(changed||refresh){jellyfinCatalog=null;await jfAdmin(state,"POST","/Library/Refresh");}
+}
+function jfSync(refresh=false){
+  const state=jfState;
+  if(!jfConfig||!state)return;
+  jfQueue=jfQueue.catch(()=>{}).then(()=>jfReconcile(state,refresh)).catch(()=>console.warn("Private Jellyfin sync unavailable; Kinehall library retained."));
+}
+async function jfStart(){
+  if(jfStarting||jfStopping||jellyfinConfig()||process.platform!=="linux")return;
+  const executable=path.join(app.getPath("home"),".local","share","dk-kinehall","jellyfin","runtime","jellyfin");
+  try{fs.accessSync(executable,fs.constants.X_OK);}catch(_){return;}
+  jfStarting=true;let state=null,unlock=null;
+  try{
+    const base=jfDirectory(path.join(app.getPath("userData"),"jellyfin-private"));
+    const lock=path.join(base,"running.lock");
+    fs.closeSync(fs.openSync(lock,"wx",0o600));
+    unlock=()=>{try{fs.unlinkSync(lock);}catch(_){}};
+    const dirs=Object.fromEntries(["data","config","cache","logs"].map(n=>[n,jfDirectory(path.join(base,n))]));
+    const secret=path.join(base,"credentials.json");
+    let saved;
+    if(fs.existsSync(secret)){
+      const st=fs.lstatSync(secret);if(!st.isFile()||st.uid!==process.getuid()||(st.mode&0o077)||st.size>4096)throw Error("Unsafe credentials");
+      saved=JSON.parse(fs.readFileSync(secret,"utf8"));
+    }else{saved={password:randomBytes(32).toString("hex"),device:randomBytes(16).toString("hex")};jfWrite(secret,JSON.stringify(saved));}
+    if(!/^[a-f0-9]{64}$/.test(saved.password)||!/^[a-f0-9]{32}$/.test(saved.device))throw Error("Invalid credentials");
+    const port=await jfFreePort();
+    if(jfStopping){unlock();return;}
+    jfWrite(path.join(dirs.config,"network.xml"),'<?xml version="1.0" encoding="utf-8"?><NetworkConfiguration><InternalHttpPort>'+port+'</InternalHttpPort><PublicHttpPort>'+port+'</PublicHttpPort><EnableHttps>false</EnableHttps><RequireHttps>false</RequireHttps><EnableIPv4>true</EnableIPv4><EnableIPv6>false</EnableIPv6><EnableRemoteAccess>false</EnableRemoteAccess><AutoDiscovery>false</AutoDiscovery><EnableUPnP>false</EnableUPnP><LocalNetworkAddresses><string>127.0.0.1</string></LocalNetworkAddresses><LocalNetworkSubnets><string>127.0.0.0/8</string></LocalNetworkSubnets></NetworkConfiguration>');
+    const args=["--nowebclient","--nonetchange","--datadir",dirs.data,"--configdir",dirs.config,"--cachedir",dirs.cache,"--logdir",dirs.logs];
+    const ffmpeg=path.join(app.getAppPath(),"bin","ffmpeg");
+    if(fs.existsSync(ffmpeg))args.push("--ffmpeg",ffmpeg);
+    const child=require("node:child_process").spawn(executable,args,{cwd:path.dirname(executable),stdio:"ignore",env:{...process.env,ASPNETCORE_URLS:"http://127.0.0.1:"+port}});
+    state={child,port,device:saved.device,token:null};jfState=state;
+    const finished=()=>{if(jfState===state){jfState=null;jfConfig=null;jellyfinCatalog=null;}unlock();};
+    child.once("error",finished);child.once("exit",finished);
+    let info=null;
+    const deadline=Date.now()+90000;
+    while(Date.now()<deadline&&!jfStopping&&jfState===state){
+      if(jfOwnListener(state)){try{info=await jfAdmin(state,"GET","/System/Info/Public");if(info?.Version)break;}catch(_){}}
+      await new Promise(resolve=>setTimeout(resolve,500));
+    }
+    if(!info||!String(info.Version).startsWith("10.11.11")||jfStopping)throw Error("Private Jellyfin startup failed");
+    if(info.StartupWizardCompleted===false){
+      await jfAdmin(state,"POST","/Startup/Configuration",{ServerName:"DK Kinehall Private Metadata",UICulture:"en-US",MetadataCountryCode:"US",PreferredMetadataLanguage:"en"});
+      await jfAdmin(state,"GET","/Startup/User");
+      await jfAdmin(state,"POST","/Startup/User",{Name:"DKKinehall",Password:saved.password});
+      await jfAdmin(state,"POST","/Startup/RemoteAccess",{EnableRemoteAccess:false,EnableAutomaticPortMapping:false});
+      await jfAdmin(state,"POST","/Startup/Complete");
+    }
+    const auth=await jfAdmin(state,"POST","/Users/AuthenticateByName",{Username:"DKKinehall",Pw:saved.password});
+    if(!/^[A-Za-z0-9_-]{16,256}$/.test(auth?.AccessToken||"")||!jellyfinId(auth?.User?.Id))throw Error("Private Jellyfin authentication failed");
+    state.token=auth.AccessToken;
+    await jfReconcile(state,false);
+    if(jfStopping||jfState!==state)return;
+    jfConfig={port,token:state.token,userId:auth.User.Id,managed:true};jellyfinCatalog=null;
+  }catch(_){
+    if(state&&jfState===state){try{state.child.kill("SIGTERM");}catch(_){}jfState=null;jfConfig=null;}
+    else if(!state&&unlock)unlock();
+    console.warn("Private Jellyfin unavailable; using existing metadata providers.");
+  }finally{jfStarting=false;}
+}
+
 let jellyfinCatalog=null;
 function jellyfinConfig(){
   try{
@@ -2270,6 +2413,7 @@ function jellyfinConfig(){
 }
 function jellyfinId(value){return typeof value==="string"&&/^[a-f0-9]{32}$|^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);}
 async function jellyfinGet(cfg,route,query={},image=false){
+  if(cfg.managed&&(!jfState||cfg.port!==jfState.port||!jfOwnListener(jfState)))return null;
   const address=new URL("http://127.0.0.1:"+cfg.port+route);
   for(const [key,value] of Object.entries(query))address.searchParams.set(key,String(value));
   const res=await fetch(address,{headers:{Authorization:'MediaBrowser Client="DK Kinehall", Device="Local", DeviceId="dk-kinehall-local", Version="0.9.3", Token="'+cfg.token+'"'},redirect:"error",signal:AbortSignal.timeout(8000)});
@@ -2307,7 +2451,7 @@ async function jellyfinIndex(cfg,force=false){
 }
 async function jellyfinMetadata(raw,kind){
   const missing={ok:false,status:404};
-  const cfg=jellyfinConfig();if(!cfg)return missing;
+  const cfg=jellyfinConfig()||jfConfig;if(!cfg)return missing;
   try{
     const url=new URL(raw);
     if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.pathname!=="/item"||url.username||url.password||url.port||url.hash)return missing;
@@ -2739,6 +2883,7 @@ function install(originalWindow,originalPlayer){
   if(!originalWindow?.webContents||typeof originalPlayer!=="string")
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
+  void jfStart();app.once("before-quit",jfStop);
   // Chromium owns the PNG transfer; only this Player view's named Blob
   // snapshots receive the localized native save prompt. No arbitrary paths
   // or filesystem API are exposed to the renderer.
@@ -3170,7 +3315,8 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-library:scan-state",(event,value)=>{
     if(!allowed(event))throw Error("Scan state rejected");
-    scanActive=Boolean(value);
+    const wasScanning=scanActive;scanActive=Boolean(value);
+    if(wasScanning&&!scanActive)jfSync(true);
     if(home&&!home.isDestroyed())home.webContents.send("dk-library:scan-state",scanActive);
     if(installedWindow())player.webContents.send("dk-library:scan-state",scanActive);
     return true;
@@ -3328,7 +3474,7 @@ function install(originalWindow,originalPlayer){
     return showPage("library");
   });
   home.on("closed",()=>{
-    cancelAtsc();closeNetwork();scanController?.abort();
+    jfStop();cancelAtsc();closeNetwork();scanController?.abort();
     if(installedWindow())player.webContents.close();
     player=null;home=null;
   });

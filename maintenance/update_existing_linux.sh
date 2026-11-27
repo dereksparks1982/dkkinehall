@@ -106,6 +106,27 @@ PYTHON
 
 python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP" "$WORK/repo"
 
+# Import the pinned separately licensed runtime only once. Failure leaves the player usable.
+JELLYFIN="$HOME/.local/share/dk-kinehall/jellyfin"
+if [[ ! -e "$JELLYFIN" ]]; then
+  echo "Preparing private Jellyfin metadata runtime (10.11.11)..."
+  if [[ "$(uname -m)" == x86_64 ]] && command -v dpkg-deb >/dev/null && command -v unzip >/dev/null; then
+    JF_SOURCE="${DK_MEDIA_PLUS_DIR:-}"
+    if [[ -z "$JF_SOURCE" ]]; then
+      JF_SOURCE="$WORK/dkmediaplus"
+      if ! GIT_TERMINAL_PROMPT=0 git clone --quiet --depth 1 --filter=blob:none --sparse --branch main https://github.com/dereksparks1982/dkmediaplus.git "$JF_SOURCE" ||
+         ! GIT_TERMINAL_PROMPT=0 git -C "$JF_SOURCE" sparse-checkout set components/jellyfin/packages components/jellyfin/source; then
+        JF_SOURCE=""
+      fi
+    fi
+    if [[ -z "$JF_SOURCE" ]] || ! bash "$WORK/repo/maintenance/import_jellyfin_runtime.sh" "$JF_SOURCE" "$JELLYFIN"; then
+      echo "WARNING: Jellyfin import unavailable or incompatible; continuing with existing metadata providers." >&2
+    fi
+  else
+    echo "WARNING: Pinned Jellyfin package requires amd64 and dpkg-deb/unzip; continuing without it." >&2
+  fi
+fi
+
 echo "SUCCESS: Existing DK Kinehall updated; approved icons untouched."
 echo "Backup: $BACKUP"
 

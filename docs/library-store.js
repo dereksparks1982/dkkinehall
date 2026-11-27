@@ -848,7 +848,7 @@ async function applyVerifiedClassification(snapshot,match){
    const row=req.result;
    if(!row||row.source!=="native"||row.manualClassification||row.manualMatch||row.manualFields||row.userHidden||row.scopeExcluded||row.resetArchived||row.missing||row.nativePath!==snapshot.nativePath||row.size!==snapshot.size||row.modified!==snapshot.modified)return;
    if(match.ambiguous){if(!row.classificationReview){s.put({...row,classificationReview:true});saved=true;}return;}
-   if(!["movie","tv"].includes(match.kind)||!["Cinemeta","TVmaze","TMDb"].includes(match.provider)||!match.title)return;
+   if(!["movie","tv"].includes(match.kind)||!["Cinemeta","TVmaze","TMDb","Jellyfin"].includes(match.provider)||!match.title)return;
    if(match.kind==="tv"&&(!match.series||!Number.isInteger(match.season)||match.season<0||!Number.isInteger(match.episode)||match.episode<1))return;
    const {provider,...info}=match;
    const changedKind=row.kind!==info.kind;

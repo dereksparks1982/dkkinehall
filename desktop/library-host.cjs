@@ -3119,7 +3119,10 @@ function install(originalWindow,originalPlayer){
       series:Boolean(series),kind:kind==="tv"?"tv":"movie"});
   });
   ipcMain.handle("dk-library:playback-availability",(event,id,filePath)=>{
-    if(!allowed(event))throw Error("File status request rejected");return native.playbackAvailability(id,filePath);
+    // Both trusted standalone views preflight the file before playback.
+    // Keep the native file identity, path and scope checks in the indexer.
+    if(!allowed(event)&&!onlyPlayer(event))throw Error("File status request rejected");
+    return native.playbackAvailability(id,filePath);
   });
   ipcMain.handle("dk-library:locate-file",async(event,language)=>{
     if(!allowed(event))throw Error("File location request rejected");

@@ -1317,7 +1317,7 @@
       if(!streamPrefs.stats)return;
       if(!statsPending&&now-lastStatsAt>=2500&&streamBridge.networkStreamStats){lastStatsAt=now;statsPending=true;Promise.all([streamBridge.networkStreamStats(item.networkToken),rawCodecBridge?.streamStatus?.(item.networkToken).catch(()=>null)]).then(([value,decoder])=>{if(current()===item)streamStats={...value,decoder};}).catch(()=>{}).finally(()=>statsPending=false);}
       const quality=media.getVideoPlaybackQuality?.(),bps=Number(streamStats?.measuredBps)||0,selected=Number(streamStats?.selectedBitrate)||0;
-      statsNode.textContent=[streamSay("Buffer","Буфер")+": "+ahead.toFixed(1)+"/"+bufferTarget(item)+" "+streamSay("s","с"),media.videoWidth?media.videoWidth+"×"+media.videoHeight:"",bps?streamSay("Download","Загрузка")+": "+(bps/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",selected?streamSay("Stream bitrate","Битрейт потока")+": "+(selected/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",quality?streamSay("Dropped frames","Пропущено кадров")+": "+quality.droppedVideoFrames+"/"+quality.totalVideoFrames:"",streamSay("Stalls","Остановки")+": "+(item.streamStalls||0),streamStats?.segmentRetries?streamSay("Segment retries","Повторные запросы фрагментов")+": "+streamStats.segmentRetries:"",streamStats?.adaptiveActive?streamSay("In-play quality changes","Смены качества при воспроизведении")+": "+streamStats.adaptiveSwitches:"",item.nativePassthrough?.video?streamSay("Video passthrough","Видео без перекодирования"):"",item.nativePassthrough?.audio?streamSay("Audio passthrough","Звук без перекодирования"):"",streamStats?.decoder?.hardware==="vaapi"?streamSay("Hardware decoding: VA-API","Аппаратное декодирование: VA-API"):streamStats?.decoder?.hardware==="vaapi-pending"?streamSay("Hardware initialization","Инициализация аппаратного декодера"):streamStats?.decoder?.hardwareFallback?streamSay("Software decoding (fallback)","Программное декодирование (резерв)"):streamStats?.decoder?.hardware==="software"?streamSay("Software decoding","Программное декодирование"):"",Number.isFinite(streamStats?.decoder?.speed)?streamSay("Decoder speed","Скорость декодирования")+": "+streamStats.decoder.speed.toFixed(2)+"×":""].filter(Boolean).join("\n");
+      statsNode.textContent=[streamSay("Buffer","Буфер")+": "+ahead.toFixed(1)+"/"+bufferTarget(item)+" "+streamSay("s","с"),media.videoWidth?media.videoWidth+"×"+media.videoHeight:"",bps?streamSay("Download","Загрузка")+": "+(bps/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",selected?streamSay("Stream bitrate","Битрейт потока")+": "+(selected/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",quality?streamSay("Dropped frames","Пропущено кадров")+": "+quality.droppedVideoFrames+"/"+quality.totalVideoFrames:"",streamSay("Stalls","Остановки")+": "+(item.streamStalls||0),streamStats?.segmentRetries?streamSay("Segment retries","Повторные запросы фрагментов")+": "+streamStats.segmentRetries:"",streamStats?.adaptiveActive?streamSay("In-play quality changes","Смены качества при воспроизведении")+": "+streamStats.adaptiveSwitches:"",streamStats?.datagramDrops?streamSay("Dropped datagrams","Отброшено пакетов")+": "+streamStats.datagramDrops:"",item.nativePassthrough?.video?streamSay("Video passthrough","Видео без перекодирования"):"",item.nativePassthrough?.audio?streamSay("Audio passthrough","Звук без перекодирования"):"",streamStats?.decoder?.hardware==="vaapi"?streamSay("Hardware decoding: VA-API","Аппаратное декодирование: VA-API"):streamStats?.decoder?.hardware==="vaapi-pending"?streamSay("Hardware initialization","Инициализация аппаратного декодера"):streamStats?.decoder?.hardwareFallback?streamSay("Software decoding (fallback)","Программное декодирование (резерв)"):streamStats?.decoder?.hardware==="software"?streamSay("Software decoding","Программное декодирование"):"",Number.isFinite(streamStats?.decoder?.speed)?streamSay("Decoder speed","Скорость декодирования")+": "+streamStats.decoder.speed.toFixed(2)+"×":""].filter(Boolean).join("\n");
     },250);
   }
   const idle = () => {
@@ -1466,7 +1466,7 @@
     item.networkToken=item.tvOriginal.token;item.networkSource=Object.freeze({networkToken:item.networkToken});item.src=item.tvOriginal.src;item.tvOriginal=null;item.tvReplay=false;item.tvPaused=false;
     load(state.queue.indexOf(item),true);
   }
-  function refreshLiveControls(){if(livePanel)livePanel.hidden=!current()?.liveChannel||state.stopped;}
+  function refreshLiveControls(){if(livePanel)livePanel.hidden=!current()?.liveChannel||state.stopped||["udp","rtp"].includes(current()?.networkTransport);}
   if(liveControlBridge?.liveTvBuffer){
     livePanel=document.createElement("div");livePanel.className="dk-live-player-tools";livePanel.hidden=true;screen.append(livePanel);
     const controls=[];
@@ -1528,7 +1528,7 @@
     item.codecRestart = false;
     item.compatPending = false;
     inspectSelectedMkv(item);
-    item.requestedFormat = item.file?.dvdToken?"auto":playbackSettings.format;
+    item.requestedFormat = item.file?.dvdToken||["udp","rtp"].includes(item.networkTransport)?"auto":playbackSettings.format;
     item.deinterlaceMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
     item.smoothingMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
@@ -2893,7 +2893,7 @@
     note.textContent="Browse DLNA media servers or enter a private IPv4 HTTP media URL. Compatible streams only.";
     const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
     const results=document.createElement("div");results.className="dk-network-results";
-    const url=document.createElement("input");url.type="url";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
+    const url=document.createElement("input");url.type="text";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
     const serverURL=document.createElement("input");serverURL.type="url";serverURL.placeholder="http://192.168.1.10:8200/rootDesc.xml";serverURL.setAttribute("aria-label","Media server description URL");
     const queueLabel=document.createElement("label"),queueOnly=document.createElement("input");
     const queueText=document.createElement("span");queueText.textContent="Add to queue only";
@@ -2909,7 +2909,7 @@
     const nodes=(root,name)=>Array.from(root.getElementsByTagNameNS("*",name));
     const first=(root,name)=>nodes(root,name)[0]?.textContent?.trim()||"";
     const makeNetworkItem=(grant,name,audio)=>({kind:"network",networkToken:grant.token,networkSource:Object.freeze({networkToken:grant.token}),key:"network:"+grant.token,
-      name:String(name||"Network media").slice(0,250),audio,src:grant.src,
+      name:String(name||"Network media").slice(0,250),audio,src:grant.src,networkTransport:grant.transport||"http",
       embeddedSubtitles:[],embeddedAudio:[],embeddedVideo:[],chapters:[],mkvInspection:"not-mkv"});
     bridge.onLiveTvPlay?.(payload=>{
       const grant=payload?.grant;
@@ -2945,13 +2945,13 @@
         opening=false;
       }
     };
-    const addNetwork=async(serverId,address,name,audio=false)=>{
+    const addNetwork=async(serverId,address,name,audio=false,datagram=false)=>{
       if(opening)return;opening=true;const epoch=generation;
       try{
         say("Opening network media…");
-        const grant=await bridge.networkGrant(serverId,address);
+        const grant=datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
-        const item=makeNetworkItem(grant,name,audio);
+        const item=makeNetworkItem(grant,name,audio);if(datagram)item.liveChannel=true;
         if(queueOnly.checked){
           state.queue.push(item);
           if(state.current<0)load(state.queue.length-1,false);else{renderQueue();updateButtons();}
@@ -3056,7 +3056,12 @@
     };
     const direct=makeButton("Open network URL",()=>{
       try{
-        const address=new URL(url.value.trim());
+        const value=url.value.trim();
+        if(/^(udp|rtp):\/\//i.test(value)){
+          if(!bridge.networkDatagramGrant)throw Error("Receiver unavailable");
+          void addNetwork(null,value,value.slice(0,100),false,true);return;
+        }
+        const address=new URL(value);
         if(!["http:","https:"].includes(address.protocol)||address.username||address.password||address.hash)throw Error("Unsupported address");
         const name=decodeURIComponent(address.pathname.split("/").filter(Boolean).pop()||address.host);
         void addNetwork(null,address.href,name,/\.(mp3|flac|wav|m4a|aac|opus|ogg)$/i.test(name));
@@ -3541,7 +3546,7 @@
     media.textTracks.addEventListener("addtrack", () => setTimeout(applySubtitlePreference, 0));
     media.textTracks.addEventListener("removetrack", () => setTimeout(applySubtitlePreference, 0));
   }
-  media.addEventListener("playing",()=>{const item=current();if(item?.liveChannel&&!item.tvReplay&&!item.tvConfirmed&&!item.streamBuffering){item.tvConfirmed=true;void window.DKLibraryBridge?.liveTvPlayed?.(item.networkToken).catch(()=>{});}});
+  media.addEventListener("playing",()=>{const item=current();if(item?.liveChannel&&!["udp","rtp"].includes(item.networkTransport)&&!item.tvReplay&&!item.tvConfirmed&&!item.streamBuffering){item.tvConfirmed=true;void window.DKLibraryBridge?.liveTvPlayed?.(item.networkToken).catch(()=>{});}});
   media.addEventListener("ended", () => {
     const completed = current();
     if (!completed) return;

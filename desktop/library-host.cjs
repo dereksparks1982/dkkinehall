@@ -500,6 +500,88 @@ async function adaptivePlaylist(entry,state,opts){
  state.pending=task;
  try{const result=await task;state.last=result;return result;}finally{if(state.pending===task)state.pending=null;}
 }
+// Explicit receive-only IPv4 UDP/RTP MPEG-TS input. No arbitrary native
+// FFmpeg networking or remote session description is permitted. The browser
+// and FFmpeg see only the existing private tokenized HTTP proxy.
+function datagramAddress(value){
+ if(typeof value!=="string"||value.length>100)throw Error("Invalid datagram stream");
+ const m=/^(udp|rtp):\/\/@?(\d{1,3}(?:\.\d{1,3}){3}):(\d{1,5})\/?$/i.exec(value.trim());
+ if(!m)throw Error("Use a numeric IPv4 receiver address and port");
+ const octets=m[2].split(".").map(Number),host=octets.join("."),port=Number(m[3]);
+ if(octets.some(n=>n>255)||port<1024||port>65535)throw Error("Invalid datagram receiver");
+ const multicast=octets[0]>=224&&octets[0]<=239;
+ if(multicast&&octets[0]===224&&octets[1]===0&&octets[2]===0)throw Error("Reserved multicast group");
+ const interfaces=Object.values(require("node:os").networkInterfaces()).flat().filter(x=>x&&x.family==="IPv4"&&!x.internal);
+ if(!multicast&&host!=="0.0.0.0"&&!interfaces.some(x=>x.address===host))throw Error("Use a local interface or multicast group");
+ return {protocol:m[1].toLowerCase(),host,port,multicast};
+}
+function datagramPayload(packet,rtp){
+ let data=packet;
+ if(rtp){
+  if(packet.length<12||(packet[0]>>6)!==2||(packet[1]&127)!==33)return null;
+  let start=12+4*(packet[0]&15),end=packet.length;
+  if(start>end)return null;
+  if(packet[0]&16){if(start+4>end)return null;start+=4+4*packet.readUInt16BE(start+2);}
+  if(packet[0]&32){const padding=packet[end-1];if(!padding)return null;end-=padding;}
+  if(start>=end)return null;data=packet.subarray(start,end);
+ }
+ if(!data.length||data.length%188!==0)return null;
+ for(let i=0;i<data.length;i+=188)if(data[i]!==0x47)return null;
+ return data;
+}
+function serveDatagram(req,res,entry){
+ if(req.method==="HEAD"){res.writeHead(200,{"Content-Type":"video/mp2t","Cache-Control":"no-store","Access-Control-Allow-Origin":"null"});res.end();return;}
+ if(req.headers.range&&!/^bytes=0-$/.test(req.headers.range)){res.writeHead(416);res.end();return;}
+ if(networkClients.size>=12||entry.clients.size>=2){res.writeHead(503);res.end();return;}
+ const spec=entry.datagram;let receiver=entry.receiver;
+ if(!receiver){
+  const socket=netUDP.createSocket({type:"udp4",reuseAddr:true});
+  receiver={socket,subscribers:new Set(),closed:false};entry.receiver=receiver;
+  const stop=()=>{if(receiver.closed)return;receiver.closed=true;if(entry.receiver===receiver)entry.receiver=null;try{socket.close();}catch(_){};};
+  receiver.stop=stop;
+  socket.on("error",()=>{entry.failure="connection";for(const client of [...receiver.subscribers])client.destroy();stop();});
+  socket.on("message",packet=>{
+   const data=datagramPayload(packet,spec.protocol==="rtp");if(!data)return;
+   entry.failure=null;
+   const now=Date.now();
+   entry.datagramBytes=(entry.datagramBytes||0)+data.length;
+   if(!entry.datagramSampleAt)entry.datagramSampleAt=now;
+   if(now-entry.datagramSampleAt>=2000){entry.measuredBps=Math.round(entry.datagramBytes*8000/(now-entry.datagramSampleAt));entry.datagramSampleAt=now;entry.datagramBytes=0;}
+   for(const client of receiver.subscribers)client.packet(data,now);
+  });
+  try{socket.bind(spec.port,spec.multicast?"0.0.0.0":spec.host,()=>{
+   if(receiver.closed)return;
+   try{if(spec.multicast)socket.addMembership(spec.host);socket.setRecvBufferSize(512*1024);}
+   catch(_){entry.failure="connection";for(const client of [...receiver.subscribers])client.destroy();stop();}
+  });}catch(_){entry.failure="connection";stop();res.writeHead(502);res.end();return;}
+ }
+ let last=Date.now(),closed=false,blocked=false;
+ const client={
+  packet(data,now){
+   if(closed||res.destroyed)return;
+   last=now;
+   if(blocked){entry.datagramDrops=(entry.datagramDrops||0)+1;return;}
+   if(!res.headersSent)res.writeHead(200,{"Content-Type":"video/mp2t","Cache-Control":"no-store","Access-Control-Allow-Origin":"null","X-Content-Type-Options":"nosniff"});
+   blocked=!res.write(data);
+  },
+  destroy(){
+   if(closed)return;closed=true;clearInterval(timer);receiver.subscribers.delete(client);entry.clients.delete(client);networkClients.delete(client);
+   if(!receiver.subscribers.size)receiver.stop();
+   if(!res.destroyed&&!res.writableEnded){if(!res.headersSent)res.writeHead(502,{"Cache-Control":"no-store"});res.end();}
+  }
+ };
+ const timer=setInterval(()=>{if(Date.now()-last>15000){entry.failure="timeout";client.destroy();}},1000);
+ receiver.subscribers.add(client);entry.clients.add(client);networkClients.add(client);
+ res.on("drain",()=>{blocked=false;});res.once("close",()=>client.destroy());res.once("error",()=>client.destroy());
+}
+async function grantDatagram(value){
+ const datagram=datagramAddress(value);
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ networkGrants.set(token,{datagram,clients:new Set()});
+ return {token,src:"http://127.0.0.1:"+port+"/media/"+token,transport:datagram.protocol};
+}
 async function serveNetwork(req,res){
   if((req.url||"").startsWith("/voiceover/"))return serveVoiceover(req,res);
   if(serveBuffer(req,res))return;
@@ -509,6 +591,7 @@ async function serveNetwork(req,res){
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
+  if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
   if(range&&!/^bytes=(?:\d{1,16}-\d{0,16}|-\d{1,16})$/.test(range))return fail(416);
@@ -2138,6 +2221,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
+  ipcMain.handle("dk-network:datagram-grant",(event,url)=>{
+    if(!onlyPlayer(event))throw Error("Datagram request rejected");return grantDatagram(url);
+  });
   ipcMain.handle("dk-network:stream-policy",(event,token,policy)=>{
     if(!onlyPlayer(event))throw Error("Network policy rejected");
     const e=networkGrants.get(token);if(!e)return false;
@@ -2148,11 +2234,11 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:stream-stats",(event,token)=>{
     if(!onlyPlayer(event))throw Error("Network statistics rejected");
     const e=networkGrants.get(token);if(!e)return null;
-    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes,segmentRetries:e.segmentRetries||0,adaptiveSwitches:e.adaptive?.switches||0,adaptiveActive:e.adaptive?.enabled===true&&e.adaptive.history.size>0};
+    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes,segmentRetries:e.segmentRetries||0,adaptiveSwitches:e.adaptive?.switches||0,adaptiveActive:e.adaptive?.enabled===true&&e.adaptive.history.size>0,datagramDrops:e.datagramDrops||0};
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -2511,4 +2597,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,networkTransport:token=>networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

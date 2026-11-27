@@ -274,6 +274,7 @@ async function probe(localPath) {
   if(!executable(binary("ffprobe")))throw new Error("Bundled FFprobe is missing");
   const dvd=isDVD(localPath)?localPath:null;
   const network=isNetwork(localPath);
+  const transport=network?require("./library-host.cjs").networkTransport(localPath.token):null;
   const file=network?await require("./library-host.cjs").resolveNetworkMedia(localPath.token):dvd?dvd.path:selectedFile(localPath);
   const stat=network?null:dvd?verifyDVD(dvd):fs.statSync(file);
   const key=JSON.stringify([file,stat?.size,stat?.mtimeMs,dvd?.id||null]);
@@ -284,7 +285,7 @@ async function probe(localPath) {
   try{stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json",...(network?networkInputArgs:dvd?dvdArgs(dvd):[]),"-i",file
+    "-show_chapters","-of","json",...(network?[...networkInputArgs,...(transport==="udp"||transport==="rtp"?["-f","mpegts"]:[])]:dvd?dvdArgs(dvd):[]),"-i",file
   ],dvd&&!dvd.drive?90000:30000);}catch(error){
     if(!network)throw error;
     const failure=require("./library-host.cjs").networkFailure(localPath.token);
@@ -292,7 +293,8 @@ async function probe(localPath) {
     const msg=String(error?.message||"");
     const reason={denied:"TV stream denied by broadcaster",offline:"TV stream no longer available",upstream:"TV broadcaster returned an error",format:"Unsupported TV stream format",manifest:"Unsupported HLS manifest",address:"TV stream destination rejected",timeout:"TV stream timed out",connection:"TV stream connection failed"}[failure];
     if(reason)throw Error(reason);
-    if(caps&&!caps.hls)throw Error("Bundled decoder lacks HLS support");
+    if(transport!=="http"&&caps&&!caps.mpegts)throw Error("Bundled decoder lacks MPEG-TS support");
+    if(transport==="http"&&caps&&!caps.hls)throw Error("Bundled decoder lacks HLS support");
     if(caps&&!caps.http)throw Error("Bundled decoder lacks HTTP support");
     if(/timed out/i.test(msg))throw Error("TV stream timed out");
     throw Error("TV stream could not be decoded");
@@ -442,7 +444,7 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     ...(hardware?["-hwaccel","vaapi","-hwaccel_device",hardware.device,"-hwaccel_output_format","vaapi"]:[]),
-    ...(active.network?[...networkInputArgs,...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...networkInputArgs,...(active.transport==="udp"||active.transport==="rtp"?["-f","mpegts"]:[]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];
@@ -548,6 +550,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const available=await status();
   const dvd=isDVD(localPath)?localPath:null;
   const network=isNetwork(localPath);
+  const transport=network?require("./library-host.cjs").networkTransport(localPath.token):null;
   const target=network?await require("./library-host.cjs").resolveNetworkMedia(localPath.token):dvd?(verifyDVD(dvd),dvd.path):selectedFile(localPath);
   let bitmapSubtitle=null;
   if(subtitleIndex!==-1){
@@ -582,7 +585,7 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,dvd,network,networkToken:network?localPath.token:null,position,duration:info.duration,format:selectedFormat,hardware,hardwareMode:hardware?"vaapi-pending":selectedFormat==="mp4"&&copyVideo?"copy":"software",hardwareFallback:false,decoderStalled:false,decodeSpeed:null,
+  session={token,path:target,dvd,network,transport,networkToken:network?localPath.token:null,position,duration:info.duration,format:selectedFormat,hardware,hardwareMode:hardware?"vaapi-pending":selectedFormat==="mp4"&&copyVideo?"copy":"software",hardwareFallback:false,decoderStalled:false,decodeSpeed:null,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
     copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};

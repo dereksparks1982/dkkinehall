@@ -40,6 +40,7 @@ const nativeLibrary=Object.freeze({
   networkBrowse:(id,control,type,objectId,start,query=null)=>libIpc.invoke("dk-network:browse",
     String(id),String(control),String(type),String(objectId),Number(start),query===null?null:String(query)),
   networkGrant:(id,url)=>libIpc.invoke("dk-network:grant",id===null?null:String(id),String(url)),
+  networkDatagramGrant:url=>libIpc.invoke("dk-network:datagram-grant",String(url)),
   networkRelease:token=>libIpc.invoke("dk-network:release",String(token)),
   openACP:()=>libIpc.invoke("dk-library:open-acp"),
   recordNavigation:value=>libIpc.invoke("dk-library:record-navigation",value),

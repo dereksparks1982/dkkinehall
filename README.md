@@ -76,3 +76,5 @@ The existing hardware acceleration preference also controls optional VA-API deco
 Automatic quality can now attempt in-session HLS rendition switching for a restricted class of compatible live MPEG-TS streams. Already advertised segments keep their original URLs, and changes use verified aligned timestamps and a discontinuity boundary. Other streams retain reconnect-based quality selection.
 
 Live TV now imports M3U/M3U8 channel lists, PLS, XSPF and ASX-family playlists from local files or public HTTP(S) URLs, retaining supported channel names and artwork. The Player's Open network URL command also accepts explicitly entered public HTTP(S) media through the guarded local proxy. HLS playback manifests remain distinct from channel lists.
+
+The standalone Player accepts explicitly entered UDP MPEG-TS and RTP MPEG-TS receiver addresses, such as udp://@239.10.10.10:5000 or rtp://@239.10.10.10:5000, and local unicast receiver addresses. Streams must already be available on your network. RTP requires static MPEG-TS payload type 33. Other RTP payloads and RTSP are not yet supported.

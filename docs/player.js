@@ -1546,7 +1546,7 @@
     item.codecRestart = false;
     item.compatPending = false;
     inspectSelectedMkv(item);
-    item.requestedFormat = item.file?.dvdToken||["udp","rtp","rtsp","rtmp","srt"].includes(item.networkTransport)?"auto":playbackSettings.format;
+    item.requestedFormat = item.file?.dvdToken||["udp","rtp","rtsp","rtmp","srt","dash"].includes(item.networkTransport)?"auto":playbackSettings.format;
     item.deinterlaceMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?deinterlacePreference:"off";
     item.activeDeinterlace="off";
     item.smoothingMode=item.kind!=="network"&&standaloneDeinterlace&&item.requestedFormat!=="original"?smoothingPreference:"off";
@@ -1565,7 +1565,7 @@
     const cannotConvert = forcingContainer && !directFormat && !needsRemux;
     media.removeAttribute("crossorigin");
     if(item.kind==="network")media.crossOrigin="anonymous";
-    if (item.file?.dvdToken || item.kind==="network"&&(forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback) || needsRemux || cannotConvert) {
+    if (item.file?.dvdToken || item.kind==="network"&&(item.networkTransport==="dash"||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback) || needsRemux || cannotConvert) {
       // Do not play an MKV under an MP4/WebM label before remuxing finishes.
       media.removeAttribute("src");
     } else {
@@ -1611,7 +1611,7 @@
       return;
     }
     if(item.kind==="network"){
-      if(forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item));}});}
+      if(item.networkTransport==="dash"||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item));}});}
       else if(autoplay)playCurrent();
       return;
     }
@@ -1866,12 +1866,12 @@
     try{return await tryNativeCodec(item,at);}
     finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
   };
-  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["Bundled decoder lacks SRT support","Встроенный декодер не поддерживает SRT"],["SRT stream could not be opened","Не удалось открыть поток SRT"],["RTMP stream could not be opened","Не удалось открыть поток RTMP"],["RTSP stream could not be opened","Не удалось открыть поток RTSP"],["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
+  const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["Bundled decoder lacks DASH support","Встроенный декодер не поддерживает DASH"],["DASH manifest could not be opened","Не удалось открыть манифест DASH"],["Bundled decoder lacks SRT support","Встроенный декодер не поддерживает SRT"],["SRT stream could not be opened","Не удалось открыть поток SRT"],["RTMP stream could not be opened","Не удалось открыть поток RTMP"],["RTSP stream could not be opened","Не удалось открыть поток RTSP"],["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
   const recoverNetwork=(item,forceNative=false)=>{
     if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||networkRetryTimer!==null)return false;
     if(item.networkRetries>=5){cancelBufferGate();item.streamBuffering=false;item.autoplayRequested=false;media.pause();updateButtons();return false;}
     const epoch=item.playbackEpoch,at=item.liveChannel&&!item.tvReplay?0:Math.max(0,Number(item.networkLastPosition)||0);
-    const native=forceNative||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
+    const native=forceNative||item.networkTransport==="dash"||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
     cancelBufferGate();item.networkRetries++;item.streamPrimed=false;item.streamBuffering=true;item.streamLevel=Math.min(5,Math.max(item.streamLevel||0,item.networkRetries-1));updateButtons();
     status(streamSay("Reconnecting to network media…","Повторное подключение к сетевому потоку…"));
     networkRetryTimer=setTimeout(async()=>{
@@ -2948,7 +2948,7 @@
     };
     const heading=document.createElement("strong");heading.textContent="Network media";
     const note=document.createElement("p");note.className="helper";
-    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP, RTSPS, RTMP or SRT media address.";
+    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP, RTSPS, RTMP, SRT or MPEG-DASH media address.";
     const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
     const results=document.createElement("div");results.className="dk-network-results";
     const url=document.createElement("input");url.type="text";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
@@ -2956,6 +2956,8 @@
     rtspText.textContent="RTSP transport";rtspLabel.append(rtspText,rtspMode);
     for(const [value,label] of [["auto","Automatic (TCP preferred)"],["tcp","TCP"],["udp","UDP"]]){const option=document.createElement("option");option.value=value;option.textContent=label;rtspMode.append(option);}
     rtspLabel.hidden=!bridge.networkRTSPGrant;
+    const dashLabel=document.createElement("label"),dashMode=document.createElement("input"),dashText=document.createElement("span");
+    dashMode.type="checkbox";dashText.textContent="Open as MPEG-DASH manifest";dashLabel.append(dashMode,dashText);dashLabel.hidden=!bridge.networkDASHGrant;
     const serverURL=document.createElement("input");serverURL.type="url";serverURL.placeholder="http://192.168.1.10:8200/rootDesc.xml";serverURL.setAttribute("aria-label","Media server description URL");
     const queueLabel=document.createElement("label"),queueOnly=document.createElement("input");
     const queueText=document.createElement("span");queueText.textContent="Add to queue only";
@@ -3011,9 +3013,9 @@
       if(opening)return;opening=true;const epoch=generation;
       try{
         say("Opening network media…");
-        const grant=datagram==="srt"?await bridge.networkSRTGrant(address,document.documentElement.lang):datagram==="rtmp"?await bridge.networkRTMPGrant(address,document.documentElement.lang):datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang,rtspMode.value):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
+        const grant=datagram==="dash"?await bridge.networkDASHGrant(address,document.documentElement.lang):datagram==="srt"?await bridge.networkSRTGrant(address,document.documentElement.lang):datagram==="rtmp"?await bridge.networkRTMPGrant(address,document.documentElement.lang):datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang,rtspMode.value):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
-        const item=makeNetworkItem(grant,name,audio);if(datagram)item.liveChannel=true;
+        const item=makeNetworkItem(grant,name,audio);if(datagram&&datagram!=="dash")item.liveChannel=true;
         if(queueOnly.checked){
           state.queue.push(item);
           if(state.current<0)load(state.queue.length-1,false);else{renderQueue();updateButtons();}
@@ -3119,6 +3121,10 @@
     const direct=makeButton("Open network URL",()=>{
       try{
         const value=url.value.trim();
+        if(bridge.networkDASHGrant&&/^https?:\/\//i.test(value)){
+          const address=new URL(value);
+          if(dashMode.checked||/\.mpd$/i.test(address.pathname)){url.value="";void addNetwork(null,address.href,address.host+" · DASH",false,"dash");return;}
+        }
         if(/^srt:\/\//i.test(value)){
           if(!bridge.networkSRTGrant)throw Error("SRT unavailable");
           const address=new URL(value);url.value="";
@@ -3174,7 +3180,7 @@
       dlg.append(sapButton);
     }
     if(bridge.networkRegister)dlg.append(serverURL,manual);
-    dlg.append(url,rtspLabel,direct,queueLabel,message,results,close);
+    dlg.append(url,rtspLabel,dashLabel,direct,queueLabel,message,results,close);
     document.body.append(dlg);
     const open=()=>{if(!dlg.open){results.replaceChildren();say("");dlg.showModal();window.DKLocale?.apply();}};
     dlg.addEventListener("close",()=>{generation++;results.replaceChildren();});

@@ -40,6 +40,7 @@ const nativeLibrary=Object.freeze({
   networkBrowse:(id,control,type,objectId,start,query=null)=>libIpc.invoke("dk-network:browse",
     String(id),String(control),String(type),String(objectId),Number(start),query===null?null:String(query)),
   networkGrant:(id,url)=>libIpc.invoke("dk-network:grant",id===null?null:String(id),String(url)),
+  networkDASHGrant:(url,language)=>libIpc.invoke("dk-network:dash-grant",String(url),String(language)),
   networkSRTGrant:(url,language)=>libIpc.invoke("dk-network:srt-grant",String(url),String(language)),
   networkRTMPGrant:(url,language)=>libIpc.invoke("dk-network:rtmp-grant",String(url),String(language)),
   networkRTSPGrant:(url,language,mode)=>libIpc.invoke("dk-network:rtsp-grant",String(url),String(language),String(mode)),

@@ -645,7 +645,7 @@ async function serveNetwork(req,res){
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
-  if(entry.rtsp||entry.rtmp)return fail();
+  if(entry.rtsp||entry.rtmp||entry.dash)return fail();
   if(entry.srt){if(!root)return fail();return serveSRT(req,res,entry);}
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
@@ -998,11 +998,30 @@ function serveSRT(req,res,entry){
  receiver.subscribers.add(client);entry.clients.add(client);networkClients.add(client);
  res.on("drain",()=>{blocked=false;client.pump();});res.once("close",()=>client.destroy());res.once("error",()=>client.destroy());client.pump();
 }
+// Explicit DASH grants use the native demuxer; manifest and segment URLs
+// are network-only, with no filesystem or arbitrary protocol access.
+async function grantDASH(value,language){
+ if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid DASH URL");
+ const url=new URL(value);
+ if(!["http:","https:"].includes(url.protocol)||!url.hostname||url.hash)throw Error("Invalid DASH URL");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const ru=language==="ru";
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Открыть манифест MPEG-DASH?":"Open this MPEG-DASH manifest?",
+  detail:url.origin+"\n"+(ru?"Манифест может содержать ссылки на другие сетевые серверы. Используйте доверенный источник.":"A manifest can reference other network servers. Use a source you trust."),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex");
+ networkGrants.set(token,{dash:url.href,clients:new Set()});
+ return {token,src:"",transport:"dash"};
+}
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
   const entry=networkGrants.get(token);
   if(entry.rtsp)return entry.rtsp;
   if(entry.rtmp)return entry.rtmp;
+  if(entry.dash)return entry.dash;
   const port=await startNetworkProxy();
   if(!networkGrants.has(token))throw Error("Network media selection expired");
   return "http://127.0.0.1:"+port+"/media/"+token;
@@ -2618,6 +2637,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
+  ipcMain.handle("dk-network:dash-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("DASH request rejected");return grantDASH(url,language);
+  });
   ipcMain.handle("dk-network:srt-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("SRT request rejected");return grantSRT(url,language);
   });
@@ -2647,7 +2669,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.dash||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -3010,4 +3032,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?"rtmp":networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?"rtmp":networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

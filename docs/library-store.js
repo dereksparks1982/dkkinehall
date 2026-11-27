@@ -431,7 +431,7 @@ function cachedFeature(row){
 function repairCachedFeature(row){
  const feature=cachedFeature(row);
  if(!feature||row.kind!=="tv")return row;
- return {...row,...feature,featureClassification:feature,manualMatch:null,manualFields:null,jellyfinIdentity:null,
+ return {...row,...feature,featureClassification:feature,manualMatch:null,manualFields:null,localizations:null,jellyfinIdentity:null,
   movieMetadataVerified:false,movieDetails:null,movieProvider:null,metadataVerified:false,episodeDetails:null,episodeDescription:null};
 }
 async function applyNativeScope(sources){
@@ -504,7 +504,7 @@ async function ingestNative(scan){
         previous.episodeTitle:info.episodeTitle,
       title:validMovie?previous.title:info.title,
       year:validMovie?(previous.manualFields?.year?previous.year:(info.year||previous.year)):info.year,
-      ...(previous&&previous.kind!==info.kind?{manualMatch:null,manualFields:null,jellyfinIdentity:null,episodeDetails:null,episodeDescription:null}:{}),
+      ...(previous&&previous.kind!==info.kind?{manualMatch:null,manualFields:null,localizations:null,jellyfinIdentity:null,episodeDetails:null,episodeDescription:null}:{}),
       movieMetadataVerified:!!validMovie,
       movieDetails:validMovie?previous.movieDetails:null,
       movieProvider:validMovie?previous.movieProvider:null,
@@ -591,7 +591,7 @@ async function mergeNativeRows(old,target,candidate=null){
         const other=recent===from?to:from;
         if(!recent.completed&&!(Number(recent.position)>2)&&
           !other.completed&&Number(other.position)>2)recent=other;
-        const updated={...to,position:recent.position||0,duration:recent.duration||to.duration||0,
+        const updated={...to,localizations:{...from.localizations,...to.localizations},position:recent.position||0,duration:recent.duration||to.duration||0,
           lastPlayed:recent.lastPlayed||0,completed:!!recent.completed,watchedSeconds:recent.watchedSeconds,watchResetAt:recent.watchResetAt,watchedChangedAt:recent.watchedChangedAt,continueHidden:!!recent.continueHidden};
         const watchedSource=(from.watchedChangedAt||0)>(to.watchedChangedAt||0)?from:(to.watchedChangedAt?to:(from.completed?from:to.completed?to:recent));
         updated.completed=!!watchedSource.completed;updated.watchedChangedAt=watchedSource.watchedChangedAt;
@@ -800,6 +800,16 @@ function cleanEditableDetails(input={}){
  }
  return out;
 }
+function normalizeLocalizations(value){
+ const result={};
+ for(const lang of ["en","ru"]){
+  const input=value?.[lang];if(!input||typeof input!=="object")continue;
+  const title=typeof input.title==="string"?input.title.trim().slice(0,180):"";
+  const description=typeof input.description==="string"?input.description.trim().slice(0,6000):"";
+  if(title||description)result[lang]={title,description};
+ }
+ return result;
+}
 function normalizeMetadataLocks(value,keys){
  const result={};for(const k of keys)if(value?.[k]===true)result[k]=true;
  return Object.keys(result).length?result:null;
@@ -892,7 +902,7 @@ async function reclassifyNative(id,fields){
  await new Promise((resolve,reject)=>{
   const tx=db.transaction("entries","readwrite"),s=tx.objectStore("entries"),req=s.get(id);
   req.onsuccess=()=>{const row=req.result;if(!row||row.source!=="native"||row.userHidden||row.scopeExcluded||row.resetArchived||row.kind===kind)return;
-   s.put({...row,...info,manualClassification:info,verifiedClassification:null,classificationReview:false,manualMatch:null,manualFields:null,jellyfinIdentity:null,
+   s.put({...row,...info,manualClassification:info,verifiedClassification:null,classificationReview:false,manualMatch:null,manualFields:null,localizations:null,jellyfinIdentity:null,
     movieMetadataVerified:false,movieDetails:null,movieProvider:null,metadataVerified:false,episodeDetails:null,episodeDescription:null});
    saved=true;};
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Classification save failed"));
@@ -912,9 +922,10 @@ async function editLocalMetadata(id,fields,unlock=false){
       const description=String(fields.description||"").slice(0,6000),year=Number(fields.year)||null;
       if(row.kind==="movie"&&year&&(!Number.isInteger(year)||year<1800||year>2100))return;
       const detailPatch=cleanEditableDetails({...fields.details,description});
+      const localizations=fields.localizations===undefined?row.localizations:normalizeLocalizations(fields.localizations);
       const locks=normalizeMetadataLocks(fields.locks??{title:true,year:row.kind==="movie",description:true},["title",...(row.kind==="movie"?["year"]:[]),...editableDetailKeys]);
-      if(row.kind==="movie")s.put({...row,title,year,movieDetails:{...row.movieDetails,...detailPatch},movieMetadataVerified:true,manualFields:locks});
-      else if(row.kind==="tv")s.put({...row,episodeTitle:title,episodeDescription:description,episodeDetails:{...row.episodeDetails,...detailPatch},metadataVerified:true,manualFields:locks});
+      if(row.kind==="movie")s.put({...row,title,year,movieDetails:{...row.movieDetails,...detailPatch},movieMetadataVerified:true,manualFields:locks,localizations});
+      else if(row.kind==="tv")s.put({...row,episodeTitle:title,episodeDescription:description,episodeDetails:{...row.episodeDetails,...detailPatch},metadataVerified:true,manualFields:locks,localizations});
       else return;
       saved=true;
     };
@@ -936,12 +947,12 @@ async function saveHierarchyMetadata(key,record,manual=false,unlock=false){
       if(unlock){if(old){s.put({...old,manual:false,manualFields:null});saved=true;}return;}
       if(!record||typeof record.title!=="string"||!record.title.trim())return;
       let locks=old?.manualFields??(old?.manual?{title:true,year:true,description:true}:null);
-      let next=record;
+      let next={...record,localizations:old?.record?.localizations||{}};
       if(manual){
        locks=normalizeMetadataLocks(typeof manual==="object"?manual:{title:true,year:true,description:true},["title","year",...editableDetailKeys]);
-       next={...record,details:{...old?.record?.details,...record.details,...cleanEditableDetails(record.details)}};
+       next={...record,localizations:record.localizations===undefined?old?.record?.localizations||{}:normalizeLocalizations(record.localizations),details:{...old?.record?.details,...record.details,...cleanEditableDetails(record.details)}};
       }else if(old?.record&&locks){
-       next={...record,title:locks.title?old.record.title:record.title,year:locks.year?old.record.year:record.year,details:mergeLockedDetails(old.record.details,record.details,locks)};
+       next={...next,title:locks.title?old.record.title:record.title,year:locks.year?old.record.year:record.year,details:mergeLockedDetails(old.record.details,record.details,locks)};
       }
       s.put({id,record:next,manual:false,manualFields:locks,updatedAt:Date.now()});saved=true;
     };

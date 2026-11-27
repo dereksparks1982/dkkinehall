@@ -58,6 +58,12 @@ const artworkFinder=window.DKMediaMetadata?.create({
 });
 const lang=()=>document.documentElement.lang==="ru"?"ru":"en";
 const say=(english,russian)=>window.DKLocale?.pair(english,russian)??(lang()==="ru"?russian:english);
+// Localized display text is never used as a filename, provider match or
+// grouping identity. Missing translations fall back to source metadata.
+const localized=(record,field,fallback="")=>record?.localizations?.[lang()]?.[field]||fallback;
+const localizedRecord=record=>({...record,title:localized(record,"title",record?.title),details:{...record?.details,description:localized(record,"description",record?.details?.description)}});
+const localizedSearch=record=>["en","ru"].map(code=>record?.localizations?.[code]?.title).filter(Boolean);
+const displaySeriesName=row=>localized(seriesMetadata.get(seriesKey(row.series)),"title",row.series||row.title);
 const status=(en,ru=null,error=false)=>{
   const node=$("libraryStatus");
   node.textContent=ru?say(en,ru):en;
@@ -208,11 +214,11 @@ function createCard(row,{landscape=false,series=false}={}){
   card.dataset.displayRole=series?"series":landscape?"resume":"entry";
   const box=coverShell(landscape&&!nativeBridge);
   const title=create("span","library-card-title",
-    series?row.series:row.kind==="tv"?
-      (landscape?row.series+" · "+formatCode(row):formatCode(row)):
-      (nativeBridge?row.title:mediaName(row)));
+    series?displaySeriesName(row):row.kind==="tv"?
+      (landscape?displaySeriesName(row)+" · "+formatCode(row):formatCode(row)):
+      (nativeBridge?localized(row,"title",row.title):mediaName(row)));
   const detail=create("span","library-card-detail",
-    series?"":row.kind==="tv"?(row.episodeTitle||""):row.year||"");
+    series?"":row.kind==="tv"?localized(row,"title",row.episodeTitle||""):row.year||"");
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   if(row.classificationReview||row.kind==="tv"&&!Number(row.episode)&&!series){detail.textContent=[detail.textContent,say("Check classification","Проверить категорию")].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
@@ -674,8 +680,8 @@ function displayMovieDetails(row){
   const d=$("movieDetailsDialog");
   const data=row.movieDetails||{};
   detailMovieId=row.id;
-  $("movieDetailsTitle").textContent=row.title+(row.year?" ("+row.year+")":"");
-  $("movieDetailsDescription").textContent=data.description||say("No description available.","Описание недоступно.");
+  $("movieDetailsTitle").textContent=localized(row,"title",row.title)+(row.year?" ("+row.year+")":"");
+  $("movieDetailsDescription").textContent=localized(row,"description",data.description)||say("No description available.","Описание недоступно.");
   const list=$("movieDetailsFields");list.replaceChildren();
   const add=(label,value)=>{if(value){list.append(create("dt",null,label),create("dd",null,value));}};
   const addLinks=(label,kind,values)=>{
@@ -1539,8 +1545,19 @@ function metadataEditor(form,record,initialLocks,includeYear){
  add("title","Title","Название",record.title,"text");
  if(includeYear)add("year","Year","Год",record.year,"number");
  for(const [key,en,ru,type] of advancedMetadataFields)add(key,en,ru,record.details?.[key],type);
+ const translated=create("details","dk-localized-fields");translated.append(create("summary",null,say("English and Russian metadata","Английские и русские метаданные")));
+ translated.append(create("p","helper",say("Optional local translations. The selected interface language uses its saved text. Blank fields use source metadata; nothing is automatically translated.","Необязательные локальные переводы. Для выбранного языка используются сохранённые тексты. Пустые поля используют исходные метаданные; автоматический перевод не выполняется.")));
+ const translations={};
+ for(const [code,label] of [["en",say("English","Английский")],["ru",say("Russian","Русский")]]){
+  const block=create("fieldset","dk-localized-fieldset");block.append(create("legend",null,label));translations[code]={};
+  for(const [key,en,ru,tag,max] of [["title","Title","Название","input",180],["description","Description","Описание","textarea",6000]]){
+   const wrap=create("label",null,say(en,ru)),node=create(tag);node.value=record.localizations?.[code]?.[key]||"";node.maxLength=max;node.lang=code;if(tag==="textarea")node.rows=4;wrap.append(node);block.append(wrap);translations[code][key]=node;
+  }
+  translated.append(block);
+ }
+ form.append(translated);
  return ()=>{const detailValues={};for(const [key] of advancedMetadataFields)detailValues[key]=fields[key].value;
-  return {title:fields.title.value.trim(),year:fields.year?.value||null,description:detailValues.description,details:detailValues,locks:Object.fromEntries(Object.entries(locks).map(([key,n])=>[key,n.checked]))};
+  return {title:fields.title.value.trim(),year:fields.year?.value||null,description:detailValues.description,details:detailValues,localizations:Object.fromEntries(Object.entries(translations).map(([code,fields])=>[code,{title:fields.title.value,description:fields.description.value}])),locks:Object.fromEntries(Object.entries(locks).map(([key,n])=>[key,n.checked]))};
  };
 }
 async function editMetadataDialog(){
@@ -1549,7 +1566,7 @@ async function editMetadataDialog(){
  const latest=await store.item(row.id)||row;
  const {dialog,message,close}=localEditDialog(say("Edit Metadata","Редактировать метаданные"));
  const form=document.createElement("form");
- const values=metadataEditor(form,{title:latest.kind==="movie"?latest.title:latest.episodeTitle,year:latest.year,details:latest.kind==="movie"?latest.movieDetails:{...latest.episodeDetails,description:latest.episodeDescription}},latest.manualFields,latest.kind==="movie");
+ const values=metadataEditor(form,{title:latest.kind==="movie"?latest.title:latest.episodeTitle,year:latest.year,localizations:latest.localizations,details:latest.kind==="movie"?latest.movieDetails:{...latest.episodeDetails,description:latest.episodeDescription}},latest.manualFields,latest.kind==="movie");
  const save=create("button","btn",say("Save Metadata","Сохранить метаданные"));save.type="submit";
  const unlock=create("button","btn",say("Unlock All","Снять всю защиту"));unlock.type="button";unlock.disabled=!latest.manualFields;
  form.append(save,unlock,close);dialog.append(form,message);
@@ -1657,7 +1674,7 @@ async function tvRecord(row,scope,force=false){
   const key=scope==="item"?null:hierarchyKey(row,scope);
   const cached=key?await store.hierarchyMetadata(key):null;
   if(cached?.record&&!force)return cached.record;
-  const local=scope==="item"?{title:latest.episodeTitle||formatCode(latest),details:{...latest.episodeDetails,description:latest.episodeDescription||latest.episodeDetails?.description||""}}:cached?.record||{title:scope==="series"?row.series:say("Season "+row.season,"Сезон "+row.season),details:{}};
+  const local=scope==="item"?{title:latest.episodeTitle||formatCode(latest),localizations:latest.localizations,details:{...latest.episodeDetails,description:latest.episodeDescription||latest.episodeDetails?.description||""}}:cached?.record||{title:scope==="series"?row.series:say("Season "+row.season,"Сезон "+row.season),details:{}};
   if(!nativeBridge?.metadataRequest)return local;
   try{
     const response=await jfCall("item",{id:row.id,path:row.nativePath,type:"Episode",scope,force:force?"1":"0"});
@@ -1665,7 +1682,7 @@ async function tvRecord(row,scope,force=false){
     if(key){await store.saveHierarchyMetadata(key,response);return (await store.hierarchyMetadata(key))?.record||response;}
     await store.updateMetadata(row.id,{episodeTitle:response.title,episodeDetails:response.details,jellyfinIdentity:response.identity});
     const saved=await store.item(row.id);
-    return {...response,title:saved?.episodeTitle||response.title,details:{...response.details,...saved?.episodeDetails,description:saved?.episodeDescription??response.details?.description}};
+    return {...response,title:saved?.episodeTitle||response.title,localizations:saved?.localizations,details:{...response.details,...saved?.episodeDetails,description:saved?.episodeDescription??response.details?.description}};
   }catch(_){return local;}
 }
 async function showTVDetails(row,scope){
@@ -1683,7 +1700,7 @@ async function showTVDetails(row,scope){
   }
   if(!dialog.open)return;
   if(blob){url=URL.createObjectURL(blob);image.src=url;image.hidden=false;}
-  const data=await tvRecord(row,scope,true);if(!dialog.open)return;
+  const data=localizedRecord(await tvRecord(row,scope,true));if(!dialog.open)return;
   heading.textContent=data.title+(data.year?" ("+data.year+")":"");
   description.textContent=data.details?.description||say("No description available.","Описание недоступно.");
   const add=(label,value)=>{if(value)fields.append(create("dt",null,label),create("dd",null,String(value)));};
@@ -1710,7 +1727,7 @@ async function editHierarchyDialog(row,scope){
  const save=create("button","btn",say("Save Metadata","Сохранить метаданные"));save.type="submit";
  const unlock=create("button","btn",say("Unlock All","Снять всю защиту"));unlock.type="button";unlock.disabled=!prior?.manual&&!prior?.manualFields;
  form.append(save,unlock,close);dialog.append(form,message);
- form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{const v=values();if(!await store.saveHierarchyMetadata(key,{...data,title:v.title,year:Number(v.year)||null,details:{...data.details,...v.details}},v.locks))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
+ form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{const v=values();if(!await store.saveHierarchyMetadata(key,{...data,title:v.title,year:Number(v.year)||null,localizations:v.localizations,details:{...data.details,...v.details}},v.locks))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
  unlock.addEventListener("click",async()=>{try{await store.saveHierarchyMetadata(key,null,false,true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
  dialog.showModal();
 }
@@ -1722,16 +1739,16 @@ async function displayHierarchy(){
   const valid=()=>revision===hierarchyRender&&selectedSeries===seriesName&&selectedSeason===seasonNumber;
   if(!show||!nativeBridge)return;
   void paintBackdrop($("seriesDetail"),show,"series");
-  const seriesData=await tvRecord(show,"series");
+  const seriesData=localizedRecord(await tvRecord(show,"series"));
   if(!valid())return;
   $("seriesTitle").textContent=seriesData.title||seriesName;
   summary.textContent=seriesData.details?.description||"";
-  if(season){const data=await tvRecord(season,"season");if(valid())seasonSummary.textContent=data.details?.description||"";}
+  if(season){const data=localizedRecord(await tvRecord(season,"season"));if(valid())seasonSummary.textContent=data.details?.description||"";}
 }
 
 
 /* Cinema Home: existing catalog, playback, metadata and history; no new database. */
-const cinemaTitle=r=>r.kind==="tv"?(r.series||r.title):r.title;
+const cinemaTitle=r=>r.kind==="tv"?displaySeriesName(r):localized(r,"title",r.title);
 const cinemaDetails=r=>r.kind==="tv"?(seriesMetadata.get(seriesKey(r.series))?.details||r.episodeDetails||{}):(r.movieDetails||{});
 const cinemaGenres=r=>Array.isArray(cinemaDetails(r).genres)?cinemaDetails(r).genres.filter(g=>typeof g==="string"&&g.trim()):[];
 const cinemaYear=r=>Number(r.kind==="tv"?(seriesMetadata.get(seriesKey(r.series))?.year||r.year):r.year)||0;
@@ -1750,7 +1767,7 @@ async function readSeriesMetadata(epoch){
 }
 function matchesCinema(r){
  const f=homeFilters,q=seriesKey(f.query),d=cinemaDetails(r);
- return (!q||[cinemaTitle(r),r.episodeTitle,d.originalTitle,...(Array.isArray(d.alternativeTitles)?d.alternativeTitles:[]),...cinemaGenres(r),...(Array.isArray(d.cast)?d.cast:[])].some(x=>seriesKey(x).includes(q)))&&
+ return (!q||[cinemaTitle(r),r.title,r.series,r.episodeTitle,...localizedSearch(r),...localizedSearch(seriesMetadata.get(seriesKey(r.series))),d.originalTitle,...(Array.isArray(d.alternativeTitles)?d.alternativeTitles:[]),...cinemaGenres(r),...(Array.isArray(d.cast)?d.cast:[])].some(x=>seriesKey(x).includes(q)))&&
  (!f.genre||cinemaGenres(r).some(g=>seriesKey(g)===seriesKey(f.genre)))&&(!f.year||cinemaYear(r)===Number(f.year))&&(!f.rating||cinemaRating(r)>=Number(f.rating))&&(!f.watched||historyBucket(r)===f.watched);
 }
 function sortCinema(rows){
@@ -1788,7 +1805,7 @@ function nextLocal(){
  const hero=cinema.hero;hero.replaceChildren();hero.classList.remove("dk-discovery");
  if(r){
   const d=cinemaDetails(r);
-  hero.append(create("span","dk-hero-kicker",p.learned?say("PICKED FOR YOU · YOUR LIBRARY","ПОДБОРКА ДЛЯ ВАС · ВАША МЕДИАТЕКА"):say("RANDOM PICK · YOUR LIBRARY","СЛУЧАЙНЫЙ ВЫБОР · ВАША МЕДИАТЕКА")),create("h1",null,r.title),create("p","dk-hero-meta",[r.year,d.runtime?d.runtime+say(" min"," мин"):"",...cinemaGenres(r).slice(0,3)].filter(Boolean).join(" · ")),create("p","dk-hero-description",d.description||say("From your personal movie collection.","Из вашей коллекции фильмов.")));
+  hero.append(create("span","dk-hero-kicker",p.learned?say("PICKED FOR YOU · YOUR LIBRARY","ПОДБОРКА ДЛЯ ВАС · ВАША МЕДИАТЕКА"):say("RANDOM PICK · YOUR LIBRARY","СЛУЧАЙНЫЙ ВЫБОР · ВАША МЕДИАТЕКА")),create("h1",null,localized(r,"title",r.title)),create("p","dk-hero-meta",[r.year,d.runtime?d.runtime+say(" min"," мин"):"",...cinemaGenres(r).slice(0,3)].filter(Boolean).join(" · ")),create("p","dk-hero-description",localized(r,"description",d.description)||say("From your personal movie collection.","Из вашей коллекции фильмов.")));
   const actions=create("div","dk-hero-actions");actions.append(cinemaButton("▶ Play","▶ Смотреть",()=>void openVideo(r)),cinemaButton("Details","Подробнее",()=>{contextRow=r;contextSeries=false;void showMovieDetails();}));hero.append(actions);void paintBackdrop(hero,r,"item");
  }else{hero.append(create("span","dk-hero-kicker",say("YOUR CINEMA","ВАШ КИНОТЕАТР")),create("h1",null,say("Welcome to Kinehall","Добро пожаловать в Кинехолл")),create("p",null,say("Add a movie folder to begin.","Добавьте папку с фильмами.")),cinemaButton("Library Management","Управление медиатекой",()=>void openLibraryManagement()));}
  const ticket=featureEpoch;hero.append(cinemaButton("Next suggestion ›","Следующая рекомендация ›",()=>void discover(ticket),"btn dk-hero-next"));

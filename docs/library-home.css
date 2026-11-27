@@ -434,3 +434,5 @@ html.dk-standalone body .dk-cinema-collapsed #dkCinemaSidebar :is(.dk-cinema-nav
 .dk-meta-edit-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.dk-meta-edit-row>label:first-child{min-width:0}.dk-meta-edit-row .dk-meta-lock{display:flex;align-items:center;gap:6px;flex-direction:row;white-space:nowrap;padding:8px 0}.dk-meta-edit-row .dk-meta-lock input{width:auto;min-width:0}
 
 .dk-localized-fields{border:1px solid #a58039;border-radius:6px;padding:10px;min-width:0}.dk-localized-fields summary{cursor:pointer;color:#e2b956;font-weight:650}.dk-localized-fieldset{display:grid;gap:8px;min-width:0;border:1px solid #a580394d;padding:10px;margin-top:10px}.dk-localized-fieldset legend{color:#e2b956}
+
+.dk-person-title .btn{white-space:normal;text-align:left;overflow-wrap:anywhere}.dk-person-title .helper{overflow-wrap:anywhere}

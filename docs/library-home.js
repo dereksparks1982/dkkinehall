@@ -563,41 +563,88 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
 }
 const creditRole=type=>({Actor:say("Actor","Актёр"),Director:say("Director","Режиссёр"),Writer:say("Writer","Сценарист"),Producer:say("Producer","Продюсер"),GuestStar:say("Guest star","Приглашённый актёр"),Composer:say("Composer","Композитор"),ExecutiveProducer:say("Executive producer","Исполнительный продюсер"),VoiceActor:say("Voice actor","Актёр озвучивания"),Lyricist:say("Lyricist","Автор текста"),Conductor:say("Conductor","Дирижёр"),Arranger:say("Arranger","Аранжировщик"),Sound:say("Sound","Звук"),Unknown:say("Crew","Съёмочная группа")}[type]||say("Crew","Съёмочная группа"));
 const creditParams=(row,scope)=>({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",scope});
-async function creditImage(row,scope,person){
-  const url="dk-jellyfin://catalog/person-image?"+new URLSearchParams({...creditParams(row,scope),person});
-  const response=await nativeBridge.metadataRequest(url,"image");
-  if(!response.ok||!/^image\/(jpeg|png|webp)$/.test(response.mime))return null;
-  return new Blob([response.bytes],{type:response.mime});
+const personPhotoPending=new Map(),personProfilePending=new Map();
+const personCacheAge=7*86400000,personPhotoAge=30*86400000;
+const cachedPersonMatches=(cached,person)=>cached&&seriesKey(cached.name)===seriesKey(person.name);
+async function creditImage(row,scope,person,force=false){
+ if(!person?.id||!person.name)return null;
+ let cached=null;
+ try{cached=await store.personCache(person.id,"photo");}catch(_){}
+ if(!cachedPersonMatches(cached,person))cached=null;
+ if(cached?.blob&&!force&&Date.now()-cached.updatedAt<personPhotoAge)return cached.blob;
+ const key=person.id+":"+seriesKey(person.name);
+ if(personPhotoPending.has(key))return personPhotoPending.get(key);
+ const work=(async()=>{
+  try{
+   const url="dk-jellyfin://catalog/person-image?"+new URLSearchParams({...creditParams(row,scope),person:person.id});
+   const response=await nativeBridge.metadataRequest(url,"image");
+   if(!response.ok||!/^image\/(jpeg|png|webp)$/.test(response.mime))return cached?.blob||null;
+   const blob=new Blob([response.bytes],{type:response.mime});
+   try{await store.savePersonCache(person.id,"photo",person.name,blob);}catch(_){}
+   return blob;
+  }catch(_){return cached?.blob||null;}
+ })().finally(()=>personPhotoPending.delete(key));
+ personPhotoPending.set(key,work);return work;
+}
+async function getPersonProfile(row,scope,person,force=false){
+ let cached=null;
+ try{cached=await store.personCache(person.id,"profile");}catch(_){}
+ if(!cachedPersonMatches(cached,person))cached=null;
+ if(cached?.record&&!force&&Date.now()-cached.updatedAt<personCacheAge)return {data:cached.record,cached:true,stale:false,updatedAt:cached.updatedAt};
+ const key=person.id+":"+seriesKey(person.name);
+ if(personProfilePending.has(key))return personProfilePending.get(key);
+ const work=(async()=>{
+  try{
+   const data=await jfCall("person",{...creditParams(row,scope),person:person.id});
+   if(!data?.name)throw Error("Invalid profile");
+   try{await store.savePersonCache(person.id,"profile",person.name,data);}catch(_){}
+   return {data,cached:false,stale:false,updatedAt:Date.now()};
+  }catch(error){if(cached?.record)return {data:cached.record,cached:true,stale:true,updatedAt:cached.updatedAt};throw error;}
+ })().finally(()=>personProfilePending.delete(key));
+ personProfilePending.set(key,work);return work;
 }
 async function showPersonProfile(row,scope,credit){
-  const {dialog,message,close}=localEditDialog(credit.name);
-  const image=create("img","dk-person-photo");image.alt="";image.hidden=true;
-  const role=create("p",null,[creditRole(credit.type),credit.role].filter(Boolean).join(" · "));
-  const facts=create("dl"),bio=create("p","dk-person-biography"),heading=create("h3",null,say("In your library","В вашей медиатеке")),titles=create("div","dk-person-titles");
-  let objectURL=null;
-  dialog.addEventListener("close",()=>{if(objectURL)URL.revokeObjectURL(objectURL);});
-  message.textContent=say("Loading profile…","Загрузка сведений…");
-  dialog.append(image,role,facts,bio,heading,titles,message,close);dialog.showModal();
-  void (async()=>{try{const blob=await creditImage(row,scope,credit.id);if(blob&&dialog.open){objectURL=URL.createObjectURL(blob);image.src=objectURL;image.hidden=false;}}catch(_){}})();
+ const {dialog,message,close}=localEditDialog(credit.name);
+ const image=create("img","dk-person-photo");image.alt="";image.hidden=true;
+ const role=create("p",null,[creditRole(credit.type),credit.role].filter(Boolean).join(" · "));
+ const facts=create("dl"),bio=create("p","dk-person-biography"),heading=create("h3",null,say("In your library","В вашей медиатеке")),titles=create("div","dk-person-titles");
+ const refresh=cinemaButton("Refresh Profile","Обновить сведения",()=>void load(true));
+ let objectURL=null,epoch=0;
+ dialog.addEventListener("close",()=>{epoch++;if(objectURL)URL.revokeObjectURL(objectURL);});
+ dialog.append(image,role,facts,bio,heading,titles,message,refresh,close);dialog.showModal();
+ async function load(force=false){
+  const revision=++epoch,valid=()=>dialog.open&&revision===epoch;
+  refresh.disabled=true;message.textContent=say("Loading profile…","Загрузка сведений…");
+  void (async()=>{try{const blob=await creditImage(row,scope,credit,force);if(blob&&valid()){if(objectURL)URL.revokeObjectURL(objectURL);objectURL=URL.createObjectURL(blob);image.src=objectURL;image.hidden=false;}}catch(_){}})();
   try{
-    const data=await jfCall("person",{...creditParams(row,scope),person:credit.id});
-    if(!dialog.open)return;
-    const add=(label,value)=>{if(value)facts.append(create("dt",null,label),create("dd",null,value));};
-    const date=value=>{if(!value)return "";const d=new Date(value);return Number.isFinite(d.getTime())?new Intl.DateTimeFormat(lang(),{dateStyle:"long",timeZone:"UTC"}).format(d):"";};
-    add(say("Born","Дата рождения"),date(data.born));
-    add(say("Died","Дата смерти"),date(data.died));
-    add(say("Locations","Места"),data.locations?.join(", "));
-    bio.textContent=data.biography||say("No biography available.","Биография недоступна.");
-    for(const title of data.filmography||[]){
-      const item=create("div","dk-person-title");
-      item.append(create("strong",null,title.title+(title.year?" ("+title.year+")":"")));
-      const roles=(title.roles||[]).map(p=>[creditRole(p.type),p.role].filter(Boolean).join(" · ")).join("; ");
-      if(roles)item.append(create("span","helper",roles));
-      titles.append(item);
-    }
-    if(!titles.children.length)titles.append(create("p","helper",data.filmographyAvailable?say("No matching indexed titles.","Нет совпадающих проиндексированных записей."):say("Library credits unavailable.","Сведения о работах в медиатеке недоступны.")));
-    message.textContent=data.limited?say("Some library results may be omitted.","Некоторые записи медиатеки могут быть пропущены."):"";
-  }catch(_){if(dialog.open)message.textContent=say("Profile unavailable from the metadata engine.","Сведения недоступны в службе метаданных.");}
+   const {data,cached,stale,updatedAt}=await getPersonProfile(row,scope,credit,force);
+   if(!valid())return;
+   facts.replaceChildren();titles.replaceChildren();
+   const add=(label,value)=>{if(value)facts.append(create("dt",null,label),create("dd",null,String(value)));};
+   const date=value=>{if(!value)return "";const d=new Date(value);return Number.isFinite(d.getTime())?new Intl.DateTimeFormat(lang(),{dateStyle:"long",timeZone:"UTC"}).format(d):"";};
+   add(say("Born","Дата рождения"),date(data.born));add(say("Died","Дата смерти"),date(data.died));add(say("Locations","Места"),data.locations?.join(", "));
+   bio.textContent=data.biography||say("No biography available.","Биография недоступна.");
+   // Reconcile cached filmographies against today's catalog, not removed
+   // paths or unrelated server titles. Link verified matches to details.
+   const owned=new Map();
+   for(const r of all){const id=r.kind==="movie"?r.jellyfinIdentity?.itemId:r.jellyfinIdentity?.seriesId;if(id&&!owned.has(id)&&cinemaEligible(r))owned.set(id,r);}
+   const credited=new Set();
+   for(const title of data.filmography||[]){
+    const local=owned.get(title.id);if(!local||credited.has(title.id))continue;credited.add(title.id);
+    const item=create("div","dk-person-title");
+    const open=cinemaButton(cinemaTitle(local),cinemaTitle(local),()=>{dialog.close();contextRow=local;contextSeries=local.kind==="tv";void showMovieDetails();},"btn small");
+    item.append(open,create("span","helper",String(title.year||"")));
+    const roles=(title.roles||[]).map(p=>[creditRole(p.type),p.role].filter(Boolean).join(" · ")).join("; ");
+    if(roles)item.append(create("span","helper",roles));titles.append(item);
+   }
+   if(!titles.children.length)titles.append(create("p","helper",data.filmographyAvailable?say("No matching indexed titles.","Нет совпадающих проиндексированных записей."):say("Library credits unavailable.","Сведения о работах в медиатеке недоступны.")));
+   const messages=[];if(cached)messages.push((stale?say("Offline/stale profile saved on ","Устаревшие сохранённые сведения от "):say("Cached profile saved on ","Сведения сохранены "))+date(updatedAt));
+   if(data.limited)messages.push(say("Some library results may be omitted.","Некоторые записи медиатеки могут быть пропущены."));
+   message.textContent=messages.join(" · ");
+  }catch(_){if(valid())message.textContent=say("Profile unavailable from the metadata engine.","Сведения недоступны в службе метаданных.");}
+  finally{if(valid())refresh.disabled=false;}
+ }
+ void load();
 }
 function personCreditsPanel(dialog,row,scope,people=[]){
   const panel=create("section","dk-person-credits");
@@ -623,7 +670,7 @@ function personCreditsPanel(dialog,row,scope,people=[]){
     more.hidden=shown>=credits.length;
     void (async()=>{for(const {person,img} of images){
       if(closed||!dialog.open||!panel.isConnected||epoch!==revision)break;
-      try{const blob=await creditImage(row,scope,person.id);if(!blob||closed||!dialog.open||!panel.isConnected||epoch!==revision)continue;const u=URL.createObjectURL(blob);urls.push(u);img.src=u;img.hidden=false;}catch(_){}
+      try{const blob=await creditImage(row,scope,person);if(!blob||closed||!dialog.open||!panel.isConnected||epoch!==revision)continue;const u=URL.createObjectURL(blob);urls.push(u);img.src=u;img.hidden=false;}catch(_){}
     }})();
   }
   function show(values){

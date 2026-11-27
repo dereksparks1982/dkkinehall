@@ -961,6 +961,40 @@ async function saveHierarchyMetadata(key,record,manual=false,unlock=false){
   return saved;
 }
 
+// Independent bounded person cache in the existing art store. Never evict
+// movie artwork or manual metadata, and avoid catalog change broadcasts.
+const personPrefix="person-cache:";
+const personCacheId=(id,kind)=>/^[a-f0-9]{32}$/i.test(id)&&["profile","photo"].includes(kind)?personPrefix+kind+":"+id:null;
+function personCacheEvictions(rows,maxRows=400,maxBytes=48*1024*1024){
+ let bytes=0;
+ const ordered=[...rows].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+ return ordered.filter((row,i)=>{bytes+=Math.max(0,Number(row.bytes)||0);return i>=maxRows||bytes>maxBytes;}).map(row=>row.id);
+}
+async function personCache(id,kind){
+ const key=personCacheId(id,kind);return key?get("art",key):null;
+}
+async function savePersonCache(id,kind,name,value){
+ const key=personCacheId(id,kind);
+ if(!key||typeof name!=="string"||!name.trim())return false;
+ let row={id:key,name:name.trim().slice(0,180),updatedAt:Date.now()};
+ if(kind==="photo"){
+  if(!(value instanceof Blob)||value.size>MAX_IMAGE_BYTES||!/^image\/(jpeg|png|webp)$/.test(value.type))return false;
+  row={...row,blob:value,bytes:value.size};
+ }else{
+  if(!value||typeof value!=="object")return false;
+  const serialized=JSON.stringify(value);if(serialized.length>200000)return false;
+  row={...row,record:JSON.parse(serialized),bytes:serialized.length*2};
+ }
+ const db=await open();
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction("art","readwrite"),a=tx.objectStore("art"),req=a.openCursor(IDBKeyRange.bound(personPrefix,personPrefix+"\uffff")),rows=[row];
+  req.onsuccess=()=>{const cur=req.result;if(cur){if(cur.key!==key)rows.push({id:cur.key,bytes:cur.value.bytes,updatedAt:cur.value.updatedAt});cur.continue();return;}
+   a.put(row);for(const id of personCacheEvictions(rows))a.delete(id);
+  };
+  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Person cache write failed"));
+ });
+ return true;
+}
 async function artwork(id){return get("art",id);}
 async function removeArtwork(id){await erase("art",id);}
 async function saveArtwork(id,blob,credit="",manual=false){
@@ -985,7 +1019,7 @@ async function saveArtwork(id,blob,credit="",manual=false){
 return Object.freeze({excludedDiscovery,knownFeatureSpecial,repairCachedFeature,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,applyVerifiedClassification,reclassifyNative,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,applyVerifiedClassification,reclassifyNative,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,personCache,savePersonCache,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

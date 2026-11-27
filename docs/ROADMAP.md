@@ -649,7 +649,7 @@ Work sequentially on main, no local installation updates until explicitly reques
 | 2 | Automatic verified franchise/box-set collections, artwork, release ordering and manual overrides | Source pass; provider gaps and installed validation pending |
 | 3 | Per-field metadata locks, alternative titles, studios, countries, release dates and ratings | Source pass; installed verification pending |
 | 4 | English/Russian metadata language, original titles, localized descriptions/artwork | Partial: local text overrides; provider/artwork pending |
-| 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Planned |
+| 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Source pass; external career history pending |
 | 6 | Settings → Server → Diagnostics, detailed server management, usage, scan scheduling, logs, connected devices, report export and support bundle | Planned |
 | 7 | Authenticated user profiles, separate permissions, watchlists and progress | Planned |
 | 8 | Explicitly enabled secure home-network viewing, paired clients and scoped media access | Planned |
@@ -688,3 +688,5 @@ Build 2 source pass: dedicated Collections browser, private Jellyfin verified bo
 Build 3 source pass: extended movie/episode/series/season metadata fields and individual lock controls, preserve old all-field edits and protected values during refresh, search original/alternative titles. Existing hierarchy records migrate lazily on save. Pending installed/provider verification and multilingual metadata. Version unchanged.
 
 Build 4 partial source pass: independent English/Russian local metadata text, language-aware Library display/search and persistent provider-safe overrides. No synthetic translations or unsupported provider language claims. Remaining: genuine localized online metadata and localized artwork, player text synchronization and installed verification. Version unchanged.
+
+Build 5 source pass: persistent bounded person profile/portrait cache, refresh and stale/offline indications, request coalescing, current-catalog filmography links. Full external career history and installed acceptance pending. Version unchanged.

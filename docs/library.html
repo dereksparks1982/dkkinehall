@@ -10,15 +10,15 @@
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
 <link rel="stylesheet" href="./player.css?v=20261127-ab-loop">
-<link rel="stylesheet" href="./library-home.css?v=20261127-fit-header">
+<link rel="stylesheet" href="./library-home.css?v=20261127-fixmatch">
 <script defer src="./jellyfin-artwork.js?v=20261116-1"></script>
 <script defer src="./episode-metadata.js?v=20261127-jellyfin"></script>
-<script defer src="./library-store.js?v=20261127-history100"></script>
+<script defer src="./library-store.js?v=20261127-fixmatch"></script>
 <link rel="stylesheet" href="./live-tv.css?v=20261127-cardlayout">
 <script defer src="./live-tv.js?v=20261127-playlists"></script>
 <script defer src="./library-collections.js?v=20261127-collections"></script>
-<script defer src="./library-home.js?v=20261127-jellyfin"></script>
-<script defer src="./i18n.js?v=20261127-deinterlace"></script>
+<script defer src="./library-home.js?v=20261127-fixmatch"></script>
+<script defer src="./i18n.js?v=20261127-fixmatch"></script>
 </head>
 <body>
 <div class="shell library-shell">
@@ -42,6 +42,7 @@
       <button id="tabTV" type="button" role="tab" aria-selected="false" aria-controls="libraryCollection">TV Shows</button>
     </nav>
     <div id="libraryStatus" class="library-status" role="status" aria-live="polite">Loading saved library…</div>
+    <div id="jellyfinScanStatus" class="library-status" role="status" aria-live="polite" hidden></div>
     <section id="continueSection" class="library-section" aria-label="Continue Watching">
       <div class="section-heading"><h2>Continue Watching</h2></div>
       <div id="continueWatching" class="library-continue" aria-live="polite"></div>
@@ -75,6 +76,7 @@
     <button type="button" role="menuitem" id="manageMovieEdition" hidden>Movie Editions</button>
     <button type="button" role="menuitem" id="movieDetailsAction" hidden>Movie Details</button>
     <button type="button" role="menuitem" id="refreshMovieMetadata" hidden>Refresh Metadata</button>
+    <button type="button" role="menuitem" id="fixMatch" hidden>Fix Match</button>
     <button type="button" role="menuitem" id="removeContinueWatching" hidden>Remove from Continue Watching</button>
     <button type="button" role="menuitem" id="removeFromLibrary" hidden>Remove from Library</button>
     <button type="button" role="menuitem" id="showInFolder" hidden>Show in folder</button>

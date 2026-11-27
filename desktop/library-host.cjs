@@ -2296,13 +2296,13 @@ function jfOwnListener(state){
     return ready;
   }catch(error){if(error.message==="Non-loopback Jellyfin listener")throw error;return false;}
 }
-async function jfAdmin(state,method,route,body,query={}){
+async function jfAdmin(state,method,route,body,query={},timeout=10000){
   if(jfState!==state||!jfOwnListener(state))throw Error("Private Jellyfin not ready");
   const u=new URL("http://127.0.0.1:"+state.port+route);
   for(const [k,v] of Object.entries(query))u.searchParams.set(k,String(v));
   const headers={Authorization:'MediaBrowser Client="DK Kinehall", Device="Local", DeviceId="'+state.device+'", Version="0.9.3"'+(state.token?', Token="'+state.token+'"':"")};
   if(body!==undefined)headers["Content-Type"]="application/json";
-  const response=await fetch(u,{method,headers,body:body===undefined?undefined:JSON.stringify(body),redirect:"error",signal:AbortSignal.timeout(10000)});
+  const response=await fetch(u,{method,headers,body:body===undefined?undefined:JSON.stringify(body),redirect:"error",signal:AbortSignal.timeout(timeout)});
   if(!response.ok){await response.body?.cancel();throw Error("Jellyfin request failed");}
   if(response.status===204)return null;
   const reader=response.body?.getReader();if(!reader)return null;
@@ -2449,12 +2449,72 @@ async function jellyfinIndex(cfg,force=false){
   })().catch(()=>new Map()).finally(()=>{entry.pending=false;entry.at=Date.now();});
   jellyfinCatalog=entry;return entry.work;
 }
+const jfMatches=new Map();
+const jfJSON=value=>({ok:true,status:200,text:JSON.stringify(value)});
+function jfProviderIds(value){
+  return Object.fromEntries(Object.entries(value||{}).filter(([key,val])=>/^[A-Za-z0-9_-]{1,40}$/.test(key)&&typeof val==="string"&&/^[A-Za-z0-9_.:-]{1,100}$/.test(val)).slice(0,24));
+}
+async function jfStatus(){
+  if(jfStarting)return jfJSON({state:"starting"});
+  if(jellyfinConfig())return jfJSON({state:"external"});
+  if(!jfConfig||!jfState)return jfJSON({state:"unavailable"});
+  try{
+    const tasks=await jfAdmin(jfState,"GET","/ScheduledTasks");
+    const task=Array.isArray(tasks)?tasks.find(x=>x.Key==="RefreshLibrary"):null;
+    const running=task?.State==="Running"||task?.State==="Cancelling";
+    const progress=typeof task?.CurrentProgressPercentage==="number"?Math.max(0,Math.min(100,task.CurrentProgressPercentage)):null;
+    return jfJSON({state:running?"scanning":"ready",progress:running?progress:null,completed:task?.LastExecutionResult?.EndTimeUtc||null});
+  }catch(_){return jfJSON({state:"unavailable"});}
+}
+async function jfMatch(url,kind){
+  const fail={ok:false,status:404};
+  const state=jfState,cfg=jfConfig;
+  if(kind!=="json"||jellyfinConfig()||!state||!cfg)return fail;
+  const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
+  if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Series"].includes(type))return fail;
+  const grant=await checkPlayableSource(id,file);
+  if(!getLibrarySources().some(root=>root.kind===(type==="Movie"?"movie":"tv")&&inSource(root.path,grant.target)))return fail;
+  const catalog=await jellyfinIndex(cfg,true);
+  const item=catalog.get(path.normalize(grant.target))||catalog.get(path.normalize(file));
+  const target=type==="Movie"&&item?.Type==="Movie"?item.Id:type==="Series"&&item?.Type==="Episode"?item.SeriesId:null;
+  if(!jellyfinId(target))return fail;
+  const now=Date.now();
+  for(const [k,v] of jfMatches)if(v.expires<now)jfMatches.delete(k);
+  if(url.pathname==="/search"){
+    const name=(url.searchParams.get("name")||"").trim(),year=Number(url.searchParams.get("year"))||null;
+    if(!name||name.length>160||year&&(year<1800||year>2100||!Number.isInteger(year)))return fail;
+    const results=await jfAdmin(state,"POST","/Items/RemoteSearch/"+type,{SearchInfo:{Name:name,...(year?{Year:year}:{})},ItemId:target,IncludeDisabledProviders:false},{},40000);
+    if(!Array.isArray(results))return fail;
+    const choices=[];
+    for(const result of results.slice(0,25)){
+      const ids=jfProviderIds(result?.ProviderIds);
+      if(!result?.Name||!Object.keys(ids).length)continue;
+      const ticket=randomBytes(24).toString("hex");
+      jfMatches.set(ticket,{state,target,id,file,type,result,expires:now+300000});
+      choices.push({ticket,name:String(result.Name).slice(0,180),year:Number(result.ProductionYear)||null,providerIds:ids});
+    }
+    while(jfMatches.size>200)jfMatches.delete(jfMatches.keys().next().value);
+    return jfJSON({choices});
+  }
+  if(url.pathname==="/apply"){
+    const ticket=url.searchParams.get("ticket"),match=jfMatches.get(ticket);
+    if(!match||match.state!==state||match.target!==target||match.id!==id||match.file!==file||match.type!==type)return fail;
+    jfMatches.delete(ticket);
+    await jfAdmin(state,"POST","/Items/RemoteSearch/Apply/"+target,match.result,{replaceAllImages:true},120000);
+    jellyfinCatalog=null;
+    return jfJSON({applied:true,providerIds:jfProviderIds(match.result.ProviderIds)});
+  }
+  return fail;
+}
+
 async function jellyfinMetadata(raw,kind){
   const missing={ok:false,status:404};
-  const cfg=jellyfinConfig()||jfConfig;if(!cfg)return missing;
   try{
     const url=new URL(raw);
-    if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.pathname!=="/item"||url.username||url.password||url.port||url.hash)return missing;
+    if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.username||url.password||url.port||url.hash)return missing;
+    if(url.pathname==="/status"&&kind==="json")return await jfStatus();
+    if(["/search","/apply"].includes(url.pathname))return await jfMatch(url,kind);
+    const cfg=jellyfinConfig()||jfConfig;if(!cfg||url.pathname!=="/item")return missing;
     const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
     const series=url.searchParams.get("series")==="1";
     if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Episode"].includes(type)||series&&type!=="Episode")return missing;
@@ -2471,7 +2531,7 @@ async function jellyfinMetadata(raw,kind){
     const clip=(value,n)=>typeof value==="string"?value.slice(0,n):"";
     const people=Array.isArray(item.People)?item.People:[];
     const result={title:clip(item.Name,180),year:Number(item.ProductionYear)||null,
-      provider:"Jellyfin",details:{description:clip(item.Overview,6000),
+      provider:"Jellyfin",identity:{itemId:item.Id,seriesId:jellyfinId(item.SeriesId)?item.SeriesId:null,providerIds:jfProviderIds(item.ProviderIds)},details:{description:clip(item.Overview,6000),
       genres:Array.isArray(item.Genres)?item.Genres.filter(x=>typeof x==="string").slice(0,20):[],
       directors:people.filter(x=>x?.Type==="Director").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,15),
       cast:people.filter(x=>x?.Type==="Actor").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,30),

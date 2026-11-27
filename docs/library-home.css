@@ -215,3 +215,6 @@ html.dk-standalone .library-shell>.topbar>.library-tools>button.btn>svg{width:cl
 html.dk-standalone .library-shell>.topbar>.library-tools>button.btn>span{min-width:0;overflow-wrap:anywhere}
 /* Keep all context actions reachable when zoomed or near a screen edge. */
 html.dk-standalone #libraryContextMenu{max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain}
+
+html.dk-standalone #jellyfinScanStatus{font-size:.78rem;margin:0 0 6px;color:var(--dk-gold,#e2b956)}
+.dk-fix-match form{display:flex;flex-wrap:wrap;gap:8px}.dk-fix-match form input{min-width:0;flex:1 1 120px}.dk-fix-match-results{display:grid;gap:6px;max-height:45vh;overflow-y:auto}.dk-fix-match-results .btn{text-align:left;white-space:normal}

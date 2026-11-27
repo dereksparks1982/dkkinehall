@@ -33,7 +33,7 @@ const applyLibraryZoom=(value,persist=true)=>{
   requestAnimationFrame(()=>window.dispatchEvent(new Event("resize")));
 };
 let deferredProgress=false,historyTimer=null,historyRevision=0;
-const artAttempted=new Set(),titleAttempted=new Set();
+const artAttempted=new Set(),titleAttempted=new Set(),jfChecked=new Map();
 const imageUrls=new Set();
 const imageQueue=[],activeArtwork=new Map();
 let artworkBusy=0;
@@ -308,7 +308,7 @@ function findLocalArtworkFolder(folder,relative,series=false){
 async function saveMovieResult(row,result){
   if(!result?.title)return false;
   await store.updateMetadata(row.id,{movieTitle:result.title,movieYear:result.year,
-    movieDetails:result.details,movieProvider:result.provider});
+    movieDetails:result.details,movieProvider:result.provider,jellyfinIdentity:result.identity});
   return true;
 }
 async function jellyfinArtwork(row,id,series,force){
@@ -320,7 +320,7 @@ async function jellyfinArtwork(row,id,series,force){
     const result=JSON.parse(response.text);
     if(!result?.title)return null;
     if(row.kind==="movie")await saveMovieResult(row,result);
-    else if(!series)await store.updateMetadata(row.id,{episodeTitle:result.title});
+    else if(!series)await store.updateMetadata(row.id,{episodeTitle:result.title,jellyfinIdentity:result.identity});
     const image=await nativeBridge.metadataRequest(url,"image");
     if(!image.ok)return null;
     const blob=new Blob([image.bytes],{type:image.mime});
@@ -331,13 +331,15 @@ async function jellyfinArtwork(row,id,series,force){
 async function findArtwork(row,id,series=false,force=false){
   const cache=await store.artwork(id);
   // A stored poster is usable immediately; missing details cannot invalidate it.
-  if(cache?.blob&&!force&&nativeBridge)return cache.blob;
+  if(cache?.blob&&!force&&nativeBridge&&(!jfRevision||jfChecked.get(id)===jfRevision))return cache.blob;
+  if(jfRevision)jfChecked.set(id,jfRevision);
   if(nativeBridge&&!force&&artAttempted.has(id))return cache?.blob||null;
   if(nativeBridge&&!force)artAttempted.add(id);
   // Local Jellyfin catalog is preferred when explicitly configured. Failure
   // leaves the existing provider pipeline and cached art intact.
   const jellyfin=await jellyfinArtwork(row,id,series,force);
   if(jellyfin)return jellyfin;
+  if((await store.item(row.id))?.manualMatch)return cache?.blob||null;
   let movieResult=null;
   // Native movie metadata is fetched independently of local and cached art.
   if(nativeBridge&&row.kind==="movie"&&(force||!row.movieDetails)&&
@@ -506,6 +508,8 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   $("movieDetailsAction").hidden=seriesOnly||row.kind!=="movie";
   $("refreshMovieMetadata").hidden=!["movie","tv"].includes(row.kind);
   $("refreshMovieMetadata").disabled=scanning||maintaining;
+  $("fixMatch").hidden=!["movie","tv"].includes(row.kind);
+  $("fixMatch").disabled=scanning||maintaining;
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
   $("removeFromLibrary").hidden=seriesOnly;
   $("showInFolder").hidden=seriesOnly||!nativeBridge.showInFolder;
@@ -1204,6 +1208,74 @@ async function libraryMaintenance(action,selection=null){
     status("Library maintenance failed.","Не удалось выполнить обслуживание медиатеки.",true);
   }finally{maintaining=false;await send(result);}
 }
+let jfLast=null,jfPollBusy=false,jfRevision=0;
+async function jfCall(route,params={}){
+  const r=await nativeBridge.metadataRequest("dk-jellyfin://catalog/"+route+"?"+new URLSearchParams(params),"json");
+  if(!r.ok)throw Error("Jellyfin unavailable");return JSON.parse(r.text);
+}
+async function pollJellyfin(){
+  if(jfPollBusy||document.hidden||!nativeBridge?.metadataRequest)return;
+  jfPollBusy=true;
+  try{
+    const data=await jfCall("status"),node=$("jellyfinScanStatus");
+    const messages={starting:say("Preparing metadata engine…","Подготовка службы метаданных…"),scanning:say("Metadata library scan","Сканирование метаданных"),ready:say("Metadata engine ready","Служба метаданных готова"),external:say("Connected catalog configured","Настроен внешний каталог"),unavailable:say("Using fallback metadata providers","Используются резервные источники метаданных")};
+    node.textContent=(messages[data.state]||"")+(data.state==="scanning"?(data.progress==null?"…":" "+Math.round(data.progress)+"%"):"");
+    node.hidden=false;
+    const completed=data.state==="ready"&&jfLast&&(jfLast.state!=="ready"||data.completed!==jfLast.completed);
+    jfLast=data;
+    if(completed&&!scanning&&!maintaining){
+      jfRevision++;artAttempted.clear();titleAttempted.clear();networkArtworkCount=0;networkTitleCount=0;
+      void render();
+    }
+  }catch(_){}finally{jfPollBusy=false;}
+}
+async function showFixMatch(){
+  const row=contextRow;hideContextMenu();if(!row||!nativeBridge?.metadataRequest)return;
+  const dialog=document.createElement("dialog");dialog.className="dk-movie-details dk-fix-match";
+  const title=create("h2",null,say("Fix Match","Исправить совпадение"));
+  const form=document.createElement("form"),name=document.createElement("input"),year=document.createElement("input");
+  name.type="text";name.required=true;name.maxLength=160;name.value=row.kind==="movie"?row.title:row.series;
+  year.type="number";year.min="1800";year.max="2100";year.placeholder=say("Year (optional)","Год (необязательно)");if(row.kind==="movie"&&row.year)year.value=row.year;
+  name.setAttribute("aria-label",say("Title","Название"));year.setAttribute("aria-label",say("Year","Год"));
+  const search=create("button","btn",say("Search","Поиск"));search.type="submit";
+  const close=create("button","btn",say("Close","Закрыть"));close.type="button";
+  const message=create("p","helper",say("Search the metadata engine and choose the correct title. For TV, this changes the entire series.","Найдите правильное название. Для телесериала изменяется весь сериал."));
+  message.setAttribute("role","status");
+  const results=create("div","dk-fix-match-results");let busy=false;
+  const params={id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Series"};
+  const setBusy=value=>{busy=value;search.disabled=value;close.disabled=value;name.disabled=value;year.disabled=value;for(const button of results.querySelectorAll("button"))button.disabled=value;};
+  close.addEventListener("click",()=>{if(!busy)dialog.close();});
+  dialog.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
+  dialog.addEventListener("close",()=>dialog.remove());
+  form.append(name,year,search,close);dialog.append(title,form,message,results);document.body.append(dialog);dialog.showModal();
+  form.addEventListener("submit",async event=>{
+    event.preventDefault();if(busy)return;results.replaceChildren();setBusy(true);message.textContent=say("Searching…","Поиск…");
+    try{
+      const data=await jfCall("search",{...params,name:name.value.trim(),year:year.value});
+      for(const choice of data.choices||[]){
+        const button=create("button","btn",choice.name+(choice.year?" ("+choice.year+")":""));button.type="button";
+        button.addEventListener("click",async()=>{
+          if(busy)return;setBusy(true);message.textContent=say("Applying match…","Применение совпадения…");
+          try{
+            const applied=await jfCall("apply",{...params,ticket:choice.ticket});
+            if(!applied.applied)throw Error("Match not applied");
+            const rows=row.kind==="movie"?[row]:(await store.entries()).filter(x=>x.kind==="tv"&&seriesKey(x.series)===seriesKey(row.series)&&x.nativeRoot===row.nativeRoot);
+            for(const entry of rows){
+              await store.updateMetadata(entry.id,{manualMatch:{providerIds:applied.providerIds,title:choice.name,year:choice.year}});
+              artAttempted.delete(artId(entry));titleAttempted.delete(entry.id);
+            }
+            artAttempted.delete(artId(row,true));jfRevision++;
+            setBusy(false);dialog.close();await libraryMaintenance("refresh",{row,series:row.kind==="tv"});
+          }catch(_){message.textContent=say("Could not apply match. Search again or wait for the metadata scan.","Не удалось применить совпадение. Повторите поиск или дождитесь завершения сканирования.");setBusy(false);}
+        });
+        results.append(button);
+      }
+      message.textContent=results.children.length?say("Select the correct match.","Выберите правильное совпадение."):say("No matches found.","Совпадений не найдено.");
+    }catch(_){message.textContent=say("Private metadata engine is not ready or the item is not indexed yet.","Служба метаданных не готова или запись ещё не проиндексирована.");}
+    finally{setBusy(false);}
+  });
+}
+
 function connect(){
   setupCollectionTools();
   $("watchlistAction")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();if(!row||!window.DKCollections)return;if(!window.DKCollections.toggle(row)){status("Could not save watchlist.","Не удалось сохранить список просмотра.",true);return;}void render();});
@@ -1211,6 +1283,8 @@ function connect(){
   $("manageMovieEdition")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"edition");});
   $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshSelection());
+  $("fixMatch").addEventListener("click",()=>void showFixMatch());
+  if(nativeBridge?.metadataRequest){void pollJellyfin();setInterval(pollJellyfin,10000);}
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
   $("markWatched").addEventListener("click",()=>markContext(true));

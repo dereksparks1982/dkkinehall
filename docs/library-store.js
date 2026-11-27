@@ -448,7 +448,7 @@ async function ingestNative(scan){
     // once the original filename has been classified correctly.
     const normalized=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").toLowerCase().trim();
     const validMovie=info.kind==="movie"&&previous?.kind==="movie"&&previous.movieMetadataVerified&&
-      normalized(previous.title)===normalized(info.title)&&(!info.year||!previous.year||Number(previous.year)===Number(info.year));
+      (previous.manualMatch||normalized(previous.title)===normalized(info.title)&&(!info.year||!previous.year||Number(previous.year)===Number(info.year)));
     const staleMovie=info.kind==="movie"&&previous?.movieMetadataVerified&&!validMovie;
     const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
       previous.season===info.season&&previous.episode===info.episode&&
@@ -745,14 +745,14 @@ async function updateProgress(id,position,duration,completed=false,playedDelta=0
   if(saved)changed({progress:true,id});
   return saved;
 }
-async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails,movieProvider}={}){
+async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails,movieProvider,jellyfinIdentity,manualMatch}={}){
   // Only verified metadata (from an actual provider result) is written.
   // Use a read/write transaction so a simultaneous playback-position save
   // cannot be overwritten by an older copy of a catalog record.
   const title=typeof episodeTitle==="string"?episodeTitle.trim().slice(0,180):"";
   const film=typeof movieTitle==="string"?movieTitle.trim().slice(0,180):"";
   const year=Number(movieYear)||null;
-  if(!title&&!film)return false;
+  if(!title&&!film&&!jellyfinIdentity&&!manualMatch)return false;
   const db=await open();
   let changedRow=false;
   await new Promise((resolve,reject)=>{
@@ -762,17 +762,21 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails
     request.onsuccess=()=>{
       const row=request.result;
       if(!row||row.userHidden)return;
+      if(row.manualMatch&&!jellyfinIdentity&&!manualMatch)return;
+      const identity=jellyfinIdentity||row.jellyfinIdentity||null,lockedMatch=manualMatch||row.manualMatch||null;
+      const identityChanged=JSON.stringify(identity)!==JSON.stringify(row.jellyfinIdentity||null)||JSON.stringify(lockedMatch)!==JSON.stringify(row.manualMatch||null);
+      if(!title&&!film&&identityChanged){s.put({...row,jellyfinIdentity:identity,manualMatch:lockedMatch});changedRow=true;return;}
       if(row.kind==="tv"&&title){
-        if(row.episodeTitle===title&&row.metadataVerified)return;
-        s.put({...row,episodeTitle:title,metadataVerified:true});
+        if(row.episodeTitle===title&&row.metadataVerified&&!identityChanged)return;
+        s.put({...row,episodeTitle:title,metadataVerified:true,jellyfinIdentity:identity,manualMatch:lockedMatch});
       }else if(row.kind==="movie"&&film){
         // Reject a stale provider result which would reintroduce the bad title.
-        if(goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
+        if(!lockedMatch&&goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
         const details=movieDetails&&typeof movieDetails==="object"?movieDetails:row.movieDetails;
         const provider=typeof movieProvider==="string"?movieProvider:row.movieProvider;
         if(row.title===film&&row.movieMetadataVerified&&(!year||row.year===year)&&
-           JSON.stringify(row.movieDetails)===JSON.stringify(details)&&row.movieProvider===provider)return;
-        s.put({...row,title:film,year:year||row.year,movieMetadataVerified:true,movieDetails:details,movieProvider:provider});
+           JSON.stringify(row.movieDetails)===JSON.stringify(details)&&row.movieProvider===provider&&!identityChanged)return;
+        s.put({...row,title:film,year:year||row.year,movieMetadataVerified:true,movieDetails:details,movieProvider:provider,jellyfinIdentity:identity,manualMatch:lockedMatch});
       }else return;
       changedRow=true;
     };

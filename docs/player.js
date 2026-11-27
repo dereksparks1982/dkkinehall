@@ -2823,6 +2823,49 @@
     section.id="networkSettings";
     section.append(makeButton("Network media…",open));byId("playerSettingsPanel").append(section);
     window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="network"){deferStartup=false;settingsDetails.open=false;open();}});
+    if(bridge.liveTvLineup&&bridge.liveTvGrant){
+      const tv=document.createElement("dialog");tv.className="dk-dvd-dialog dk-network-dialog";
+      const title=document.createElement("strong");title.textContent="Live TV";
+      const hint=document.createElement("p");hint.className="helper";hint.textContent="Enter the local IPv4 address of your HDHomeRun tuner.";
+      const host=document.createElement("input");host.type="text";host.placeholder="192.168.1.10";host.setAttribute("aria-label","Tuner address");
+      const status=document.createElement("p");status.className="helper";status.setAttribute("role","status");
+      const channels=document.createElement("div");channels.className="dk-network-results";
+      let revision=0,busy=false;
+      const report=msg=>{status.textContent=msg;window.DKLocale?.apply();};
+      const scan=makeButton("Load channels",async()=>{
+        if(busy)return;busy=true;scan.disabled=true;channels.replaceChildren();
+        const epoch=++revision;report("Loading channels…");
+        try{
+          const rows=await bridge.liveTvLineup(host.value.trim());
+          if(!tv.open||epoch!==revision)return;
+          report(rows.length?"Choose a channel.":"No compatible channels found.");
+          for(const row of rows){
+            const b=makeButton(row.number+" "+row.name,async()=>{
+              if(busy)return;busy=true;scan.disabled=true;report("Opening channel…");
+              const selected=revision;let grant=null;
+              try{
+                grant=await bridge.liveTvGrant(row.id);
+                if(!tv.open||selected!==revision)return;
+                const item=makeNetworkItem(grant,row.number+" "+row.name,false);
+                const index=state.current<0?state.queue.length:state.current+1;
+                state.queue.splice(index,0,item);grant=null;load(index,true);tv.close();
+              }catch(_){if(tv.open&&selected===revision)report("Cannot open channel.");}
+              finally{if(grant)void bridge.networkRelease(grant.token).catch(()=>{});busy=false;scan.disabled=false;}
+            });
+            channels.append(b);
+          }
+        }catch(_){if(tv.open&&epoch===revision)report("Cannot load tuner channels.");}
+        finally{busy=false;scan.disabled=false;}
+      });
+      tv.append(title,hint,host,scan,status,channels,makeButton("Close",()=>tv.close()));
+      document.body.append(tv);
+      tv.addEventListener("close",()=>{revision++;channels.replaceChildren();});
+      bridge.onOpenMediaTool?.(kind=>{
+        if(kind!=="live-tv")return;
+        deferStartup=false;settingsDetails.open=false;
+        if(!tv.open){report("");tv.showModal();window.DKLocale?.apply();}
+      });
+    }
     window.DKLocale?.apply();
   }
   // Frame stepping uses actual source presentation timestamps. Pause before

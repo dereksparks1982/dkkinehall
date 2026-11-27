@@ -147,3 +147,14 @@ html.dk-standalone .library-tabs button:is(#tabMovies,#tabTV)[aria-selected="tru
 html.dk-standalone .library-tabs button:is(#tabMovies,#tabTV,#libraryLiveTV):focus-visible {
   outline:2px solid #e2b956;outline-offset:3px;
 }
+
+/* Shared standalone surfaces, retaining artwork and progress indicators. */
+html.dk-standalone .library-context-menu button {
+  background:var(--dk-surface-raised);color:#fff;border:1px solid var(--dk-antique);margin:3px 0;
+}
+html.dk-standalone .library-context-menu button:is(:hover,:focus-visible):not(:disabled) {
+  background:var(--dk-surface-raised);color:#fff;outline:2px solid var(--dk-gold);outline-offset:-4px;
+}
+html.dk-standalone .dk-movie-details-close {background:var(--dk-brown);color:var(--dk-russian-red)}
+html.dk-standalone .dk-movie-details-close:is(:hover,:focus-visible) {background:var(--dk-russian-red);color:#fff}
+html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}

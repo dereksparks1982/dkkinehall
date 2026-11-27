@@ -817,12 +817,12 @@ html.dk-standalone .screen .controls :is(#playPause,#subtitleToggle[aria-pressed
   background-color:var(--dk-button-red);border-color:var(--dk-button-red-border);color:#fff;
 }
 html.dk-standalone .screen .controls #playPause:hover{background-color:var(--dk-russian-red,#ef434d);color:#fff}
-html.dk-standalone .queue .remove{border:1px solid var(--dk-russian-red,#a62f38);border-radius:var(--dk-button-radius);background:#381820;color:var(--dk-russian-red,#ff5a62)}
+html.dk-standalone .queue .remove{border:1px solid var(--dk-russian-red,#a62f38);border-radius:var(--dk-button-radius);background:#462a25;color:var(--dk-russian-red,#ff5a62)}
 html.dk-standalone :is(.player-context-menu,.library-context-menu,.dk-chapter-entries) button{
   border:1px solid var(--dk-button-border);border-radius:var(--dk-button-radius);
   background-color:var(--dk-button-bg);color:#fff;margin:3px 0;
 }
-html.dk-standalone :is(.player-context-menu,.library-context-menu,.dk-chapter-entries) button:hover:not(:disabled){background:#53262e}
+html.dk-standalone :is(.player-context-menu,.library-context-menu,.dk-chapter-entries) button:hover:not(:disabled){background:#53322b}
 html.dk-standalone .dk-scan.btn,html.dk-standalone .dk-scan.btn:hover:not(:disabled){
   background:#fff;border-color:#e7e2e2;color:#23171a;
 }
@@ -841,7 +841,7 @@ html.dk-standalone [hidden]{display:none!important}
 html.dk-standalone #playerSettingsPanel .dk-settings-close{
   position:sticky;top:0;justify-self:end;z-index:2;display:grid;place-items:center;
   width:32px;height:32px;min-height:32px;padding:0;
-  border:1px solid var(--dk-russian-red,#f4515c);border-radius:8px;background:#351419;
+  border:1px solid var(--dk-russian-red,#f4515c);border-radius:8px;background:#462a25;
   color:var(--dk-russian-red,#ff515d);font-size:26px;font-weight:800;line-height:1;
 }
 html.dk-standalone #playerSettingsPanel .dk-settings-close:hover{background:var(--dk-russian-red,#b92430);color:#fff}
@@ -1068,7 +1068,7 @@ html.dk-standalone .screen.dk-custom-picture>#media{
 html.dk-standalone .dk-audio-settings>strong{color:var(--dk-gold)}
 html.dk-standalone .dk-eq-bands{
   display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
-  gap:12px 6px;padding:10px 6px;background:#261a1d;
+  gap:12px 6px;padding:10px 6px;background:#29211e;
   border:1px solid var(--dk-antique);border-radius:9px;
 }
 html.dk-standalone .dk-eq-band{
@@ -1267,7 +1267,7 @@ html.dk-standalone .dk-resizable-panel>.info-status{
   position:absolute;z-index:48;top:12px;right:12px;left:auto;bottom:auto;
   width:max-content;max-width:calc(100% - 24px);min-height:0;margin:0;
   padding:8px 12px;border:1px solid var(--dk-antique);border-radius:8px;
-  background:#21171bef;color:#fff;box-shadow:0 4px 16px #0007;
+  background:#211b18ef;color:#fff;box-shadow:0 4px 16px #0007;
   opacity:0;pointer-events:none;transition:opacity .15s;
 }
 html.dk-standalone .dk-resizable-panel>.info-status.dk-notice-visible{opacity:1}
@@ -1283,7 +1283,7 @@ html.dk-standalone .dk-dvd-dialog select{background:var(--dk-button-bg);color:#f
 /* Network browser: standalone only; no changes to approved player controls. */
 html.dk-standalone .dk-network-dialog{width:min(520px,calc(100vw - 32px));display:none}
 html.dk-standalone .dk-network-dialog[open]{display:grid;gap:10px}
-html.dk-standalone .dk-network-dialog input[type="url"]{width:100%;min-width:0;padding:9px;border:1px solid var(--dk-antique,#a58039);border-radius:8px;background:#381820;color:#fff}
+html.dk-standalone .dk-network-dialog input[type="url"]{width:100%;min-width:0;padding:9px;border:1px solid var(--dk-antique,#a58039);border-radius:8px;background:#462a25;color:#fff}
 html.dk-standalone .dk-network-dialog label{display:flex;align-items:center;gap:8px}
 html.dk-standalone .dk-network-results{display:grid;gap:5px;max-height:38vh;overflow:auto}
 html.dk-standalone .dk-network-results button{text-align:left;white-space:normal;overflow-wrap:anywhere}
@@ -1356,7 +1356,7 @@ html.dk-standalone .screen>.dk-next-countdown{
 html.dk-standalone .screen>.dk-next-countdown[hidden]{display:none!important}
 html.dk-standalone .dk-next-card{
   width:min(350px,100%);max-height:100%;overflow:auto;box-sizing:border-box;
-  background:#21171bf5;border:1px solid #a58039;border-radius:12px;
+  background:#211b18f5;border:1px solid #a58039;border-radius:12px;
   padding:clamp(10px,2vw,22px);display:grid;gap:10px;text-align:center;color:#fff;
 }
 html.dk-standalone .dk-next-card>strong{color:#e2b956;font-size:1.05rem}
@@ -1405,3 +1405,45 @@ html.dk-standalone .dk-live-tv-dialog .btn[data-live-action="local"] {background
 html.dk-standalone .dk-live-tv-dialog .btn[data-live-action="close"] {background:#e2b956;color:#462a25}
 html.dk-standalone .dk-live-tv-dialog .btn:hover:not(:disabled) {filter:brightness(1.1)}
 html.dk-standalone .dk-live-tv-dialog .btn:focus-visible {outline:2px solid #e2b956;outline-offset:2px}
+
+/* Standalone-wide approved palette. Preserve crimson artwork and individual
+   gold, white and red action colours. No burgundy surfaces or commands. */
+html.dk-standalone {
+  --dk-brown:#462a25;--dk-brown-hover:#53322b;
+  --dk-surface:#211b18;--dk-surface-raised:#29211e;
+  --bg:#171311;--panel:var(--dk-surface);--panel2:var(--dk-surface-raised);
+  --line:#a58039;--muted:#c9c1b8;
+  --dk-russian-red-deep:#a62117;
+}
+html.dk-standalone :is(.topbar,.panel,.playback-settings-panel,.player-context-menu,.library-context-menu,.dk-chapter-picker) {
+  background:var(--dk-surface);border-color:var(--dk-antique);
+}
+html.dk-standalone dialog:not(.dk-live-tv-dialog) {
+  background:var(--dk-surface);color:var(--text);border-color:var(--dk-antique);
+}
+html.dk-standalone .dk-library-settings-dialog .dk-library-settings-content {
+  background:transparent;border:0;
+}
+html.dk-standalone :is(.language-select,.language-select option,.playback-settings-panel select,.dk-dvd-dialog select) {
+  background:var(--dk-brown);color:var(--dk-gold);border-color:var(--dk-antique);
+}
+html.dk-standalone :is(dialog,.playback-settings-panel,.library-tools) input:is([type="text"],[type="search"],[type="url"],[type="number"]),
+html.dk-standalone :is(dialog,.playback-settings-panel) textarea {
+  background:#fff;color:#23171a;border:1px solid var(--dk-antique);border-radius:8px;
+  font:inherit;padding:8px 10px;min-width:0;
+}
+html.dk-standalone :is(dialog,.playback-settings-panel,.library-tools) input::placeholder {color:#71665d}
+html.dk-standalone .player-context-menu .context-section-items button.context-item {
+  background:var(--dk-surface-raised);color:#fff;
+}
+html.dk-standalone .player-context-menu .context-section-items button.context-item:is(:hover,:focus-visible):not(:disabled) {
+  background:var(--dk-surface-raised);color:#fff;outline:2px solid var(--dk-gold);outline-offset:-4px;
+}
+html.dk-standalone .badge {background:var(--dk-surface-raised);color:var(--dk-gold)}
+html.dk-standalone .dk-chapter-heading {background:var(--dk-surface-raised);border-color:var(--dk-antique)}
+html.dk-standalone .dk-chapter-entries button:is(:hover,:focus-visible):not(:disabled) {
+  background:transparent;outline:2px solid var(--dk-gold);outline-offset:-3px;
+}
+html.dk-standalone .queue .remove {background:var(--dk-brown);color:var(--dk-russian-red)}
+html.dk-standalone .queue .remove:is(:hover,:focus-visible):not(:disabled) {background:var(--dk-russian-red);color:#fff}
+html.dk-standalone .playback-settings-panel .player-settings-section>strong {color:var(--dk-gold)}

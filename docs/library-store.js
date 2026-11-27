@@ -379,10 +379,18 @@ function excludedDiscovery(row){
 }
 function sourceFor(row,sources){
  if(row?.source!=="native"||!row.nativePath)return null;
- return sources.find(source=>source.kind===row.kind&&row.nativePath.startsWith(source.path+"/"))||null;
+ return sources.find(source=>(source.kind===row.kind||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
+}
+function knownFeatureSpecial(name,relative=name){
+ const stem=String(name).replace(/\.[^.]+$/,"").replace(/[._-]+/g," ").trim();
+ const context=String(relative||name).replace(/[._-]+/g," ");
+ if(/\bSouth\s+Park\b/i.test(context)&&/\bThe\s+End\s+of\s+Obesity\b/i.test(stem))
+  return {kind:"movie",title:"South Park: The End of Obesity",year:2024,series:null,season:null,episode:null,episodeTitle:""};
+ return null;
 }
 function classifyAssigned(file){
  const info=classify(file.filename,file.relative);if(!info)return null;
+ const special=knownFeatureSpecial(file.filename,file.relative);if(special)return special;
  if(file.category==="movie"&&info.kind!=="movie"){
   const title=String(file.filename).replace(/\.[^.]+$/,"").replace(/[._]+/g," ").trim();
   return {kind:"movie",title,year:null,series:null,season:null,episode:null,episodeTitle:""};
@@ -460,6 +468,7 @@ async function ingestNative(scan){
         previous.episodeTitle:info.episodeTitle,
       title:validMovie?previous.title:info.title,
       year:validMovie?(previous.manualFields?.year?previous.year:(info.year||previous.year)):info.year,
+      ...(previous&&previous.kind!==info.kind?{manualMatch:null,manualFields:null,jellyfinIdentity:null,episodeDetails:null,episodeDescription:null}:{}),
       movieMetadataVerified:!!validMovie,
       movieDetails:validMovie?previous.movieDetails:null,
       movieProvider:validMovie?previous.movieProvider:null,

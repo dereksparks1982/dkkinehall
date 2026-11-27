@@ -1462,3 +1462,36 @@ html.dk-standalone .dk-bookmark-dialog{width:min(510px,calc(100vw - 32px));max-h
 html.dk-standalone .dk-bookmark-list{display:grid;gap:8px;max-height:32vh;overflow:auto}
 html.dk-standalone .dk-bookmark-entry{border:1px solid #a58039;border-radius:8px;padding:8px;display:grid;gap:6px;overflow-wrap:anywhere}
 html.dk-standalone .dk-bookmark-entry .inline-buttons{justify-content:flex-start}
+
+/* One standalone transport row, sized by the actual video pane instead of
+   the window. Never wrap the two groups when Up Next reduces available width.
+   On exceptionally narrow floating panes, scroll horizontally rather than
+   dropping, hiding or wrapping controls. The gear uses its existing popover. */
+html.dk-standalone .screen>.controls{container-type:inline-size}
+html.dk-standalone .screen .controls .buttons-row{
+  --dk-control-size:clamp(20px,4.15cqw,42px);
+  --dk-control-gap:clamp(2px,.43cqw,6px);
+  display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;
+  gap:var(--dk-control-gap);min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;
+}
+html.dk-standalone .screen .controls .buttons-row>:is(.transport,.extras){
+  display:flex;flex:0 0 auto;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:var(--dk-control-gap);
+}
+html.dk-standalone .screen .controls .buttons-row :is(.transport>.icon-btn,.extras>.icon-btn,.volume>.icon-btn,.player-bar-settings>summary){
+  box-sizing:border-box;width:var(--dk-control-size);height:var(--dk-control-size);
+  min-width:var(--dk-control-size);min-height:var(--dk-control-size);flex:0 0 var(--dk-control-size);padding:0;
+}
+html.dk-standalone .screen .controls .buttons-row .player-bar-settings{flex:0 0 var(--dk-control-size);min-width:var(--dk-control-size)}
+html.dk-standalone .screen .controls .buttons-row .volume{flex:0 0 auto;gap:var(--dk-control-gap)}
+html.dk-standalone .screen .controls .buttons-row .volume input{width:clamp(28px,8cqw,95px);min-width:0;margin:0}
+html.dk-standalone .screen .controls .buttons-row #volumeValue{min-width:2.9em;font-size:clamp(9px,1.27cqw,.8rem);white-space:nowrap;text-align:right}
+html.dk-standalone .screen .controls .buttons-row .extras :is(#theaterMode,#pip,#fullscreen,.dk-parity-button) .player-tool-icon,
+html.dk-standalone .screen .controls .buttons-row .player-bar-settings>summary .player-tool-icon,
+html.dk-standalone .screen .controls .buttons-row .volume .speaker-icon{width:clamp(12px,2.5cqw,24px);height:clamp(12px,2.5cqw,24px);flex:none}
+html.dk-standalone .screen .controls .buttons-row .transport .dk-transport-glyph{width:clamp(11px,2.15cqw,20px);height:clamp(11px,2.15cqw,20px)}
+html.dk-standalone .screen .controls .buttons-row .transport :is(#rewind10,#forward10) .dk-transport-glyph{width:clamp(10px,1.85cqw,17px);height:clamp(10px,1.85cqw,17px)}
+html.dk-standalone .screen .controls .buttons-row .transport .skip-ten .seek-ten-icon{width:clamp(14px,3cqw,34px);height:clamp(14px,3cqw,34px)}
+html.dk-standalone .screen .controls .buttons-row .extras #floatPlayer{width:auto;min-width:clamp(34px,5.9cqw,58px);flex:0 0 auto;font-size:clamp(8px,1.18cqw,.74rem);padding:0 4px;white-space:nowrap}
+html.dk-standalone .screen .controls .buttons-row .extras #subtitleToggle{width:auto;min-width:clamp(32px,6.2cqw,62px);flex:0 0 auto;gap:2px;padding:0 3px;font-size:clamp(8px,1.05cqw,.68rem);white-space:nowrap}
+html.dk-standalone .screen .controls .buttons-row #subtitleToggle .subtitle-cc{width:clamp(12px,2.2cqw,22px);height:auto}
+html.dk-standalone .screen .controls .buttons-row #subtitleToggle .subtitle-state{min-width:0}

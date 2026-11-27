@@ -2136,7 +2136,7 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Network request rejected");return browseNetwork(id,control,type,objectId,start,query);
   });
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
-    if(!onlyPlayer(event))throw Error("Network request rejected");return grantNetwork(id,url);
+    if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
   ipcMain.handle("dk-network:stream-policy",(event,token,policy)=>{
     if(!onlyPlayer(event))throw Error("Network policy rejected");

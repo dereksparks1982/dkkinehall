@@ -3057,6 +3057,7 @@
     const direct=makeButton("Open network URL",()=>{
       try{
         const address=new URL(url.value.trim());
+        if(!["http:","https:"].includes(address.protocol)||address.username||address.password||address.hash)throw Error("Unsupported address");
         const name=decodeURIComponent(address.pathname.split("/").filter(Boolean).pop()||address.host);
         void addNetwork(null,address.href,name,/\.(mp3|flac|wav|m4a|aac|opus|ogg)$/i.test(name));
       }catch(_){say("Enter a valid network media URL.");}

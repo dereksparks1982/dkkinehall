@@ -329,7 +329,7 @@ async function discover(){
 }
 function direct(){
  if(busy)return;clearWork();const input=makeInput("url","HTTP or HTTPS stream address","Адрес потока HTTP или HTTPS");
- const open=()=>{const url=validURL(input.value.trim());if(!url){report("Enter a valid HTTP or HTTPS address.","Введите действительный адрес HTTP или HTTPS.");return;}if(/\.m3u$/i.test(new URL(url).pathname)){void remotePlaylist(url,false);return;}const name=new URL(url).hostname;void play({kind:"url",url,name});};
+ const open=()=>{const url=validURL(input.value.trim());if(!url){report("Enter a valid HTTP or HTTPS address.","Введите действительный адрес HTTP или HTTPS.");return;}if(/\.(?:m3u|pls|xspf|asx|wax|wvx)$/i.test(new URL(url).pathname)){void remotePlaylist(url,false);return;}const name=new URL(url).hostname;void play({kind:"url",url,name});};
  workspace.append(input,button("Play Stream","Воспроизвести поток",open),button("Import URL","Импорт по адресу",()=>void remotePlaylist(input.value.trim(),false)));input.addEventListener("keydown",e=>{if(e.key==="Enter")open();});input.focus();
 }
 function parseM3U(text,base=null){
@@ -347,6 +347,47 @@ function parseM3U(text,base=null){
  }
  return rows;
 }
+// Import only media addresses, never execute playlist-supplied directives,
+ // VLC options, scripts, XML entities, or local filesystem references.
+function parsePlaylist(text,base=null){
+ text=String(text||"").replace(/^\uFEFF/,"").trim();
+ if(text.length>8*1024*1024)throw Error("Playlist too large");
+ if(/^#EXTM3U/i.test(text)||!/^(\[playlist\]|<)/i.test(text))return parseM3U(text,base);
+ const rows=[],seen=new Set();
+ const resolve=(value,origin=base)=>{if(!value||/^[a-z]:[\\/]|^\\\\/i.test(value))return null;try{return validURL(origin?new URL(value,origin).href:value);}catch(_){return null;}};
+ const add=(address,title="",art="",origin=base)=>{
+  const url=resolve(String(address||"").trim(),origin);if(!url||seen.has(url)||rows.length>=12000)return;
+  seen.add(url);rows.push({kind:"url",url,name:String(title||new URL(url).hostname).trim().slice(0,250)||new URL(url).hostname,guideId:"",country:"",number:"",logo:resolve(String(art||"").trim(),origin)||"",group:""});
+ };
+ if(/^\[playlist\]/i.test(text)){
+  const entries=new Map();
+  for(const line of text.split(/\r?\n/)){
+   const m=/^\s*(File|Title)(\d{1,6})\s*=(.*)$/i.exec(line);if(!m)continue;
+   const n=Number(m[2]);if(n<1||n>12000)continue;
+   const row=entries.get(n)||{};row[m[1].toLowerCase()]=m[3].trim();entries.set(n,row);
+  }
+  for(const [,row] of [...entries].sort((a,b)=>a[0]-b[0]))if(row.file)add(row.file,row.title);
+  return rows;
+ }
+ if(/<!DOCTYPE|<!ENTITY/i.test(text))throw Error("Unsafe playlist XML");
+ const doc=new DOMParser().parseFromString(text,"application/xml");
+ if(doc.querySelector("parsererror"))throw Error("Invalid playlist XML");
+ const root=doc.documentElement,tag=node=>node.localName.toLowerCase(),children=(node,name)=>Array.from(node.children).filter(x=>tag(x)===name),value=(node,name)=>children(node,name)[0]?.textContent?.trim()||"";
+ const attr=(node,name)=>Array.from(node.attributes).find(x=>x.localName.toLowerCase()===name)?.value||"";
+ if(tag(root)==="playlist"){
+  for(const list of children(root,"tracklist"))for(const track of children(list,"track")){
+   const title=value(track,"title"),art=value(track,"image");
+   for(const location of children(track,"location"))add(location.textContent,title,art);
+  }
+ }else if(tag(root)==="asx"){
+  const title=value(root,"title");
+  for(const entry of children(root,"entry")){
+   for(const ref of children(entry,"ref"))add(attr(ref,"href"),value(entry,"title")||title);
+  }
+  // ENTRYREF points to another list, not a media file. Do not recurse.
+ }else throw Error("Unsupported playlist");
+ return rows;
+}
 function chooseFile(accept,limit,fn){
  const input=el("input");input.type="file";input.accept=accept;input.hidden=true;panel.append(input);
  input.addEventListener("change",async()=>{const file=input.files?.[0];try{if(!file)return;if(file.size>limit)throw Error("size");await fn(await file.text());}catch(_){report("Could not import this file.","Не удалось импортировать файл.");}finally{input.remove();}},{once:true});
@@ -354,10 +395,10 @@ function chooseFile(accept,limit,fn){
 }
 function importPlaylist(){
  if(busy)return;
- chooseFile(".m3u,.m3u8,text/plain,application/vnd.apple.mpegurl",4*1024*1024,text=>{
+ chooseFile(".m3u,.m3u8,.pls,.xspf,.asx,.wax,.wvx,text/plain,application/vnd.apple.mpegurl",8*1024*1024,text=>{
   if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/i.test(text)){report("This is an HLS media manifest, not a channel list.","Это манифест HLS, а не список каналов.");return;}
   readGuideHeader(text);
-  const rows=parseM3U(text);if(!rows.length){report("No compatible channel addresses in this playlist.","В списке нет совместимых адресов каналов.");return;}
+  const rows=parsePlaylist(text);if(!rows.length){report("No compatible channel addresses in this playlist.","В списке нет совместимых адресов каналов.");return;}
   imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);
   if(!write(keys.playlist,imported))report("Playlist loaded for this session only.","Список загружен только для этого сеанса.");
   else report("Playlist imported.","Список импортирован.");clearWork();showAll();void enrichCatalog();
@@ -427,8 +468,7 @@ async function remotePlaylist(value,worldMode,chosen=""){
  try{
   const data=await bridge.liveTvResource(url,"playlist");if(!epoch(rev))return;
   if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/i.test(data.text)){setBusy(false);await play({kind:"url",url,name:new URL(url).hostname});return;}
-  if(!/^\uFEFF?#EXTM3U/i.test(data.text))throw Error("Invalid list");
-  readGuideHeader(data.text);const rows=parseM3U(data.text,validURL(data.url)||url);
+  readGuideHeader(data.text);const rows=parsePlaylist(data.text,validURL(data.url)||url);
   if(!rows.length)throw Error("Empty playlist");
   if(worldMode){directory=rows.map(x=>chosen&&!x.country?{...x,country:chosen}:x);directoryCountry=chosen;mode="world";country=chosen;render();}
   else{imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);write(keys.playlist,imported);showAll();}

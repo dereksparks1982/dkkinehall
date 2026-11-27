@@ -74,3 +74,5 @@ Streaming recovery also retries transient HLS segment and playlist requests befo
 The existing hardware acceleration preference also controls optional VA-API decoding for eligible internet video on Linux. Compatible streams still use passthrough first. If the bundled decoder or render device cannot support hardware decoding, Kinehall falls back to software; streaming statistics distinguish hardware initialization, confirmed decoder output and fallback.
 
 Automatic quality can now attempt in-session HLS rendition switching for a restricted class of compatible live MPEG-TS streams. Already advertised segments keep their original URLs, and changes use verified aligned timestamps and a discontinuity boundary. Other streams retain reconnect-based quality selection.
+
+Live TV now imports M3U/M3U8 channel lists, PLS, XSPF and ASX-family playlists from local files or public HTTP(S) URLs, retaining supported channel names and artwork. The Player's Open network URL command also accepts explicitly entered public HTTP(S) media through the guarded local proxy. HLS playback manifests remain distinct from channel lists.

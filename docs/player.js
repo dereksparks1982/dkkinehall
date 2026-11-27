@@ -286,14 +286,14 @@
     byId("restoreHint").hidden = true;
   };
   let statusTimer=null;
-  const status = (message, good = false) => {
+  const status = (message, good = false, persistent = false) => {
     const node = byId("status");
     node.textContent = message;
     node.classList.toggle("good", good);
     if(window.DKLibraryBridge?.internalPages){
       clearTimeout(statusTimer);
       node.classList.toggle("dk-notice-visible",Boolean(message));
-      if(message)statusTimer=setTimeout(()=>{
+      if(message&&!persistent)statusTimer=setTimeout(()=>{
         node.classList.remove("dk-notice-visible");
       },5000);
     }
@@ -1270,6 +1270,7 @@
   const streamSay=(en,ru)=>window.DKLocale?.pair(en,ru)??(document.documentElement.lang==="ru"?ru:en);
   let bufferGate=null,stallSince=0,lastStreamTime=0,lastProgressAt=0,stableSince=0,lastStatsAt=0,statsPending=false,streamStats=null,statsNode=null;
   const isStream=item=>Boolean(streamBridge&&item?.kind==="network"&&!item.tvReplay);
+  const isIPTV=item=>Boolean(isStream(item)&&item.liveChannel&&(!item.networkTransport||item.networkTransport==="http"));
   const bufferTarget=item=>streamPrefs.buffer==="auto"?Math.min(30,5+5*(item?.streamLevel||0)):Number(streamPrefs.buffer);
   function bufferedAhead(){
     try{const at=media.currentTime,rs=media.buffered;for(let i=0;i<rs.length;i++)if(rs.start(i)<=at+.1&&rs.end(i)>=at)return Math.max(0,rs.end(i)-at);}catch(_){}
@@ -1283,6 +1284,8 @@
   }
   function primeStream(item,reason="startup"){
     if(!isStream(item)||state.stopped||!item.autoplayRequested||bufferGate||media.ended)return false;
+    // Let Chromium consume real-time HTTP live TV instead of hard-pausing the muxer.
+    if(isIPTV(item)){item.streamPrimed=true;item.streamBuffering=false;return false;}
     const target=bufferTarget(item);
     if(bufferedAhead()>=target&&media.readyState>=3){item.streamPrimed=true;return false;}
     bufferGate={item,epoch:item.playbackEpoch,src:media.getAttribute("src"),at:Date.now(),target,reason,peak:bufferedAhead(),progressAt:Date.now()};
@@ -1300,11 +1303,14 @@
     media.addEventListener("playing",()=>{
       const item=current();if(!isStream(item)||state.stopped||!item.autoplayRequested)return;
       stallSince=0;lastProgressAt=Date.now();if(!stableSince)stableSince=Date.now();
+      item.networkError="";
+      if(isIPTV(item)){item.streamPrimed=true;item.streamBuffering=false;status("",true);updateButtons();return;}
       if(!item.streamPrimed)primeStream(item);
     });
     for(const event of ["waiting","stalled"])media.addEventListener(event,()=>{
       const item=current();if(!isStream(item)||state.stopped||media.seeking||media.paused||!item.autoplayRequested||item.networkStarting||bufferGate||media.readyState>=3)return;
       if(!stallSince){stallSince=Date.now();stableSince=0;if(stallSince-(item.streamLastStall||0)>4000){item.streamLastStall=stallSince;item.streamStalls=(item.streamStalls||0)+1;if(streamPrefs.buffer==="auto")item.streamLevel=Math.min(5,(item.streamLevel||0)+1);}}
+      if(isIPTV(item)){status(streamSay("Buffering live TV…","Буферизация телеканала…"),false,true);return;}
       if(bufferTarget(item)>1)primeStream(item,"stall");
     });
     media.addEventListener("emptied",()=>{if(!bufferGate||bufferGate.src!==media.getAttribute("src"))cancelBufferGate();lastProgressAt=Date.now();lastStreamTime=0;});
@@ -1325,11 +1331,12 @@
           // when a decodable frame exists instead of reopening a good source.
           bufferGate=null;item.streamBuffering=false;
           if(media.readyState>=2)resumeStream(item);
-          else {item.streamPrimed=false;if(!recoverNetwork(item,true))status(networkErrorText(item));}
+          else {item.streamPrimed=false;if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);}
         }
-      }else if(item.autoplayRequested&&!media.paused&&!media.seeking&&!item.networkStarting&&networkRetryTimer===null&&now-lastProgressAt>25000){
+      }else if(item.autoplayRequested&&(!media.paused||isIPTV(item))&&!media.seeking&&!item.networkStarting&&networkRetryTimer===null&&now-lastProgressAt>25000){
         lastProgressAt=now;item.streamLevel=Math.min(4,(item.streamLevel||0)+1);
-        if(!recoverNetwork(item,true))status(networkErrorText(item));
+        if(!item.networkError)item.networkError="TV stream timed out";
+        if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);
       }
       if(!statsNode)return;statsNode.hidden=!streamPrefs.stats;
       if(!streamPrefs.stats)return;
@@ -1540,7 +1547,7 @@
     item.codecAttempted = false;
     item.dvdSubtitleIndex=-1;
     item.sourceVideoExpected=false;
-    item.networkStarting=false;item.networkRetries=0;item.networkResume=0;item.networkLastPosition=0;item.networkKnownDuration=0;item.networkError="";resetStreamClock(item.kind==="network"?item:null);
+    item.networkStarting=false;item.networkRetries=0;item.networkResume=0;item.networkLastPosition=0;item.networkKnownDuration=0;item.networkError="";item.networkSoftwareOnly=false;resetStreamClock(item.kind==="network"?item:null);
     item.nativeAlternateAttempted = false;
     item.codecActive = false;
     item.codecRestart = false;
@@ -1611,7 +1618,7 @@
       return;
     }
     if(item.kind==="network"){
-      if(item.networkTransport==="dash"||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item));}});}
+      if(item.networkTransport==="dash"||forcingContainer||item.liveChannel&&item.requestedFormat!=="original"&&codecPlayback){const epoch=item.playbackEpoch;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);}});}
       else if(autoplay)playCurrent();
       return;
     }
@@ -1863,21 +1870,30 @@
     if(item.networkStarting||current()!==item||state.stopped)return false;
     const epoch=item.playbackEpoch;
     item.networkStarting=true;
-    try{return await tryNativeCodec(item,at);}
-    finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
+    try{
+      const ok=await tryNativeCodec(item,at);
+      if(ok&&current()===item&&item.playbackEpoch===epoch&&media.error){item.networkError="TV stream could not be decoded";return false;}
+      return ok;
+    }finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
   };
   const networkErrorText=item=>{const raw=String(item?.networkError||"");const pairs=[["Bundled decoder lacks RTMPS support","Встроенный декодер не поддерживает RTMPS"],["Bundled RTMPS TLS backend requires verification","Требуется проверка модуля TLS для RTMPS"],["RTMPS stream could not be opened securely","Не удалось безопасно открыть поток RTMPS"],["Bundled decoder lacks DASH support","Встроенный декодер не поддерживает DASH"],["DASH manifest could not be opened","Не удалось открыть манифест DASH"],["Bundled decoder lacks SRT support","Встроенный декодер не поддерживает SRT"],["SRT stream could not be opened","Не удалось открыть поток SRT"],["RTMP stream could not be opened","Не удалось открыть поток RTMP"],["RTSP stream could not be opened","Не удалось открыть поток RTSP"],["TV stream denied by broadcaster","Телеканал отклонил запрос"],["TV stream no longer available","Телеканал больше недоступен"],["TV broadcaster returned an error","Ошибка на стороне телеканала"],["Unsupported TV stream format","Неподдерживаемый формат телеканала"],["Unsupported HLS manifest","Неподдерживаемый манифест HLS"],["TV stream destination rejected","Адрес телеканала отклонён"],["TV stream timed out","Время ожидания телеканала истекло"],["TV stream connection failed","Не удалось подключиться к телеканалу"],["Bundled decoder lacks HLS support","Встроенный декодер не поддерживает HLS"],["Bundled decoder lacks HTTP support","Встроенный декодер не поддерживает HTTP"],["Bundled FFmpeg/FFprobe are missing","Встроенные декодеры отсутствуют"],["TV stream could not be decoded","Не удалось декодировать телеканал"]];const pair=pairs.find(([en])=>raw.includes(en))||["Network stream unavailable or unsupported.","Сетевой поток недоступен или не поддерживается."];return window.DKLocale?.pair(...pair)||pair[0];};
   const recoverNetwork=(item,forceNative=false)=>{
     if(item.kind!=="network"||item.networkStarting||state.stopped||!item.autoplayRequested||networkRetryTimer!==null)return false;
-    if(item.networkRetries>=5){cancelBufferGate();item.streamBuffering=false;item.autoplayRequested=false;media.pause();updateButtons();return false;}
+    if(item.networkRetries>=5){cancelBufferGate();item.streamBuffering=false;item.autoplayRequested=false;media.pause();if(codecPlayback?.isActive(item))void codecPlayback.stop();updateButtons();status(networkErrorText(item),false,true);return false;}
     const epoch=item.playbackEpoch,at=item.liveChannel&&!item.tvReplay?0:Math.max(0,Number(item.networkLastPosition)||0);
     const native=forceNative||item.networkTransport==="dash"||codecPlayback?.isActive(item)||["mp4","webm"].includes(item.requestedFormat);
-    cancelBufferGate();item.networkRetries++;item.streamPrimed=false;item.streamBuffering=true;item.streamLevel=Math.min(5,Math.max(item.streamLevel||0,item.networkRetries-1));updateButtons();
+    cancelBufferGate();item.networkRetries++;if(isIPTV(item))item.networkSoftwareOnly=true;item.streamPrimed=false;item.streamBuffering=true;item.streamLevel=Math.min(5,Math.max(item.streamLevel||0,item.networkRetries-1));updateButtons();
     status(streamSay("Reconnecting to network media…","Повторное подключение к сетевому потоку…"));
     networkRetryTimer=setTimeout(async()=>{
       networkRetryTimer=null;
       if(current()!==item||item.playbackEpoch!==epoch||state.stopped||!item.autoplayRequested){item.streamBuffering=false;return;}
       if(native&&item.requestedFormat!=="original"&&codecPlayback){
+        if(isIPTV(item)){
+          media.pause();item.networkStarting=true;
+          try{await codecPlayback.stop();}finally{if(item.playbackEpoch===epoch)item.networkStarting=false;}
+          if(current()!==item||item.playbackEpoch!==epoch||state.stopped||!item.autoplayRequested){item.streamBuffering=false;return;}
+          lastProgressAt=Date.now();
+        }
         if(item.liveChannel&&!item.tvReplay&&(item.networkRetries>=3||/denied|no longer available/i.test(item.networkError||""))){
           const alternate=await window.DKLibraryBridge?.liveTvAlternate?.(item.networkToken).catch(()=>false);
           if(current()!==item||item.playbackEpoch!==epoch||state.stopped||!item.autoplayRequested){item.streamBuffering=false;return;}
@@ -1886,14 +1902,15 @@
         item.codecAttempted=false;
         const ok=await startNetworkDecoder(item,at);
         if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){
-          if(!recoverNetwork(item,true))status(networkErrorText(item));
+          if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);
         }
       }else{
         item.networkResume=at;
         media.pause();media.crossOrigin="anonymous";media.preload="auto";media.src=item.src;media.load();
         if(isStream(item)&&primeStream(item,"reconnect"))return;
+        lastProgressAt=Date.now();item.streamBuffering=false;
         const play=media.play();
-        if(play?.catch)play.catch(()=>{if(current()===item&&item.playbackEpoch===epoch&&!state.stopped&&!media.error)status(networkErrorText(item));});
+        if(play?.catch)play.catch(()=>{if(current()===item&&item.playbackEpoch===epoch&&!state.stopped&&!media.error)status(networkErrorText(item),false,true);});
       }
     },Math.min(12000,1000*2**(item.networkRetries-1)));
     return true;
@@ -2522,7 +2539,7 @@
       if(bufferGate||networkRetryTimer!==null||(!media.paused&&!media.ended)||item.networkStarting){item.autoplayRequested=false;cancelNetworkRetry();item.streamBuffering=false;media.pause();updateButtons();status("");return;}
       item.autoplayRequested=true;item.streamPrimed=false;
       if(item.networkStarting)return;
-      if(media.error||media.ended||item.networkRetries>=5||!media.getAttribute("src")){item.networkRetries=0;item.codecAttempted=false;if(item.requestedFormat!=="original"&&codecPlayback){void startNetworkDecoder(item,item.liveChannel?0:Math.max(0,Number(item.networkLastPosition)||0)).then(ok=>{if(!ok&&current()===item&&!state.stopped&&!recoverNetwork(item,true))status(networkErrorText(item));});}else recoverNetwork(item,false);return;}
+      if(media.error||media.ended||item.networkRetries>=5||!media.getAttribute("src")){item.networkRetries=0;item.codecAttempted=false;if(item.requestedFormat!=="original"&&codecPlayback){void startNetworkDecoder(item,item.liveChannel?0:Math.max(0,Number(item.networkLastPosition)||0)).then(ok=>{if(!ok&&current()===item&&!state.stopped&&!recoverNetwork(item,true))status(networkErrorText(item),false,true);});}else recoverNetwork(item,false);return;}
     }
     if (media.paused || media.ended) playCurrent();
     else media.pause();
@@ -3652,7 +3669,7 @@
   media.addEventListener("ended", () => {
     const completed = current();
     if (!completed) return;
-    if(completed.liveChannel){if(completed.tvReplay){returnToLive(completed);return;}if(!recoverNetwork(completed,true))status(networkErrorText(completed));return;}
+    if(completed.liveChannel){if(completed.tvReplay){returnToLive(completed);return;}if(!recoverNetwork(completed,true))status(networkErrorText(completed),false,true);return;}
     if(completed.kind==="network"&&completed.networkKnownDuration>0&&playbackSeconds()+5<completed.networkKnownDuration){
       if(!recoverNetwork(completed))status("Network stream ended unexpectedly.");
       return;
@@ -3708,14 +3725,15 @@
     const item=current();
     if(item.kind==="network"){
       if(item.networkStarting||networkRetryTimer!==null)return;
+      if(!item.networkError)item.networkError=code===2?"TV stream connection failed":"TV stream could not be decoded";
       if(!codecPlayback?.isActive(item)&&!item.codecAttempted&&item.requestedFormat!=="original"&&codecPlayback&&[3,4].includes(code)){
         const epoch=item.playbackEpoch;
         void startNetworkDecoder(item,Math.max(0,Number(item.networkLastPosition)||0)).then(ok=>{
           if(!ok&&current()===item&&item.playbackEpoch===epoch&&!state.stopped){
-            if(!recoverNetwork(item,true))status(networkErrorText(item));
+            if(!recoverNetwork(item,true))status(networkErrorText(item),false,true);
           }
         });
-      }else if(!recoverNetwork(item))status(networkErrorText(item));
+      }else if(!recoverNetwork(item))status(networkErrorText(item),false,true);
       updateButtons();return;
     }
     if(item.deinterlacePending&&!codecPlayback?.isActive(item))return;

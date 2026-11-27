@@ -50,7 +50,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         if(token!==generation||current()!==item)return false;
         onStatus("Preparing video with included codecs…");
         const result=await bridge.start(source,Math.max(0,Number(offset)||0),
-          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off",item.file?.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)?item.dvdSubtitleIndex:-1,hardwareEnabled()!==false);
+          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off",item.file?.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)?item.dvdSubtitleIndex:-1,hardwareEnabled()!==false&&!(item.kind==="network"&&item.networkSoftwareOnly));
         if(token!==generation||current()!==item||!result?.url)return false;
         item.historyReady=false;
         active={item,url:result.url,offset:Number(result.position)||0,
@@ -98,8 +98,11 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
           try {
             const request=media.play();
             if(request?.catch)request.catch(error=>{
-              if(error?.name!=="AbortError"&&error?.name!=="NotAllowedError")
+              if(token!==generation||current()!==item)return;
+              if(error?.name!=="AbortError"&&error?.name!=="NotAllowedError"){
+                if(item.kind==="network"&&!item.networkError)item.networkError="TV stream could not be decoded";
                 onStatus("Playback could not start: "+String(error?.message||error));
+              }
             });
           }catch(error){onStatus("Playback could not start.");}
         }

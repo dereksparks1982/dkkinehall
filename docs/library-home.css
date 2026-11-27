@@ -168,3 +168,5 @@ html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
 .dk-watchlist-filter input{accent-color:#d52b1e}
 .dk-watchlist-mark{position:absolute;top:7px;right:7px;background:#432822;color:#e2b956;padding:3px 7px;border-radius:5px;font-size:1.1rem;z-index:2}
 .dk-facet-links{display:flex;flex-wrap:wrap;gap:6px}
+
+.dk-collection-dialog{width:min(660px,92vw);max-height:85vh;overflow:auto;background:#211b17;color:#fff;border:1px solid #e2b956;border-radius:10px;padding:18px}.dk-collection-dialog h2{color:#e2b956}.dk-collection-dialog-body{display:grid;gap:8px;margin:12px 0}.dk-collection-membership{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.dk-collection-membership span{flex:1;min-width:120px;overflow-wrap:anywhere}.dk-collection-membership input[type=text]{flex:1;min-width:130px}

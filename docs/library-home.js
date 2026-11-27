@@ -150,6 +150,7 @@ function createCard(row,{landscape=false,series=false}={}){
       (nativeBridge?row.title:mediaName(row)));
   const detail=create("span","library-card-detail",
     series?"":row.kind==="tv"?(row.episodeTitle||""):row.year||"");
+  if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
   if(window.DKCollections?.has(row))box.append(create("span","dk-watchlist-mark","★"));
   if(landscape){
@@ -404,6 +405,9 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   contextRow=row;
   const watch=$("watchlistAction");
   if(watch){watch.hidden=!window.DKCollections;watch.textContent=window.DKCollections?.has(row)?say("Remove from Watchlist","Убрать из списка просмотра"):say("Add to Watchlist","Добавить в список просмотра");}
+  const collection=$("manageMovieCollection"),edition=$("manageMovieEdition");
+  if(collection){collection.hidden=seriesOnly||row.kind!=="movie"||!window.DKCollections;collection.textContent=say("Manage Collections","Управление коллекциями");}
+  if(edition){edition.hidden=seriesOnly||row.kind!=="movie"||!window.DKCollections;edition.textContent=say("Movie Editions","Версии фильма");}
   $("deleteFromDisk").hidden=seriesOnly;
   $("movieDetailsAction").hidden=seriesOnly||row.kind!=="movie";
   $("refreshMovieMetadata").hidden=seriesOnly||row.kind!=="movie";
@@ -631,6 +635,34 @@ function scheduleHistoryRefresh(){
     }catch(_){}
   },180);
 }
+const editionNames={director:["Director's cut","Режиссёрская версия"],extended:["Extended edition","Расширенная версия"],theatrical:["Theatrical cut","Прокатная версия"],unrated:["Unrated cut","Версия без рейтинга"],special:["Special edition","Специальная версия"],standard:["Standard edition","Обычная версия"]};
+function editionName(value){return editionNames[value]?say(...editionNames[value]):"";}
+function collectionDialog(row,mode){
+ if(!row||row.kind!=="movie"||!window.DKCollections)return;
+ const api=window.DKCollections,dlg=create("dialog","dk-collection-dialog"),header=create("h2",null,mode==="collection"?say("Manage Collections","Управление коллекциями"):say("Movie Editions","Версии фильма"));
+ const body=create("div","dk-collection-dialog-body"),feedback=create("p","helper"),close=create("button","btn",say("Close","Закрыть"));close.type="button";close.addEventListener("click",()=>dlg.close());
+ const button=(label,fn)=>{const b=create("button","btn small",label);b.type="button";b.addEventListener("click",fn);return b;};
+ const update=()=>{feedback.textContent=say("Saved locally.","Сохранено локально.");void render();};
+ const fail=()=>{feedback.textContent=say("Could not save changes.","Не удалось сохранить изменения.");};
+ const draw=()=>{
+  body.replaceChildren();
+  if(mode==="collection"){
+   const groups=api.groups().sort((a,b)=>nameSort(a.name,b.name));
+   for(const g of groups){const label=create("label","dk-collection-membership"),check=create("input");check.type="checkbox";check.checked=g.members.includes(row.id);label.append(check,create("span",null,g.name));check.addEventListener("change",()=>{if(api.setMembership(row,g.name,check.checked)){update();draw();}else{fail();check.checked=!check.checked;}});body.append(label);}
+   const entry=create("input","select");entry.type="text";entry.maxLength=100;entry.placeholder=say("New collection name","Название новой коллекции");
+   const add=()=>{if(api.setMembership(row,entry.value,true)){update();draw();}else fail();};
+   const line=create("div","dk-collection-membership");line.append(entry,button(say("Create and Add","Создать и добавить"),add));body.append(line);
+  }else{
+   const select=create("select","select"),current=api.edition(row);
+   for(const key of ["",...Object.keys(editionNames)]){const opt=create("option",null,key?editionName(key):say("Detect from filename","Определять по имени файла"));opt.value=key;select.append(opt);}
+   select.value=current||"";body.append(select,button(say("Save Edition","Сохранить версию"),()=>{if(api.setEdition(row,select.value))update();else fail();}));
+   const matches=api.relatedEditions(row,all);
+   body.append(create("p","helper",say("Possible versions with the same title and release year. Files are not merged or renamed.","Возможные версии с одинаковым названием и годом выпуска. Файлы не объединяются и не переименовываются.")));
+   for(const match of matches){const line=create("div","dk-collection-membership");line.append(create("span",null,(editionName(api.edition(match))||say("Unspecified edition","Версия не указана"))+" · "+match.filename),button(say("Play","Воспроизвести"),()=>{dlg.close();void openVideo(match);}));body.append(line);}
+  }
+ };
+ dlg.append(header,create("strong",null,row.title),body,feedback,close);document.body.append(dlg);dlg.addEventListener("close",()=>dlg.remove(),{once:true});draw();dlg.showModal();
+}
 function setupCollectionTools(){
  if(!window.DKCollections||collectionTools)return;
  const bar=create("div","dk-collection-tools");bar.id="collectionTools";
@@ -653,15 +685,16 @@ function setupCollectionTools(){
 function syncCollectionTools(rows,tv){
  if(!collectionTools)return;
  const {bar,select,value,search,check,checkText,clear}=collectionTools;
- const facets=tv?[["","All categories","Все категории"]]:[["","All categories","Все категории"],["genre","Genre","Жанр"],["decade","Decade","Десятилетие"],["actor","Actor","Актёр"],["director","Director","Режиссёр"],["edition","Edition","Версия фильма"]];
+ const facets=tv?[["","All categories","Все категории"]]:[["","All categories","Все категории"],["genre","Genre","Жанр"],["decade","Decade","Десятилетие"],["actor","Actor","Актёр"],["director","Director","Режиссёр"],["collection","Collections","Коллекции"],["edition","Edition","Версия фильма"],["versions","Movie versions","Версии фильмов"]];
  if(!facets.some(x=>x[0]===collectionFilter.kind)){collectionFilter.kind="";collectionFilter.value="";}
  const opt=(v,t)=>{const o=create("option",null,t);o.value=v;return o;};
  select.replaceChildren(...facets.map(([v,en,ru])=>opt(v,say(en,ru))));
  select.value=collectionFilter.kind;select.hidden=tv;
  const editionLabels={director:["Director's cut","Режиссёрская версия"],extended:["Extended edition","Расширенная версия"],theatrical:["Theatrical cut","Прокатная версия"],unrated:["Unrated cut","Версия без рейтинга"]};
- const opts=collectionFilter.kind?window.DKCollections.options(rows,collectionFilter.kind):[];
+ let opts=collectionFilter.kind?window.DKCollections.options(rows,collectionFilter.kind):[];
+ if(collectionFilter.kind==="versions"){const counts=new Map();for(const row of rows){const id=window.DKCollections.movieIdentity(row);if(id)counts.set(id,(counts.get(id)||0)+1);}opts=opts.filter(x=>(counts.get(x)||0)>1);}
  if(collectionFilter.value&&!opts.includes(collectionFilter.value))opts.unshift(collectionFilter.value);
- value.replaceChildren(opt("",say("All","Все")),...opts.map(v=>opt(v,collectionFilter.kind==="edition"&&editionLabels[v]?say(...editionLabels[v]):collectionFilter.kind==="decade"?say(v+"s",v+"-е"):v)));
+ value.replaceChildren(opt("",say("All","Все")),...opts.map(v=>opt(v,collectionFilter.kind==="edition"?editionName(v):collectionFilter.kind==="decade"?say(v+"s",v+"-е"):v)));
  value.hidden=!collectionFilter.kind||tv;value.value=collectionFilter.value;
  search.placeholder=say("Search library (Enter)","Поиск в медиатеке (Ввод)");
  search.setAttribute("aria-label",search.placeholder);
@@ -727,7 +760,7 @@ async function render(){
     $("collectionTitle").textContent=
       say("Your Entire TV Collection","Вся коллекция сериалов");
   }else{
-    cards=active.sort((a,b)=>nameSort(a.title,b.title));
+    cards=active.sort((a,b)=>collectionFilter.kind==="collection"?(Number(a.year)||9999)-(Number(b.year)||9999)||nameSort(a.title,b.title):nameSort(a.title,b.title));
     $("collectionTitle").textContent=
       say("Your Entire Movie Collection","Вся коллекция фильмов");
   }
@@ -973,6 +1006,8 @@ async function libraryMaintenance(action){
 function connect(){
   setupCollectionTools();
   $("watchlistAction")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();if(!row||!window.DKCollections)return;if(!window.DKCollections.toggle(row)){status("Could not save watchlist.","Не удалось сохранить список просмотра.",true);return;}void render();});
+  $("manageMovieCollection")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"collection");});
+  $("manageMovieEdition")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"edition");});
   $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());

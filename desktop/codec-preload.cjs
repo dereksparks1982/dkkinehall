@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("DKCodecBridge",{
   changeDVD:(id,title,chapter,angle)=>ipcRenderer.invoke("dk-codec:dvd-change",String(id),Number(title),Number(chapter),Number(angle)),
   exportVideo:language=>ipcRenderer.invoke("dk-codec:export",language==="ru"?"ru":"en"),
   commercialCandidates:file=>{const name=localPath(file);if(!name)return Promise.reject(Error("Select a local video"));return ipcRenderer.invoke("dk-codec:commercial-candidates",name);},
+  previewFrame:(file,seconds)=>{const name=localPath(file);if(!name)return Promise.resolve(null);return ipcRenderer.invoke("dk-codec:preview-frame",name,Number(seconds));},
+  cancelPreview:()=>ipcRenderer.invoke("dk-codec:preview-cancel"),
   probe:file=>{
     const name=localPath(file);
     if(!name)return Promise.reject(new Error("A local file must be selected"));

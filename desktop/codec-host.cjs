@@ -680,6 +680,33 @@ async function commercialCandidates(source){
   });
  }finally{commercialBusy=false;}
 }
+// Bounded local thumbnails, separate from the active playback process.
+let previewProcess=null,previewSequence=0;
+const previewCache=new Map();
+function cancelPreview(){previewSequence++;if(previewProcess){previewProcess.kill("SIGKILL");previewProcess=null;}}
+async function previewFrame(source,seconds){
+ const ticket=++previewSequence;
+ if(previewProcess){previewProcess.kill("SIGKILL");previewProcess=null;}
+ if(!Number.isFinite(seconds)||seconds<0||seconds>7*86400)throw Error("Invalid preview position");
+ const file=selectedFile(source),stat=fs.statSync(file),info=await probe(file);
+ if(ticket!==previewSequence||!info.hasVideo||!info.duration)return null;
+ const at=Math.min(Math.max(0,info.duration-.25),Math.floor(seconds/2)*2);
+ const key=JSON.stringify([file,stat.size,stat.mtimeMs,at,info.videoStreamIndex]);
+ if(previewCache.has(key)){const hit=previewCache.get(key);previewCache.delete(key);previewCache.set(key,hit);return hit;}
+ return new Promise((resolve,reject)=>{
+  const child=spawn(binary("ffmpeg"),["-hide_banner","-nostdin","-v","error","-protocol_whitelist","file,pipe","-ss",String(at),"-i",file,"-map","0:"+info.videoStreamIndex,"-frames:v","1","-an","-sn","-vf","scale=240:144:force_original_aspect_ratio=decrease:force_divisible_by=2","-c:v","mjpeg","-q:v","5","-f","image2pipe","pipe:1"],{env:codecEnvironment(),stdio:["ignore","pipe","ignore"]});
+  previewProcess=child;let size=0,done=false;const chunks=[];
+  const finish=(err,result)=>{if(done)return;done=true;clearTimeout(timer);if(previewProcess===child)previewProcess=null;err?reject(err):resolve(result);};
+  const timer=setTimeout(()=>{child.kill("SIGKILL");finish(null,null);},6000);
+  child.stdout.on("data",chunk=>{size+=chunk.length;if(size>160*1024){child.kill("SIGKILL");finish(null,null);}else chunks.push(chunk);});
+  child.once("error",e=>finish(e));child.once("close",code=>{
+   if(done)return;
+   if(code!==0||ticket!==previewSequence||size<4)return finish(null,null);
+   const bytes=Buffer.concat(chunks,size);if(bytes[0]!==255||bytes[1]!==216)return finish(null,null);
+   const result={at,base64:bytes.toString("base64")};previewCache.set(key,result);while(previewCache.size>48)previewCache.delete(previewCache.keys().next().value);finish(null,result);
+  });
+ });
+}
 function install(win,contents=win?.webContents) {
   if(!contents)throw new Error("A DK Kinehall player view is required");
   playerContents=contents;
@@ -711,6 +738,10 @@ function install(win,contents=win?.webContents) {
   ipcMain.handle("dk-codec:commercial-candidates",async(event,localPath)=>{
     if(!onlyWindow(event))throw Error("Rejected commercial analysis");return commercialCandidates(await resolveSource(localPath,checkVideo));
   });
+  ipcMain.handle("dk-codec:preview-frame",async(event,localPath,seconds)=>{
+    if(!onlyWindow(event))throw Error("Rejected preview request");return previewFrame(await resolveSource(localPath,checkVideo),seconds);
+  });
+  ipcMain.handle("dk-codec:preview-cancel",event=>{if(onlyWindow(event))cancelPreview();return true;});
   ipcMain.handle("dk-codec:probe",async(event,localPath)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return probe(await resolvePlaybackSource(localPath));
@@ -734,6 +765,6 @@ function install(win,contents=win?.webContents) {
     cancelStream();return true;
   });
   win.once("closed",()=>{cancelStream();server?.close();server=null;windowRef=null;});
-  app.once("before-quit",()=>{commercialProcess?.kill("SIGKILL");dvdGrants.clear();cancelStream();server?.close();server=null;});
+  app.once("before-quit",()=>{cancelPreview();commercialProcess?.kill("SIGKILL");dvdGrants.clear();cancelStream();server?.close();server=null;});
 }
 module.exports={install};

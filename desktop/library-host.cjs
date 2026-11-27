@@ -2278,9 +2278,55 @@ function jfFreePort(){
     server.listen(0,"127.0.0.1",()=>{const port=server.address().port;server.close(error=>error?reject(error):resolve(port));});
   });
 }
+// A detached server is adopted only after Linux process identity, owner,
+ // executable, private data directory and start time all agree.
+function jfProcess(pid,base,executable){
+ try{
+  if(!Number.isSafeInteger(pid)||pid<2)return null;
+  const proc="/proc/"+pid;
+  if(fs.statSync(proc).uid!==process.getuid()||fs.realpathSync(proc+"/exe")!==fs.realpathSync(executable))return null;
+  const stat=fs.readFileSync(proc+"/stat","utf8"),parts=stat.slice(stat.lastIndexOf(")")+2).split(" ");
+  if(parts[0]==="Z"||!/^\d+$/.test(parts[19]))return null;
+  const args=fs.readFileSync(proc+"/cmdline","utf8").split("\0");
+  const arg=name=>args[args.indexOf(name)+1];
+  if(!args.includes("--datadir")||arg("--datadir")!==path.join(base,"data")||!args.includes("--configdir")||arg("--configdir")!==path.join(base,"config"))return null;
+  return parts[19];
+ }catch(_){return null;}
+}
+function jfAlive(state){
+ return !!state&&jfProcess(state.pid,state.base,state.executable)===state.started;
+}
+function jfRelease(state){
+ if(jfAlive(state))return;
+ try{
+  const record=JSON.parse(fs.readFileSync(state.lock,"utf8"));
+  if(record.pid===state.pid&&record.started===state.started)fs.unlinkSync(state.lock);
+ }catch(_){}
+ if(jfState===state){jfState=null;jfConfig=null;jellyfinCatalog=null;}
+ if(!jfStarting)jfStopping=false;
+}
+function jfReadExisting(base,executable,lock){
+ if(!fs.existsSync(lock))return null;
+ const st=fs.lstatSync(lock);
+ if(!st.isFile()||st.uid!==process.getuid()||(st.mode&0o077)||st.size>4096)throw Error("Unsafe server state");
+ let record=null;
+ try{record=JSON.parse(fs.readFileSync(lock,"utf8"));}catch(_){}
+ if(record&&Number.isInteger(record.port)&&record.port>=1024&&record.port<=65535&&typeof record.started==="string"){
+  const state={pid:record.pid,started:record.started,port:record.port,base,executable,lock,token:null};
+  if(jfAlive(state))return state;
+ }
+ // An old empty lock or a crash is recoverable only when no matching
+ // private server exists. Never start a second process on the same data.
+ if(fs.readdirSync("/proc").some(n=>/^\d+$/.test(n)&&jfProcess(Number(n),base,executable)))throw Error("Private server identity unavailable");
+ fs.unlinkSync(lock);return null;
+}
+function jfMonitor(state){
+ const timer=setInterval(()=>{if(!jfAlive(state)){clearInterval(timer);jfRelease(state);}},1000);
+ timer.unref();
+}
 function jfOwnListener(state){
-  if(!state?.child||state.child.exitCode!==null||state.child.signalCode!==null)return false;
-  const fd="/proc/"+state.child.pid+"/fd",sockets=new Set();
+  if(!jfAlive(state))return false;
+  const fd="/proc/"+state.pid+"/fd",sockets=new Set();
   try{
     for(const name of fs.readdirSync(fd)){
       try{const m=/^socket:\[(\d+)\]$/.exec(fs.readlinkSync(path.join(fd,name)));if(m)sockets.add(m[1]);}catch(_){}
@@ -2316,9 +2362,8 @@ function jfStop(closing=true){
   if(closing!==false)jfClosing=true;
   jfStopping=true;jfConfig=null;jellyfinCatalog=null;
   const state=jfState;
-  if(state?.child&&state.child.exitCode===null&&state.child.signalCode===null){
-    try{state.child.kill("SIGTERM");}catch(_){}
-  }
+  if(jfAlive(state)){try{process.kill(state.pid,"SIGTERM");}catch(_){}}
+  else if(state)jfRelease(state);
   if(!jfState&&!jfStarting&&!jfClosing)jfStopping=false;
 }
 function jfSetPower(enabled){
@@ -2361,8 +2406,8 @@ async function jfStart(){
   try{
     const base=jfDirectory(path.join(app.getPath("userData"),"jellyfin-private"));
     const lock=path.join(base,"running.lock");
-    fs.closeSync(fs.openSync(lock,"wx",0o600));
-    unlock=()=>{try{fs.unlinkSync(lock);}catch(_){}};
+    const existing=jfReadExisting(base,executable,lock);
+    if(!existing){fs.closeSync(fs.openSync(lock,"wx",0o600));unlock=()=>{try{fs.unlinkSync(lock);}catch(_){}};}
     const dirs=Object.fromEntries(["data","config","cache","logs"].map(n=>[n,jfDirectory(path.join(base,n))]));
     const secret=path.join(base,"credentials.json");
     let saved;
@@ -2371,17 +2416,26 @@ async function jfStart(){
       saved=JSON.parse(fs.readFileSync(secret,"utf8"));
     }else{saved={password:randomBytes(32).toString("hex"),device:randomBytes(16).toString("hex")};jfWrite(secret,JSON.stringify(saved));}
     if(!/^[a-f0-9]{64}$/.test(saved.password)||!/^[a-f0-9]{32}$/.test(saved.device))throw Error("Invalid credentials");
-    const port=await jfFreePort();
-    if(jfStopping){unlock();return;}
+    const port=existing?.port||await jfFreePort();
+    if(jfStopping){if(unlock)unlock();return;}
+    if(existing){state={...existing,device:saved.device,adopted:true};jfState=state;jfMonitor(state);}
+    else {
     jfWrite(path.join(dirs.config,"network.xml"),'<?xml version="1.0" encoding="utf-8"?><NetworkConfiguration><InternalHttpPort>'+port+'</InternalHttpPort><PublicHttpPort>'+port+'</PublicHttpPort><EnableHttps>false</EnableHttps><RequireHttps>false</RequireHttps><EnableIPv4>true</EnableIPv4><EnableIPv6>false</EnableIPv6><EnableRemoteAccess>false</EnableRemoteAccess><AutoDiscovery>false</AutoDiscovery><EnableUPnP>false</EnableUPnP><LocalNetworkAddresses><string>127.0.0.1</string></LocalNetworkAddresses><LocalNetworkSubnets><string>127.0.0.0/8</string></LocalNetworkSubnets></NetworkConfiguration>');
     const args=["--nowebclient","--nonetchange","--datadir",dirs.data,"--configdir",dirs.config,"--cachedir",dirs.cache,"--logdir",dirs.logs];
     const ffmpeg=path.join(app.getAppPath(),"bin","ffmpeg");
     if(fs.existsSync(ffmpeg))args.push("--ffmpeg",ffmpeg);
-    const child=require("node:child_process").spawn(executable,args,{cwd:path.dirname(executable),stdio:"ignore",env:{...process.env,ASPNETCORE_URLS:"http://127.0.0.1:"+port}});
-    state={child,port,device:saved.device,token:null};jfState=state;
-    let finalized=false;
-    const finished=()=>{if(finalized)return;finalized=true;if(jfState===state){jfState=null;jfConfig=null;jellyfinCatalog=null;}unlock();if(!jfStarting&&!jfClosing)jfStopping=false;};
-    child.once("error",finished);child.once("exit",finished);
+    const child=require("node:child_process").spawn(executable,args,{cwd:path.dirname(executable),detached:true,stdio:"ignore",env:{...process.env,ASPNETCORE_URLS:"http://127.0.0.1:"+port}});
+    child.on("error",()=>{});
+    // Wait for exec to become visible before recording the PID. This also
+    // detects immediate spawn failure; the child is not yet unreferenced.
+    let started=null;
+    for(let n=0;n<50&&!started;n++){started=jfProcess(child.pid,base,executable);if(!started)await new Promise(resolve=>setTimeout(resolve,20));}
+    if(!started){try{child.kill("SIGTERM");}catch(_){}throw Error("Private server did not start");}
+    state={pid:child.pid,started,base,executable,lock,port,device:saved.device,token:null};jfState=state;
+    try{jfWrite(lock,JSON.stringify({pid:state.pid,started,port}));}catch(error){try{child.kill("SIGTERM");}catch(_){}throw error;}
+    child.once("exit",()=>jfRelease(state));child.unref();jfMonitor(state);
+    }
+    if(jfStopping){jfStop(false);return;}
     let info=null;
     const deadline=Date.now()+90000;
     while(Date.now()<deadline&&!jfStopping&&jfState===state){
@@ -2403,7 +2457,7 @@ async function jfStart(){
     if(jfStopping||jfState!==state)return;
     jfConfig={port,token:state.token,userId:auth.User.Id,managed:true};jellyfinCatalog=null;
   }catch(_){
-    if(state&&jfState===state){try{state.child.kill("SIGTERM");}catch(_){}jfConfig=null;}
+    if(state&&jfState===state){if(jfAlive(state)&&!state.adopted){try{process.kill(state.pid,"SIGTERM");}catch(_){}}jfConfig=null;if(!jfAlive(state))jfRelease(state);}
     else if(!state&&unlock)unlock();
     console.warn("Private Jellyfin unavailable; using existing metadata providers.");
   }finally{jfStarting=false;if(!jfState&&!jfClosing)jfStopping=false;}
@@ -3154,7 +3208,7 @@ function install(originalWindow,originalPlayer){
   if(!originalWindow?.webContents||typeof originalPlayer!=="string")
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
-  void jfStart();app.once("before-quit",jfStop);
+  void jfStart();app.once("before-quit",()=>{jfClosing=true;});
   // Chromium owns the PNG transfer; only this Player view's named Blob
   // snapshots receive the localized native save prompt. No arbitrary paths
   // or filesystem API are exposed to the renderer.
@@ -3746,7 +3800,7 @@ function install(originalWindow,originalPlayer){
     return showPage("library");
   });
   home.on("closed",()=>{
-    jfStop();cancelAtsc();closeNetwork();scanController?.abort();
+    cancelAtsc();closeNetwork();scanController?.abort();
     if(installedWindow())player.webContents.close();
     player=null;home=null;
   });

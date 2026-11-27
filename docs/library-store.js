@@ -379,7 +379,7 @@ function excludedDiscovery(row){
 }
 function sourceFor(row,sources){
  if(row?.source!=="native"||!row.nativePath)return null;
- return sources.find(source=>(source.kind===row.kind||!!row.manualClassification||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
+ return sources.find(source=>(source.kind===row.kind||!!row.manualClassification||!!row.featureClassification||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
 }
 // Standalone South Park films, streaming specials and concert presentations
 // belong in Movies even when their files are stored alongside TV episodes.
@@ -398,7 +398,7 @@ function knownFeatureSpecial(name,relative=name){
  const clean=value=>String(value||"").replace(/&/g," and ").replace(/[^\p{L}\p{N}]+/gu," ").trim();
  const stem=clean(String(name).replace(/\.[^.]+$/,""));
  if(!/\bsouth park\b/i.test(clean(relative)+" "+stem))return null;
- const titleStem=stem.replace(/^south park\s*/i,"").replace(/^s00e00\s*/i,"");
+ const titleStem=stem.replace(/^(?:south park\s*|s00e00\s*)+/i,"");
  const match=SOUTH_PARK_FEATURES.find(([pattern])=>pattern.test(titleStem));
  if(!match)return null;
  return {kind:"movie",title:match[1],year:match[2],series:null,season:null,episode:null,episodeTitle:""};
@@ -416,13 +416,31 @@ function classifyAssigned(file){
  }
  return info;
 }
+// Repair the saved catalog even when no filesystem scan is requested.
+// Metadata titles are used only for old, unnumbered South Park records.
+function cachedFeature(row){
+ if(row.manualClassification)return null;
+ const direct=knownFeatureSpecial(row.filename,row.relative);
+ if(direct)return direct;
+ if(row.featureClassification?.kind==="movie")return row.featureClassification;
+ if(row.kind==="tv"&&Number(row.season)===0&&Number(row.episode)===0&&
+    /^south[ ._-]+park$/i.test(String(row.series||"").trim())&&row.episodeTitle)
+  return knownFeatureSpecial(row.episodeTitle+".mkv","South Park/"+row.episodeTitle);
+ return null;
+}
+function repairCachedFeature(row){
+ const feature=cachedFeature(row);
+ if(!feature||row.kind!=="tv")return row;
+ return {...row,...feature,featureClassification:feature,manualMatch:null,manualFields:null,jellyfinIdentity:null,
+  movieMetadataVerified:false,movieDetails:null,movieProvider:null,metadataVerified:false,episodeDetails:null,episodeDescription:null};
+}
 async function applyNativeScope(sources){
  if(!Array.isArray(sources))throw Error("Invalid library sources");
  const db=await open();let count=0;
  await new Promise((resolve,reject)=>{
   const tx=db.transaction("entries","readwrite"),req=tx.objectStore("entries").openCursor();
-  req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;const row=cursor.value,excluded=!sourceFor(row,sources);
-   if(!!row.scopeExcluded!==excluded){cursor.update({...row,scopeExcluded:excluded});count++;}cursor.continue();};
+  req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;const original=cursor.value,row=original.source==="native"&&!original.userHidden&&!original.resetArchived?repairCachedFeature(original):original,excluded=!sourceFor(row,sources);
+   if(row!==original||!!row.scopeExcluded!==excluded){cursor.update({...row,scopeExcluded:excluded});count++;}cursor.continue();};
   tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Could not apply library folders"));
  });
  if(count)changed({entries:true,native:true});return count;
@@ -466,6 +484,7 @@ async function ingestNative(scan){
     const previous=old.get(file.id);
     if(previous?.userHidden)continue;
     if(previous?.manualClassification)info={...previous.manualClassification};
+    else if(previous?.featureClassification&&previous.nativePath===file.nativePath&&previous.size===file.size&&previous.modified===file.modified)info={...previous.featureClassification};
     if(!previous?.manualClassification&&info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
       info={...info,title:"The Man with the Golden Gun",year:1974};
     // A provider label must not preserve an obviously wrong title/year
@@ -902,7 +921,7 @@ async function saveArtwork(id,blob,credit="",manual=false){
   changed({artwork:true,id});
   return true;
 }
-return Object.freeze({excludedDiscovery,knownFeatureSpecial,
+return Object.freeze({excludedDiscovery,knownFeatureSpecial,repairCachedFeature,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
   checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,reclassifyNative,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,

@@ -50,6 +50,72 @@ function networkRequest(url,options={},body=null,limit=2*1024*1024){
 // Adapted from the HDHomeRun lineup workflow in DK Media Plus.
 // Keep the actual channel URLs in the main process; no arbitrary renderer URLs.
 let liveLineup=new Map(),liveLineupBusy=false;
+// HDHomeRun discovery wire protocol: https://sources.debian.org/src/libhdhomerun/20220303-3/hdhomerun_pkt.h
+// Independently implemented UDP discovery, without an external utility.
+function hdhrCRC(bytes){
+  let crc=0xffffffff;
+  for(const byte of bytes){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}
+  return (crc^0xffffffff)>>>0;
+}
+function hdhrDiscoveryPacket(){
+  const packet=Buffer.from([0,2,0,12,1,4,0,0,0,1,2,4,255,255,255,255,0,0,0,0]);
+  packet.writeUInt32LE(hdhrCRC(packet.subarray(0,16)),16);
+  return packet;
+}
+function hdhrReply(packet){
+  if(packet.length<8||packet.length>1460||packet.readUInt16BE(0)!==3)return null;
+  const end=4+packet.readUInt16BE(2);
+  if(end+4!==packet.length||packet.readUInt32LE(end)!==hdhrCRC(packet.subarray(0,end)))return null;
+  let type=null,id=null,count=null;
+  for(let i=4;i<end;){
+    if(i+2>end)return null;
+    const tag=packet[i++];let len=packet[i++];
+    if(len&128){if(i>=end)return null;len=(len&127)|(packet[i++]<<7);}
+    if(i+len>end)return null;
+    if(tag===1&&len===4)type=packet.readUInt32BE(i);
+    if(tag===2&&len===4)id=packet.readUInt32BE(i);
+    if(tag===16&&len===1)count=packet[i];
+    i+=len;
+  }
+  if(type!==1||!id||id===0xffffffff)return null;
+  return {id:id.toString(16).toUpperCase().padStart(8,"0"),count};
+}
+let liveDiscovery=null;
+function discoverLiveTuners(){
+  if(liveDiscovery)return liveDiscovery;
+  liveDiscovery=new Promise((resolve,reject)=>{
+    const socket=netUDP.createSocket("udp4"),found=new Map();
+    let done=false,repeat=null;
+    const finish=error=>{
+      if(done)return;done=true;clearTimeout(timer);clearTimeout(repeat);
+      try{socket.close();}catch(_){}
+      if(error&&!found.size)reject(error);else resolve(Array.from(found.values()));
+    };
+    const timer=setTimeout(()=>finish(),2500);
+    socket.on("error",finish);
+    socket.on("message",(packet,remote)=>{
+      if(done||!privateIPv4(remote.address)||remote.port!==65001||found.size>=64)return;
+      const device=hdhrReply(packet);if(device)found.set(remote.address,{...device,host:remote.address});
+    });
+    socket.bind(0,"0.0.0.0",()=>{
+      if(done)return;
+      try{
+        socket.setBroadcast(true);
+        const packet=hdhrDiscoveryPacket(),targets=new Set(["255.255.255.255"]);
+        for(const entries of Object.values(require("node:os").networkInterfaces())){
+          for(const iface of entries||[]){
+            if(iface.family!=="IPv4"||iface.internal||!privateIPv4(iface.address))continue;
+            const ip=iface.address.split(".").map(Number),mask=iface.netmask.split(".").map(Number);
+            if(mask.length===4)targets.add(ip.map((v,i)=>(v|(~mask[i]&255))).join("."));
+          }
+        }
+        const send=()=>{if(!done)for(const target of Array.from(targets).slice(0,16))socket.send(packet,65001,target,()=>{});};
+        send();repeat=setTimeout(send,750);
+      }catch(error){finish(error);}
+    });
+  }).finally(()=>{liveDiscovery=null;});
+  return liveDiscovery;
+}
 async function loadLiveLineup(host){
   if(typeof host!=="string"||!privateIPv4(host))throw Error("Private IPv4 tuner address required");
   if(liveLineupBusy)throw Error("Tuner request busy");

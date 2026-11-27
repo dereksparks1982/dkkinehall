@@ -189,3 +189,12 @@ async function run(){
  console.log("PASS: TVmaze episode art, ambiguity handling, Jellyfin priority and privacy");
 }
 run().catch(error=>{console.error(error);process.exitCode=1});
+
+(async()=>{
+ const movie={type:"movie",id:"tt1234567",name:"Example Feature",year:"2024"};
+ const fixture=(shows=[],movies=[movie])=>meta.create({sleep:async()=>{},fetchJSON:async url=>response(url.includes("/catalog/movie/")?{metas:movies}:shows)});
+ const match=await fixture().classifyMedia("Example.Feature.2024.mkv");
+ assert.equal(match.kind,"movie");assert.equal(match.year,2024);
+ assert.deepEqual(await fixture([{show:{id:123,name:"Example Feature",premiered:"2024-01-01"}}]).classifyMedia("Example.Feature.2024.mkv"),{ambiguous:true});
+ assert.equal(await fixture([],[]).classifyMedia("Example.Feature.2024.mkv"),null);
+})().catch(error=>{console.error(error);process.exitCode=1;});

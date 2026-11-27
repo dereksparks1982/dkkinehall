@@ -1334,26 +1334,38 @@ async function libraryMaintenance(action,selection=null){
     status("Library maintenance failed.","Не удалось выполнить обслуживание медиатеки.",true);
   }finally{maintaining=false;await send(result);}
 }
-let jfLast=null,jfPollBusy=false,jfRevision=0;
+let jfLast=null,jfPollBusy=false,jfPowerBusy=false,jfRevision=0;
 async function jfCall(route,params={}){
   const r=await nativeBridge.metadataRequest("dk-jellyfin://catalog/"+route+"?"+new URLSearchParams(params),"json");
   if(!r.ok)throw Error("Jellyfin unavailable");return JSON.parse(r.text);
+}
+function paintJellyfinState(data){
+ const controls=$("jellyfinServerControls"),button=$("jellyfinPower"),light=$("jellyfinStatusLight"),node=$("jellyfinScanStatus");
+ if(!controls||!button||!light||!node)return;
+ const messages={off:say("Server off","Сервер выключен"),starting:say("Starting server…","Запуск сервера…"),stopping:say("Stopping server…","Остановка сервера…"),scanning:say("Server running · Scanning library","Сервер работает · Сканирование медиатеки"),ready:say("Server running","Сервер работает"),external:say("External server configured (read only)","Настроен внешний сервер (только чтение)"),unavailable:say("Server unavailable · Fallback metadata","Сервер недоступен · Резервные метаданные"),unknown:say("Server status unknown","Состояние сервера неизвестно")};
+ controls.hidden=false;light.dataset.state=data.state;node.textContent=(messages[data.state]||messages.unknown)+(data.state==="scanning"&&data.progress!=null?" "+Math.round(data.progress)+"%":"");
+ button.textContent=data.enabled&&data.state!=="unavailable"?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
+ button.disabled=jfPowerBusy||!data.controllable||!nativeBridge?.jellyfinPower;
+}
+async function toggleJellyfinPower(){
+ if(jfPowerBusy||!jfLast?.controllable||!nativeBridge?.jellyfinPower)return;
+ const enabled=!(jfLast.enabled&&jfLast.state!=="unavailable");
+ jfPowerBusy=true;paintJellyfinState(jfLast);
+ try{await nativeBridge.jellyfinPower(enabled);}catch(_){status("Could not change server power.","Не удалось изменить состояние сервера.",true);}
+ finally{jfPowerBusy=false;await pollJellyfin();}
 }
 async function pollJellyfin(){
   if(jfPollBusy||document.hidden||!nativeBridge?.metadataRequest)return;
   jfPollBusy=true;
   try{
-    const data=await jfCall("status"),node=$("jellyfinScanStatus");
-    const messages={starting:say("Preparing metadata engine…","Подготовка службы метаданных…"),scanning:say("Metadata library scan","Сканирование метаданных"),ready:say("Metadata engine ready","Служба метаданных готова"),external:say("Connected catalog configured","Настроен внешний каталог"),unavailable:say("Using fallback metadata providers","Используются резервные источники метаданных")};
-    node.textContent=(messages[data.state]||"")+(data.state==="scanning"?(data.progress==null?"…":" "+Math.round(data.progress)+"%"):"");
-    node.hidden=false;
+    const data=await jfCall("status");paintJellyfinState(data);
     const completed=data.state==="ready"&&jfLast&&(jfLast.state!=="ready"||data.completed!==jfLast.completed);
     jfLast=data;
     if(completed&&!scanning&&!maintaining){
       jfRevision++;artAttempted.clear();titleAttempted.clear();networkArtworkCount=0;networkTitleCount=0;
       void render();
     }
-  }catch(_){}finally{jfPollBusy=false;}
+  }catch(_){paintJellyfinState({state:"unknown",enabled:false,controllable:false});}finally{jfPollBusy=false;}
 }
 async function showFixMatch(){
   const row=contextRow;hideContextMenu();if(!row||!nativeBridge?.metadataRequest)return;
@@ -1635,7 +1647,7 @@ function connect(){
   $("editLocalMetadata").addEventListener("click",()=>void editMetadataDialog());
   $("chooseArtwork").addEventListener("click",()=>void chooseArtworkDialog());
   $("reclassifyMedia").addEventListener("click",()=>void reclassifyDialog());
-  if(nativeBridge?.metadataRequest){void pollJellyfin();setInterval(pollJellyfin,10000);}
+  if(nativeBridge?.metadataRequest){$("jellyfinPower")?.addEventListener("click",()=>void toggleJellyfinPower());paintJellyfinState({state:"unknown",enabled:false,controllable:false});void pollJellyfin();setInterval(pollJellyfin,2000);}
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;const p=$("movieDetailsDialog").querySelector(".dk-person-credits");p?.dispose?.();p?.remove();});
   $("markWatched").addEventListener("click",()=>markContext(true));

@@ -68,3 +68,5 @@ Network settings include Automatic or adjustable 1–30-second buffer targets, H
 Streaming recovery also retries transient HLS segment and playlist requests before restarting a channel. Native playback prebuffers before autoplay; compatible stereo AAC-LC streams may be passed through without re-encoding. Automatic buffering can reach 30 seconds and relaxes after sustained stable playback.
 
 The existing hardware acceleration preference also controls optional VA-API decoding for eligible internet video on Linux. Compatible streams still use passthrough first. If the bundled decoder or render device cannot support hardware decoding, Kinehall falls back to software; streaming statistics distinguish hardware initialization, confirmed decoder output and fallback.
+
+Automatic quality can now attempt in-session HLS rendition switching for a restricted class of compatible live MPEG-TS streams. Already advertised segments keep their original URLs, and changes use verified aligned timestamps and a discontinuity boundary. Other streams retain reconnect-based quality selection.

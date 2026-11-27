@@ -322,7 +322,54 @@ function saveTVSegment(key,data,headers){
  tvSegments.set(key,{data,headers,at:Date.now()});tvSegmentBytes+=data.length;
  while(tvSegmentBytes>16*1024**2||tvSegments.size>32){const first=tvSegments.keys().next().value;tvSegmentBytes-=tvSegments.get(first).data.length;tvSegments.delete(first);}
 }
-function chooseTVVariant(text,entry){
+// Conservative in-session HLS adaptation. Only independent, unencrypted,
+ // muxed MPEG-TS renditions with matching codecs and a verifiable timeline.
+ // Preserve the already advertised segment URLs and switch only at a new
+ // sequence boundary. Unsupported manifests continue with the fixed rendition.
+function parseAlignedLive(text,base){
+ const lines=text.replace(/^\uFEFF/,"").split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+ if(lines[0]!=="#EXTM3U"||lines.length>400||lines.some(s=>/^#EXT-X-(?!VERSION:|TARGETDURATION:|MEDIA-SEQUENCE:|PROGRAM-DATE-TIME:|INDEPENDENT-SEGMENTS$)/.test(s)))return null;
+ let seq=null,target=0,version=3,date=null,duration=null,rows=[];
+ for(const line of lines.slice(1)){
+  if(line.startsWith("#EXT-X-MEDIA-SEQUENCE:")){seq=Number(line.slice(22));continue;}
+  if(line.startsWith("#EXT-X-TARGETDURATION:")){target=Number(line.slice(22));continue;}
+  if(line.startsWith("#EXT-X-VERSION:")){version=Number(line.slice(15));continue;}
+  if(line.startsWith("#EXT-X-PROGRAM-DATE-TIME:")){date=Date.parse(line.slice(25));if(!Number.isFinite(date))return null;continue;}
+  if(line.startsWith("#EXTINF:")){duration=Number(line.slice(8).split(",")[0]);continue;}
+  if(line.startsWith("#"))continue;
+  if(!Number.isSafeInteger(seq)||seq<0||!Number.isFinite(date)||!Number.isFinite(duration)||duration<=0||duration>30)return null;
+  let url;try{url=new URL(line,base);}catch(_){return null;}
+  if(!["http:","https:"].includes(url.protocol)||url.username||url.password||url.hash||url.href.length>4096||!/\.ts$/i.test(url.pathname))return null;
+  rows.push({seq:seq+rows.length,url:url.href,date,duration});date+=duration*1000;duration=null;
+ }
+ if(rows.length<3||rows.length>40||!Number.isInteger(target)||target<1||target>30||!Number.isInteger(version)||version<1||version>7)return null;
+ return {rows,target,version};
+}
+function alignedRows(a,b){
+ const index=new Map(a.rows.map(r=>[r.seq,r])),overlap=b.rows.filter(r=>index.has(r.seq));
+ return overlap.length>=2&&overlap.every(r=>{const other=index.get(r.seq);return Math.abs(r.date-other.date)<=150&&Math.abs(r.duration-other.duration)<=.15;});
+}
+function adaptiveManifest(state,parsed){
+ const old=state.history;
+ const latest=parsed.rows.at(-1).seq;
+ if(state.first!==undefined&&parsed.rows[0].seq<state.first)return null;
+ if(old.size&&latest<state.highest)return null;
+ if(old.size&&parsed.rows[0].seq>state.highest+1)return null;
+ for(const r of parsed.rows){const prior=old.get(r.seq);if(prior&&(Math.abs(prior.date-r.date)>150||Math.abs(prior.duration-r.duration)>.15))return null;}
+ const rows=parsed.rows.map(r=>old.get(r.seq)||r);
+ for(const r of rows)old.set(r.seq,r);
+ state.highest=Math.max(state.highest,latest);
+ while(old.size>80)old.delete(old.keys().next().value);
+ const first=rows[0].seq;state.first=first;
+ // Every actual switch is represented as a discontinuity at the first
+ // newly advertised segment. Keep the sequence count when it ages out.
+ const disc=state.boundaries.filter(n=>n<first).length+state.retired;
+ const lines=["#EXTM3U","#EXT-X-VERSION:"+Math.max(3,parsed.version),"#EXT-X-TARGETDURATION:"+parsed.target,"#EXT-X-MEDIA-SEQUENCE:"+first,"#EXT-X-DISCONTINUITY-SEQUENCE:"+disc,"#EXT-X-INDEPENDENT-SEGMENTS"];
+ for(const r of rows){if(state.boundaries.includes(r.seq))lines.push("#EXT-X-DISCONTINUITY");lines.push("#EXT-X-PROGRAM-DATE-TIME:"+new Date(r.date).toISOString(),"#EXTINF:"+r.duration.toFixed(6)+",",r.url);}
+ const expired=state.boundaries.filter(n=>n<first).length;state.retired+=expired;state.boundaries=state.boundaries.filter(n=>n>=first);
+ return lines.join("\n")+"\n";
+}
+function chooseTVVariant(text,entry,base){
  if(!entry.streamPolicy||entry.streamPolicy.quality==="source")return text;
  const lines=text.split(/\r?\n/),variants=[];
  for(let i=0;i<lines.length;i++){
@@ -331,7 +378,9 @@ function chooseTVVariant(text,entry){
   if(end>=lines.length||lines[end].trim().startsWith("#"))return text;
   const tag=lines[i],bandwidth=Number(/(?:^|[:,])BANDWIDTH=(\d+)/i.exec(tag)?.[1]),height=Number(/(?:^|[:,])RESOLUTION=\d+x(\d+)/i.exec(tag)?.[1])||0;
   if(!bandwidth)return text;
-  variants.push({i,end,url:lines[end].trim(),bandwidth,height,avc:/CODECS="[^"]*avc[13]/i.test(tag)});
+  let absolute;try{absolute=new URL(lines[end].trim(),base);}catch(_){return text;}
+  const codecs=/CODECS="([^"]+)"/i.exec(tag)?.[1]||"";
+  variants.push({i,end,url:lines[end].trim(),absolute:absolute.href,bandwidth,height,codecs,external:/[, :]AUDIO=|[, :]VIDEO=|[, :]SUBTITLES=/i.test(tag),avc:/CODECS="[^"]*avc[13]/i.test(tag)});
  }
  if(variants.length<2)return text;
  const policy=entry.streamPolicy,cap=policy.quality==="auto"?(entry.measuredBps?Math.max(350000,Math.min(5000000,entry.measuredBps*.65)):3500000)/(1.6**policy.level):Infinity;
@@ -341,31 +390,40 @@ function chooseTVVariant(text,entry){
  const avc=pool.filter(v=>v.avc);if(avc.length)pool=avc;
  const chosen=variants.find(v=>v.url===entry.variantLock)||pool.sort((a,b)=>b.bandwidth-a.bandwidth)[0];
  entry.variantLock=chosen.url;
- entry.selectedBitrate=chosen.bandwidth;entry.selectedHeight=chosen.height;
+ if(!entry.adaptive&&policy.quality==="auto"&&/^#EXT-X-INDEPENDENT-SEGMENTS\s*$/mi.test(text)&&chosen.avc&&!chosen.external&&chosen.codecs&&/mp4a\./i.test(chosen.codecs)){
+  const eligible=variants.filter(v=>!v.external&&v.codecs===chosen.codecs&&v.height>0&&v.bandwidth>0&&v.bandwidth<30000000).slice(0,12);
+  if(eligible.length>1&&eligible.includes(chosen)){
+   entry.adaptive={id:randomBytes(12).toString("hex"),masterURL:chosen.absolute,current:chosen,variants:eligible,history:new Map(),highest:-1,boundaries:[],retired:0,checkedAt:0,switchedAt:Date.now(),switches:0,enabled:true,pending:null,last:null,highSamples:0,sampleRevision:-1};
+  }
+ }
+ if(!entry.adaptive||entry.adaptive.switches===0){entry.selectedBitrate=chosen.bandwidth;entry.selectedHeight=chosen.height;}
  const remove=new Set();for(const v of variants)if(v!==chosen)for(let i=v.i;i<=v.end;i++)remove.add(i);
  return lines.filter((_,i)=>!remove.has(i)).join("\n");
 }
 function rewriteHLS(text,base,entry,token,port){
   if(!/^\uFEFF?#EXTM3U(?:\r?\n|$)/.test(text)||!/#EXT-X-/i.test(text)||/#EXT-X-DEFINE:|\{\$|#EXT-X-CONTENT-STEERING:/i.test(text))throw Error("Unsupported HLS manifest");
-  text=chooseTVVariant(text,entry);
+  text=chooseTVVariant(text,entry,base);
   entry.parts??=new Map();entry.partKeys??=new Map();
-  function ref(raw,kind){
+  const sequenceTag=/^#EXT-X-MEDIA-SEQUENCE:(\d+)\s*$/m.exec(text);let mediaSequence=sequenceTag?Number(sequenceTag[1]):null;
+  if(!Number.isSafeInteger(mediaSequence))mediaSequence=null;
+  function ref(raw,kind,sequence=null){
     const url=new URL(raw,base);
     if(!["http:","https:"].includes(url.protocol)||url.username||url.password||url.hash||url.href.length>4096)throw Error("Unsafe HLS URL");
     const ext=/\.(m3u8|m3u|ts|m4s|mp4|aac|ac3|mp3|vtt|webvtt|key|m4a|cmfv|cmfa)$/i.exec(url.pathname)?.[1]?.toLowerCase();
     const suffix=kind==="playlist"?"m3u8":kind==="key"?"key":kind==="init"?(ext||"mp4"):(ext||"ts");
-    const key=kind+" "+url.href;
+    const adaptive=kind==="playlist"&&entry.adaptive?.masterURL===url.href?entry.adaptive:null;
+    const key=adaptive?"adaptive "+adaptive.id:kind+" "+url.href+(sequence!==null?" seq="+sequence:"");
     let id=entry.partKeys.get(key);
     if(!id){
       while(entry.parts.size>=4096){const first=entry.parts.keys().next().value;const old=entry.parts.get(first);entry.parts.delete(first);entry.partKeys.delete(old.key);}
-      id=randomBytes(12).toString("hex");entry.parts.set(id,{url,kind,key,suffix});entry.partKeys.set(key,id);
+      id=randomBytes(12).toString("hex");entry.parts.set(id,{url,kind,key,suffix,...(adaptive?{adaptiveId:adaptive.id}:{})});entry.partKeys.set(key,id);
     }
     return "http://127.0.0.1:"+port+"/hls/"+token+"/"+id+"."+suffix;
   }
   let variant=false;
   return text.split(/\r?\n/).map(line=>{
     const trimmed=line.trim();if(!trimmed)return line;
-    if(!trimmed.startsWith("#")){const kind=variant?"playlist":"segment";variant=false;return ref(trimmed,kind);}
+    if(!trimmed.startsWith("#")){const kind=variant?"playlist":"segment";variant=false;const sequence=kind==="segment"&&mediaSequence!==null?mediaSequence++:null;return ref(trimmed,kind,sequence);}
     if(/^#EXT-X-STREAM-INF:/i.test(trimmed))variant=true;
     if(!/^#EXT-X-/i.test(trimmed))return line;
     if(/(?:^|[:,])\s*(?:[A-Z0-9-]*URI)\s*=/i.test(trimmed)){
@@ -397,6 +455,51 @@ async function openTVResource(entry,resource,options){
  }
  throw Error("Stream connection failed");
 }
+async function fetchAdaptivePlaylist(entry,variant,opts){
+ const {reply,url}=await followStream(variant.absolute,entry.lan||null,{...opts,method:"GET",timeout:6000});
+ if(reply.statusCode!==200){reply.destroy();throw Error("HLS variant unavailable");}
+ const raw=(await boundedBody(reply,256*1024)).toString("utf8");
+ return {raw,base:url,parsed:parseAlignedLive(raw,url)};
+}
+async function adaptivePlaylist(entry,state,opts){
+ if(state.last&&Date.now()-state.last.at<900)return state.last;
+ if(state.pending)return state.pending;
+ const task=(async()=>{
+  const current=await fetchAdaptivePlaylist(entry,state.current,opts);
+  const output=(raw,base)=>({raw,base,at:Date.now()});
+  if(!state.enabled||!current.parsed){
+   state.enabled=false;
+   if(state.switches)throw Error("Adaptive timeline changed");
+   return output(current.raw,current.base);
+  }
+  let parsed=current.parsed;
+  const now=Date.now(),rate=entry.measuredBps||0,level=entry.streamPolicy?.level||0;
+  // Do not switch on a single sample, and never upshift immediately after
+  // a stall. Downshift sooner; upshift only after sustained headroom.
+  if(state.sampleRevision!==(entry.sampleRevision||0)){state.sampleRevision=entry.sampleRevision||0;if(rate>state.current.bandwidth*2.1)state.highSamples++;else state.highSamples=0;}
+  if((entry.sampleRevision||0)>=3&&rate>0&&now-state.checkedAt>6000&&now-state.switchedAt>15000&&state.highest>=0){
+   const down=rate<state.current.bandwidth*1.3,up=state.highSamples>=5&&now-state.switchedAt>45000;
+   const cap=rate*(down?0.70:0.55)/(1.25**level),ordered=[...state.variants].sort((a,b)=>a.bandwidth-b.bandwidth);
+   const next=ordered.filter(v=>v.bandwidth<=cap).at(-1)||ordered[0];
+   if((down&&next.bandwidth<state.current.bandwidth||up&&next.bandwidth>state.current.bandwidth)&&next!==state.current){
+    state.checkedAt=now;
+    try{
+     const candidate=await fetchAdaptivePlaylist(entry,next,opts);
+     const firstNew=state.highest+1;
+     if(candidate.parsed&&candidate.parsed.target===parsed.target&&alignedRows(parsed,candidate.parsed)&&candidate.parsed.rows.some(r=>r.seq===firstNew)&&candidate.parsed.rows[0].seq<=firstNew&&candidate.parsed.rows.every(r=>{const old=state.history.get(r.seq);return !old||Math.abs(old.date-r.date)<=150&&Math.abs(old.duration-r.duration)<=.15;})){
+      state.boundaries.push(firstNew);state.current=next;state.switches++;state.switchedAt=now;state.highSamples=0;parsed=candidate.parsed;
+      entry.selectedBitrate=next.bandwidth;entry.selectedHeight=next.height;
+     }
+    }catch(_){/* Retain current rendition. The main request stays valid. */}
+   }
+  }
+  const raw=adaptiveManifest(state,parsed);
+  if(!raw){state.enabled=false;if(state.switches)throw Error("Adaptive timeline changed");return output(current.raw,current.base);}
+  return output(raw,current.base);
+ })();
+ state.pending=task;
+ try{const result=await task;state.last=result;return result;}finally{if(state.pending===task)state.pending=null;}
+}
 async function serveNetwork(req,res){
   if((req.url||"").startsWith("/voiceover/"))return serveVoiceover(req,res);
   if(serveBuffer(req,res))return;
@@ -420,6 +523,13 @@ async function serveNetwork(req,res){
   const timer=setTimeout(()=>controller.abort(),20000);
   try{
     const openedAt=Date.now();
+    if(resource?.adaptiveId&&resource.adaptiveId===entry.adaptive?.id&&!range&&req.method==="GET"){
+      const result=await adaptivePlaylist(entry,entry.adaptive,{track,signal:controller.signal});
+      if(!networkGrants.has(token)||res.destroyed)return;
+      const rewritten=rewriteHLS(result.raw,result.base,entry,token,networkProxy.address().port);
+      res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(rewritten),"Cache-Control":"no-store","Access-Control-Allow-Origin":"null","X-Content-Type-Options":"nosniff"});
+      return res.end(rewritten);
+    }
     const {reply,url}=await openTVResource(entry,resource,{method:req.method,range,track,signal:controller.signal});
     clearTimeout(timer);
     if(!networkGrants.has(token)||res.destroyed){reply.destroy();return;}
@@ -452,7 +562,7 @@ async function serveNetwork(req,res){
         reply.once("end",()=>{
           if(!reply.complete||!networkGrants.has(token))return;
           const ms=Math.max(250,Date.now()-openedAt),bps=bytes*8000/ms;
-          if(bytes>32768&&Number.isFinite(bps))entry.measuredBps=entry.measuredBps?entry.measuredBps*.75+bps*.25:bps;
+          if(bytes>32768&&Number.isFinite(bps)){entry.measuredBps=entry.measuredBps?entry.measuredBps*.75+bps*.25:bps;entry.sampleRevision=(entry.sampleRevision||0)+1;}
           if(chunks&&(!expected||expected===bytes))saveTVSegment(cacheKey,Buffer.concat(chunks,bytes),headers);
         });
       }
@@ -2032,13 +2142,13 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Network policy rejected");
     const e=networkGrants.get(token);if(!e)return false;
     const quality=["auto","source","360","480","720","1080"].includes(policy?.quality)?policy.quality:"auto";
-    e.streamPolicy={quality,level:Math.max(0,Math.min(4,Math.floor(Number(policy?.level)||0)))};e.variantLock=null;
+    e.streamPolicy={quality,level:Math.max(0,Math.min(4,Math.floor(Number(policy?.level)||0)))};e.variantLock=null;e.adaptive=null;
     return true;
   });
   ipcMain.handle("dk-network:stream-stats",(event,token)=>{
     if(!onlyPlayer(event))throw Error("Network statistics rejected");
     const e=networkGrants.get(token);if(!e)return null;
-    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes,segmentRetries:e.segmentRetries||0};
+    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes,segmentRetries:e.segmentRetries||0,adaptiveSwitches:e.adaptive?.switches||0,adaptiveActive:e.adaptive?.enabled===true&&e.adaptive.history.size>0};
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
@@ -2051,7 +2161,7 @@ function install(originalWindow,originalPlayer){
           const target=await streamTarget(next);
           if(networkGrants.get(token)!==entry)return false;
           for(const client of entry.clients)client.destroy();
-          clearTVSegments(token);entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;entry.measuredBps=0;entry.selectedBitrate=0;entry.selectedHeight=0;entry.variantLock=null;entry.segmentRetries=0;
+          clearTVSegments(token);entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;entry.measuredBps=0;entry.sampleRevision=0;entry.selectedBitrate=0;entry.selectedHeight=0;entry.variantLock=null;entry.adaptive=null;entry.segmentRetries=0;
           return true;
         }catch(_){}
       }

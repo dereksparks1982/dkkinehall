@@ -721,22 +721,22 @@ async function updateProgress(id,position,duration,completed=false,playedDelta=0
       if(!row||row.resetArchived||row.scopeExcluded)return;
       const seconds=Number(position),length=Number(duration);
       const progress=Number.isFinite(seconds)?Math.max(0,seconds):row.position||0;
-      const total=Number.isFinite(length)&&length>0?length:row.duration||0;
-      // Never classify a stopped or just-opened short video as finished.
-      // Completion requires a positive playback position near the end.
       const standalone=typeof window!=="undefined"&&Boolean(window.DKLibraryBridge?.internalPages);
+      const total=standalone?Math.max(0,Number(row.duration)||0,Number.isFinite(length)?length:0):Number.isFinite(length)&&length>0?length:row.duration||0;
       if(standalone&&Number(row.watchResetAt)>observedAt){saved=true;return;}
-      if(standalone&&!completed&&(!Number.isFinite(seconds)||progress<=2)){saved=true;return;}
+      if(standalone&&(!Number.isFinite(seconds)||seconds<0)){saved=true;return;}
       const finishWindow=Math.min(12,total*0.05);
-      const done=(standalone&&!!row.completed)||Boolean(completed)||(!standalone&&
-        (total>0&&progress>0&&progress>=Math.max(1,total-finishWindow)));
+      // A completion request cannot override the recorded source duration.
+      // No percentage threshold or final-seconds allowance in standalone.
+      const done=standalone?(!!row.completed||(completed===true&&Number.isFinite(length)&&length>0&&total>0&&seconds>=total)):
+        Boolean(completed)||(total>0&&progress>0&&progress>=Math.max(1,total-finishWindow));
       const delta=Math.max(0,Math.min(120,Number(playedDelta)||0));
       // Old records have only a saved position, not measured watch time.
       // Preserve their existing eligibility when transitioning to the new clock.
-      const prior=Number.isFinite(row.watchedSeconds)?row.watchedSeconds:Math.min(60,Math.max(0,Number(row.position)||0));
+      const prior=Number.isFinite(row.watchedSeconds)?row.watchedSeconds:Math.min(10,Math.max(0,Number(row.position)||0));
       object.put({...row,position:done?0:progress,duration:total,
         lastPlayed:Date.now(),completed:done,
-        ...(standalone?{watchedSeconds:Math.min(60,prior+delta),watchedChangedAt:done&&!row.completed?Date.now():row.watchedChangedAt}: {})});
+        ...(standalone?{watchedSeconds:Math.min(10,prior+delta),watchedChangedAt:done&&!row.completed?Date.now():row.watchedChangedAt}: {})});
       saved=true;
     };
     tx.oncomplete=resolve;

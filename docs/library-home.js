@@ -117,6 +117,7 @@ function recoverLegacyProgress(rows){
 }
 function currentProgress(row){
   if(row.completed)return 0;
+  if(nativeBridge&&Number.isFinite(row.watchedSeconds)&&Number.isFinite(row.position))return Math.max(0,row.position);
   if(Number(row.position)>2)return Number(row.position);
   if(row.watchResetAt)return 0;
   if(nativeBridge)return legacyProgressById.get(row.id)||0;
@@ -125,13 +126,12 @@ function currentProgress(row){
   return Number.isFinite(value)?value:0;
 }
 function needsContinue(row){
-  if(row.continueHidden||row.missing||row.unavailable)return false;
+  if(row.continueHidden||row.completed)return false;
   const value=currentProgress(row),length=Number(row.duration)||0;
-  // Unavailable media still has history; retain its disabled/unavailable card.
-  const eligible=!nativeBridge?value>2:Number.isFinite(row.watchedSeconds)?row.watchedSeconds>=60:value>=60;
-  // Only verified completion or explicit removal should hide a native resume.
-  // The decoder may temporarily report a shorter output duration.
-  return !row.completed&&eligible&&value>2&&(nativeBridge||!length||value<length);
+  // Once eligible, a rewind to zero, temporary unavailability or a short
+  // decoder duration must not remove an unfinished standalone resume card.
+  if(nativeBridge)return Number.isFinite(row.watchedSeconds)?row.watchedSeconds>=10:value>=10;
+  return !row.missing&&!row.unavailable&&value>2&&(!length||value<length);
 }
 function coverShell(landscape){
   const shell=create("span","library-poster");
@@ -722,8 +722,9 @@ function recordNavigation(){
 // History is a separate view, never a reason to rebuild the collection.
 function paintContinueWatching(){
   const list=$("continueWatching");
-  const rows=all.filter(row=>row.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(row.filename))&&needsContinue(row))
-    .sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).slice(0,30);
+  const candidates=all.filter(row=>row.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(row.filename))&&needsContinue(row))
+    .sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0));
+  const rows=nativeBridge?candidates:candidates.slice(0,30);
   const existing=new Map(Array.from(list.children).map(card=>[card.dataset.libraryId,card]));
   const keep=new Set(rows.map(row=>row.id));
   for(const [id,card] of existing){
@@ -852,8 +853,8 @@ async function render(){
   const active=nativeBridge&&watchedFilter?baseActive.filter(row=>historyBucket(row)===watchedFilter):baseActive;
   $("watchedFilter").hidden=!nativeBridge;
   $("watchedFilter").value=watchedFilter;
-  const resume=unfiltered.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed)
-    .slice(0,30);
+  const resumeCandidates=unfiltered.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed);
+  const resume=nativeBridge?resumeCandidates:resumeCandidates.slice(0,30);
   const continueList=$("continueWatching");
   continueList.replaceChildren(...resume.map(row=>createCard(row,{landscape:true})));
   const list=$("libraryCollection");

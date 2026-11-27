@@ -401,6 +401,7 @@
   };
   for(const event of ["seeking","pause","waiting","emptied","ratechange"])
     media.addEventListener(event,()=>{watchSample=null;});
+  media.addEventListener("playing",sampleWatchTime);
   // Keep catalog writes ordered even if playback ends during identity recovery.
   const saveLibraryProgress=(item,position,duration,completed=false)=>{
     const catalog=window.DKLibraryStore;
@@ -437,12 +438,12 @@
     const item = current();
     if (!item || item.file?.dvdToken || item.kind==="network") return;
     const duration=window.DKLibraryBridge?.internalPages?historyDuration(item):playbackDuration(),position=playbackSeconds();
-    if (!Number.isFinite(duration) || duration <= 0) return;
+    if(!window.DKLibraryBridge?.internalPages&&(!Number.isFinite(duration)||duration<=0))return;
     if(window.DKLibraryBridge?.internalPages){
       // Never overwrite saved progress with an initializing decoder clock.
       if(!item.historyReady||media.readyState<2||media.seeking||
-         !Number.isFinite(position)||position<=2||item.deinterlacePending)return;
-      if(item.historyResumeTarget>2&&position+1<item.historyResumeTarget)return;
+         !Number.isFinite(position)||position<0||item.deinterlacePending)return;
+      if(item.historyResumeTarget>0&&position<item.historyResumeTarget)return;
       item.historyResumeTarget=0;
       if(media.ended&&!allowEnded)return;
       state.resume[item.key]=position;
@@ -1546,8 +1547,8 @@
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
     item.historyReady=false;
-    item.historyDuration=0;
     item.historyResumeTarget=Number(state.resume[item.key])||0;
+    item.lastHistorySave=0;watchSample=null;
     // Reset stale conversion attempts when revisiting a file or selecting a
     // different format. An old asynchronous remux may not replace a new load.
     item.playbackEpoch = (item.playbackEpoch || 0) + 1;
@@ -1983,6 +1984,7 @@
       const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:Array.isArray(artData?.cueChapters)?artData.cueChapters:[],
         libraryId:artData?.libraryId||(window.DKLibraryBridge?.internalPages&&
           String(file.nativeId||"").startsWith("native:")?file.nativeId:null),
+        historyDuration:Number(artData?.libraryDuration)||0,
         episodeTitle:artData?.episodeTitle||"",
         // Metadata-only name for Show/Season 1/01 - Title layouts.
         // The actual media file, handle, MIME and decoder path are unchanged.
@@ -3635,7 +3637,7 @@
       updateTime();updateChapterMarkers();return;
     }
     const position = Number(state.resume[item.key] || 0);
-    if (position > 2 && Number.isFinite(media.duration) && position < media.duration - 4) {
+    if (position > (window.DKLibraryBridge?.internalPages?0:2) && Number.isFinite(media.duration) && position < media.duration - (window.DKLibraryBridge?.internalPages?0:4)) {
       try { media.currentTime = position; } catch (_) {}
     }
     updateTime();
@@ -3661,7 +3663,11 @@
     updateTime();
     syncPgsOverlay();
     const now = Date.now();
-    if (now - state.lastResumeSave > 5000) {
+    if(window.DKLibraryBridge?.internalPages&&item?.file){
+      // Frequent lightweight writes minimize lost history on shutdown and
+      // make the new ten-second threshold visible without a long delay.
+      if(now-(item.lastHistorySave||0)>=1000){item.lastHistorySave=now;rememberPosition();}
+    }else if (now - state.lastResumeSave > 5000) {
       state.lastResumeSave = now;
       rememberPosition();
     }
@@ -3709,8 +3715,8 @@
       // completed position from a shortened output stream or stale event.
       if(state.stopped||!completed.historyReady)return;
       const position=playbackSeconds(),duration=historyDuration(completed);
-      const tolerance=Math.min(2,duration*0.01);
-      if(!Number.isFinite(position)||duration<=0||position<duration-tolerance||media.error){
+      const confirmedDuration=codecPlayback?.isActive(completed)?codecPlayback.sourceDuration(completed):Number(media.duration);
+      if(!media.ended||media.seeking||!Number.isFinite(confirmedDuration)||confirmedDuration<=0||!Number.isFinite(position)||duration<=0||position<duration||media.error){
         rememberPosition(true);
         status(streamSay("Playback ended early. Your progress was kept.","Воспроизведение прервано. Позиция просмотра сохранена."),false,true);
         updateButtons();renderQueue();return;
@@ -5207,6 +5213,7 @@
         if(index>=0){
           const item=state.queue[index];
           item.libraryId=id;
+          item.historyDuration=Math.max(item.historyDuration||0,Number(row.duration)||0);
           item.episodeTitle=row.episodeTitle||item.episodeTitle||"";
           item.metadataFilename=metadataFilename;
           if(row.completed||row.watchResetAt){
@@ -5228,7 +5235,7 @@
         await window.DKLibraryStore.openFile(row,{requestPermission:true});
 
       addFiles([selected.file],[selected.handle],"open",{
-        libraryId:id,libraryPosition:row.position||0,libraryHistoryReset:!!(row.completed||row.watchResetAt),
+        libraryId:id,libraryPosition:row.position||0,libraryDuration:row.duration||0,libraryHistoryReset:!!(row.completed||row.watchResetAt),
         episodeTitle:row.episodeTitle||"",metadataFilename,
         nativeSrc:selected.src||null
       });

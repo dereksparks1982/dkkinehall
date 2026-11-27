@@ -486,6 +486,8 @@
     "About DK Kinehall":"О ДК Кинехолл",
     "Refresh Metadata":"Обновить метаданные",
     "Fix Match":"Исправить совпадение",
+    "Edit Metadata":"Редактировать метаданные",
+    "Choose Artwork":"Выбрать обложку",
     "Set loop start (A)":"Установить начало повтора (А)",
     "Set loop end (B)":"Установить конец повтора (Б)",
     "Clear A–B loop":"Отключить повтор А–Б",

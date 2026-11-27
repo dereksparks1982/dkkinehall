@@ -2526,7 +2526,9 @@ async function jellyfinMetadata(raw,kind){
     if(kind==="image"){
       const target=series?item.SeriesId:item.Id;
       if(!jellyfinId(target))return missing;
-      return await jellyfinGet(cfg,"/Items/"+target+"/Images/Primary",{maxWidth:series||type==="Movie"?480:640,quality:85},true)||missing;
+      const imageType=url.searchParams.get("image")||"Primary";
+      if(!["Primary","Backdrop","Thumb"].includes(imageType))return missing;
+      return await jellyfinGet(cfg,"/Items/"+target+"/Images/"+imageType,{maxWidth:imageType==="Backdrop"?960:series||type==="Movie"?480:640,quality:85},true)||missing;
     }
     const clip=(value,n)=>typeof value==="string"?value.slice(0,n):"";
     const people=Array.isArray(item.People)?item.People:[];

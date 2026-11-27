@@ -325,11 +325,12 @@ async function jellyfinArtwork(row,id,series,force){
     if(!image.ok)return null;
     const blob=new Blob([image.bytes],{type:image.mime});
     if(!/^image\/(jpeg|png|webp)$/.test(blob.type)||blob.size>3*1024*1024)return null;
-    await store.saveArtwork(id,blob,"Jellyfin");return blob;
+    if(!await store.saveArtwork(id,blob,"Jellyfin"))return (await store.artwork(id))?.blob||null;return blob;
   }catch(_){return null;}
 }
 async function findArtwork(row,id,series=false,force=false){
   const cache=await store.artwork(id);
+  if(cache?.manual){if(force)await jellyfinArtwork(row,id,series,force);return cache.blob;}
   // A stored poster is usable immediately; missing details cannot invalidate it.
   if(cache?.blob&&!force&&nativeBridge&&(!jfRevision||jfChecked.get(id)===jfRevision))return cache.blob;
   if(jfRevision)jfChecked.set(id,jfRevision);
@@ -510,6 +511,8 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   $("refreshMovieMetadata").disabled=scanning||maintaining;
   $("fixMatch").hidden=!["movie","tv"].includes(row.kind);
   $("fixMatch").disabled=scanning||maintaining;
+  $("editLocalMetadata").hidden=seriesOnly; $("editLocalMetadata").disabled=scanning||maintaining;
+  $("chooseArtwork").hidden=false; $("chooseArtwork").disabled=scanning||maintaining;
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
   $("removeFromLibrary").hidden=seriesOnly;
   $("showInFolder").hidden=seriesOnly||!nativeBridge.showInFolder;
@@ -1276,6 +1279,56 @@ async function showFixMatch(){
   });
 }
 
+function localEditDialog(title){
+  const dialog=document.createElement("dialog");dialog.className="dk-movie-details dk-local-edit";
+  dialog.append(create("h2",null,title));
+  const message=create("p","helper");message.setAttribute("role","status");
+  const close=create("button","btn",say("Close","Закрыть"));close.type="button";
+  close.addEventListener("click",()=>dialog.close());
+  dialog.addEventListener("close",()=>dialog.remove());
+  document.body.append(dialog);return {dialog,message,close};
+}
+async function editMetadataDialog(){
+  const row=contextRow;hideContextMenu();if(!row)return;
+  const latest=await store.item(row.id)||row;
+  const {dialog,message,close}=localEditDialog(say("Edit Metadata","Редактировать метаданные"));
+  const form=document.createElement("form");
+  const field=(label,tag,value)=>{const wrapper=create("label",null,label),node=document.createElement(tag);node.value=value??"";wrapper.append(node);form.append(wrapper);return node;};
+  const title=field(say("Title","Название"),"input",latest.kind==="movie"?latest.title:latest.episodeTitle);
+  title.required=true;title.maxLength=180;
+  let year=null;if(latest.kind==="movie"){year=field(say("Year","Год"),"input",latest.year);year.type="number";year.min="1800";year.max="2100";}
+  const description=field(say("Description","Описание"),"textarea",latest.kind==="movie"?latest.movieDetails?.description:latest.episodeDescription);description.maxLength=6000;description.rows=5;
+  const save=create("button","btn",say("Save and lock fields","Сохранить и защитить поля"));save.type="submit";
+  const unlock=create("button","btn",say("Unlock fields","Разблокировать поля"));unlock.type="button";unlock.disabled=!latest.manualFields;
+  form.append(save,unlock,close);dialog.append(form,message);
+  form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{if(!await store.editLocalMetadata(latest.id,{title:title.value,year:year?.value,description:description.value}))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
+  unlock.addEventListener("click",async()=>{try{await store.editLocalMetadata(latest.id,{},true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
+  dialog.showModal();
+}
+async function chooseArtworkDialog(){
+  const row=contextRow,series=contextSeries;hideContextMenu();if(!row)return;
+  const id=artId(row,series),{dialog,message,close}=localEditDialog(say("Choose Artwork","Выбрать обложку"));
+  const preview=create("img","dk-art-preview");preview.alt="";preview.hidden=true;
+  let blob=null,objectURL=null,busy=false;
+  const select=next=>{if(objectURL)URL.revokeObjectURL(objectURL);blob=next;objectURL=next?URL.createObjectURL(next):null;preview.hidden=!next;if(next)preview.src=objectURL;save.disabled=!next;};
+  dialog.addEventListener("close",()=>{if(objectURL)URL.revokeObjectURL(objectURL);});
+  const source=document.createElement("input");source.type="file";source.accept="image/jpeg,image/png,image/webp";source.setAttribute("aria-label",say("Choose local image","Выбрать местное изображение"));
+  const choices=create("div","dk-art-options"),save=create("button","btn",say("Save artwork","Сохранить обложку"));
+  save.type="button";save.disabled=true;
+  const reset=create("button","btn",say("Restore automatic artwork","Восстановить автоматический выбор"));reset.type="button";
+  const setBusy=value=>{busy=value;for(const button of choices.querySelectorAll("button"))button.disabled=value;source.disabled=value;close.disabled=value;reset.disabled=value;save.disabled=value||!blob;};
+  dialog.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
+  source.addEventListener("change",()=>{const file=source.files?.[0];if(!file)return;if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>3*1024*1024||!file.size){message.textContent=say("Choose a JPEG, PNG or WebP image up to 3 MB.","Выберите изображение до 3 МБ в поддерживаемом формате.");return;}select(file);message.textContent="";});
+  for(const [kind,en,ru] of [["Primary","Poster / primary","Основная обложка"],["Backdrop","Background","Фоновое изображение"],["Thumb","Thumbnail","Миниатюра"]]){
+    const button=create("button","btn",say(en,ru));button.type="button";choices.append(button);
+    button.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const url="dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",series:series?"1":"0",image:kind});const result=await nativeBridge.metadataRequest(url,"image");if(!result.ok)throw Error();select(new Blob([result.bytes],{type:result.mime}));message.textContent="";}catch(_){message.textContent=say("This image is not available from the metadata engine.","Это изображение недоступно в службе метаданных.");}finally{setBusy(false);}});
+  }
+  save.addEventListener("click",async()=>{if(!blob||busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));if(!await store.saveArtwork(id,blob,"Manual",true))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save artwork.","Не удалось сохранить обложку.");setBusy(false);}});
+  reset.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));await store.removeArtwork(id);artAttempted.delete(id);jfChecked.delete(id);dialog.close();await render();}catch(_){message.textContent=say("Could not restore automatic artwork.","Не удалось восстановить автоматический выбор.");setBusy(false);}});
+  dialog.append(source,choices,preview,message,save,reset,close);dialog.showModal();
+  const current=await store.artwork(id);if(dialog.open&&current?.blob&&!blob)select(current.blob);
+}
+
 function connect(){
   setupCollectionTools();
   $("watchlistAction")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();if(!row||!window.DKCollections)return;if(!window.DKCollections.toggle(row)){status("Could not save watchlist.","Не удалось сохранить список просмотра.",true);return;}void render();});
@@ -1284,6 +1337,8 @@ function connect(){
   $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshSelection());
   $("fixMatch").addEventListener("click",()=>void showFixMatch());
+  $("editLocalMetadata").addEventListener("click",()=>void editMetadataDialog());
+  $("chooseArtwork").addEventListener("click",()=>void chooseArtworkDialog());
   if(nativeBridge?.metadataRequest){void pollJellyfin();setInterval(pollJellyfin,10000);}
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});

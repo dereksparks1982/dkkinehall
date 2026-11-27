@@ -448,7 +448,7 @@ async function ingestNative(scan){
     // once the original filename has been classified correctly.
     const normalized=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").toLowerCase().trim();
     const validMovie=info.kind==="movie"&&previous?.kind==="movie"&&previous.movieMetadataVerified&&
-      (previous.manualMatch||normalized(previous.title)===normalized(info.title)&&(!info.year||!previous.year||Number(previous.year)===Number(info.year)));
+      (previous.manualMatch||previous.manualFields||normalized(previous.title)===normalized(info.title)&&(!info.year||!previous.year||Number(previous.year)===Number(info.year)));
     const staleMovie=info.kind==="movie"&&previous?.movieMetadataVerified&&!validMovie;
     const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
       previous.season===info.season&&previous.episode===info.episode&&
@@ -459,7 +459,7 @@ async function ingestNative(scan){
       episodeTitle:previous?.kind===info.kind&&previous?.metadataVerified?
         previous.episodeTitle:info.episodeTitle,
       title:validMovie?previous.title:info.title,
-      year:validMovie?(info.year||previous.year):info.year,
+      year:validMovie?(previous.manualFields?.year?previous.year:(info.year||previous.year)):info.year,
       movieMetadataVerified:!!validMovie,
       movieDetails:validMovie?previous.movieDetails:null,
       movieProvider:validMovie?previous.movieProvider:null,
@@ -555,7 +555,7 @@ async function mergeNativeRows(old,target,candidate=null){
           updated.episodeTitle=from.episodeTitle;updated.metadataVerified=true;
         }
         if(from.movieMetadataVerified&&!to.movieMetadataVerified){
-          for(const field of ["title","year","movieDetails","movieProvider","movieMetadataVerified"])
+          for(const field of ["title","year","movieDetails","movieProvider","movieMetadataVerified","manualFields","manualMatch","jellyfinIdentity"])
             if(from[field]!==undefined)updated[field]=from[field];
         }
         entries.put(updated);entries.delete(from.id);
@@ -764,19 +764,23 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails
       if(!row||row.userHidden)return;
       if(row.manualMatch&&!jellyfinIdentity&&!manualMatch)return;
       const identity=jellyfinIdentity||row.jellyfinIdentity||null,lockedMatch=manualMatch||row.manualMatch||null;
+      const locks=row.manualFields||{};
       const identityChanged=JSON.stringify(identity)!==JSON.stringify(row.jellyfinIdentity||null)||JSON.stringify(lockedMatch)!==JSON.stringify(row.manualMatch||null);
       if(!title&&!film&&identityChanged){s.put({...row,jellyfinIdentity:identity,manualMatch:lockedMatch});changedRow=true;return;}
       if(row.kind==="tv"&&title){
-        if(row.episodeTitle===title&&row.metadataVerified&&!identityChanged)return;
-        s.put({...row,episodeTitle:title,metadataVerified:true,jellyfinIdentity:identity,manualMatch:lockedMatch});
+        const episode=locks.title?row.episodeTitle:title;
+        if(row.episodeTitle===episode&&row.metadataVerified&&!identityChanged)return;
+        s.put({...row,episodeTitle:episode,metadataVerified:true,jellyfinIdentity:identity,manualMatch:lockedMatch});
       }else if(row.kind==="movie"&&film){
         // Reject a stale provider result which would reintroduce the bad title.
-        if(!lockedMatch&&goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
-        const details=movieDetails&&typeof movieDetails==="object"?movieDetails:row.movieDetails;
+        if(!locks.title&&!lockedMatch&&goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
+        const nextTitle=locks.title?row.title:film,nextYear=locks.year?row.year:(year||row.year);
+        let details=movieDetails&&typeof movieDetails==="object"?{...movieDetails}:row.movieDetails;
+        if(locks.description)details={...details,description:row.movieDetails?.description||""};
         const provider=typeof movieProvider==="string"?movieProvider:row.movieProvider;
-        if(row.title===film&&row.movieMetadataVerified&&(!year||row.year===year)&&
+        if(row.title===nextTitle&&row.movieMetadataVerified&&row.year===nextYear&&
            JSON.stringify(row.movieDetails)===JSON.stringify(details)&&row.movieProvider===provider&&!identityChanged)return;
-        s.put({...row,title:film,year:year||row.year,movieMetadataVerified:true,movieDetails:details,movieProvider:provider,jellyfinIdentity:identity,manualMatch:lockedMatch});
+        s.put({...row,title:nextTitle,year:nextYear,movieMetadataVerified:true,movieDetails:details,movieProvider:provider,jellyfinIdentity:identity,manualMatch:lockedMatch});
       }else return;
       changedRow=true;
     };
@@ -786,27 +790,53 @@ async function updateMetadata(id,{episodeTitle,movieTitle,movieYear,movieDetails
   if(changedRow)changed({metadata:true,id});
   return changedRow;
 }
+// Manual values are local catalog overrides, not media-file or server writes.
+async function editLocalMetadata(id,fields,unlock=false){
+  const db=await open();let saved=false;
+  await new Promise((resolve,reject)=>{
+    const tx=db.transaction("entries","readwrite"),s=tx.objectStore("entries"),req=s.get(id);
+    req.onsuccess=()=>{
+      const row=req.result;if(!row||row.userHidden)return;
+      if(unlock){s.put({...row,manualFields:null});saved=true;return;}
+      const title=typeof fields.title==="string"?fields.title.trim().slice(0,180):"";
+      if(!title)return;
+      const description=String(fields.description||"").slice(0,6000),year=Number(fields.year)||null;
+      if(row.kind==="movie"&&year&&(!Number.isInteger(year)||year<1800||year>2100))return;
+      if(row.kind==="movie")s.put({...row,title,year,movieDetails:{...row.movieDetails,description},movieMetadataVerified:true,manualFields:{title:true,year:true,description:true}});
+      else if(row.kind==="tv")s.put({...row,episodeTitle:title,episodeDescription:description,metadataVerified:true,manualFields:{title:true,description:true}});
+      else return;
+      saved=true;
+    };
+    tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Metadata edit failed"));
+  });
+  if(saved)changed({metadata:true,id});return saved;
+}
+
 async function artwork(id){return get("art",id);}
 async function removeArtwork(id){await erase("art",id);}
-async function saveArtwork(id,blob,credit=""){
+async function saveArtwork(id,blob,credit="",manual=false){
   if(!(blob instanceof Blob)||blob.size<=0||blob.size>MAX_IMAGE_BYTES||
      !/^image\/(jpeg|png|webp)$/i.test(blob.type))return false;
   if(/^native:[a-f0-9]{64}$/.test(id)){
     const db=await open();let saved=false;
     await new Promise((resolve,reject)=>{
-      const tx=db.transaction(["entries","art"],"readwrite"),request=tx.objectStore("entries").get(id);
-      request.onsuccess=()=>{if(request.result&&!request.result.userHidden){tx.objectStore("art").put({id,blob,credit,updatedAt:Date.now()});saved=true;}};
+      const tx=db.transaction(["entries","art"],"readwrite"),request=tx.objectStore("entries").get(id),a=tx.objectStore("art");
+      request.onsuccess=()=>{if(request.result&&!request.result.userHidden){const prior=a.get(id);prior.onsuccess=()=>{if(prior.result?.manual&&!manual)return;a.put({id,blob,credit,manual:!!manual,updatedAt:Date.now()});saved=true;};}};
       tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Artwork save failed"));
     });
     if(!saved)return false;
-  }else await put("art",{id,blob,credit,updatedAt:Date.now()});
+  }else{
+    const db=await open();let saved=false;
+    await new Promise((resolve,reject)=>{const tx=db.transaction("art","readwrite"),a=tx.objectStore("art"),prior=a.get(id);prior.onsuccess=()=>{if(prior.result?.manual&&!manual)return;a.put({id,blob,credit,manual:!!manual,updatedAt:Date.now()});saved=true;};tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Artwork save failed"));});
+    if(!saved)return false;
+  }
   changed({artwork:true,id});
   return true;
 }
 return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,editLocalMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

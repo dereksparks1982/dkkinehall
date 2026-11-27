@@ -1536,3 +1536,7 @@ html.dk-standalone .screen .controls .buttons-row #subtitleToggle .subtitle-cc{
 }
 html.dk-standalone .screen .controls .buttons-row #subtitleToggle .subtitle-state{display:none}
 html.dk-standalone .screen .controls .buttons-row .extras #subtitleToggle[aria-pressed="true"]:not(:disabled){box-shadow:inset 0 0 0 2px currentColor}
+
+/* Standalone Up Next: player and Media menu own these actions. */
+html.dk-standalone .sidebar-play-order,html.dk-standalone #addQueuePlaylist{display:none!important}
+html.dk-standalone .sidebar-top .sidebar-actions:has(#addQueuePlaylist){grid-template-columns:repeat(2,minmax(0,1fr))}

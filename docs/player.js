@@ -2576,6 +2576,7 @@
       if(mode==="queue"){button.id="addQueuePlaylist";button.title=streamSay("Import local playlist…","Импорт списка воспроизведения…");}
       button.addEventListener("click",()=>void importPlaylist(mode));
       byId(anchor).after(button);buttons.push(button);
+      if(mode==="queue"&&window.DKLibraryBridge?.internalPages)button.hidden=true;
     }
     window.DKLocale?.apply();
   }

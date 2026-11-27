@@ -9,16 +9,16 @@
 <link rel="manifest" href="./manifest.webmanifest?v=20261126-library1">
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
-<link rel="stylesheet" href="./player.css?v=20261127-ab-loop">
-<link rel="stylesheet" href="./library-home.css?v=20261127-fixmatch">
+<link rel="stylesheet" href="./player.css?v=20261127-localmetadata">
+<link rel="stylesheet" href="./library-home.css?v=20261127-localmetadata">
 <script defer src="./jellyfin-artwork.js?v=20261116-1"></script>
 <script defer src="./episode-metadata.js?v=20261127-jellyfin"></script>
-<script defer src="./library-store.js?v=20261127-fixmatch"></script>
+<script defer src="./library-store.js?v=20261127-localmetadata"></script>
 <link rel="stylesheet" href="./live-tv.css?v=20261127-cardlayout">
 <script defer src="./live-tv.js?v=20261127-playlists"></script>
 <script defer src="./library-collections.js?v=20261127-collections"></script>
-<script defer src="./library-home.js?v=20261127-fixmatch"></script>
-<script defer src="./i18n.js?v=20261127-fixmatch"></script>
+<script defer src="./library-home.js?v=20261127-localmetadata"></script>
+<script defer src="./i18n.js?v=20261127-localmetadata"></script>
 </head>
 <body>
 <div class="shell library-shell">
@@ -77,6 +77,8 @@
     <button type="button" role="menuitem" id="movieDetailsAction" hidden>Movie Details</button>
     <button type="button" role="menuitem" id="refreshMovieMetadata" hidden>Refresh Metadata</button>
     <button type="button" role="menuitem" id="fixMatch" hidden>Fix Match</button>
+    <button type="button" role="menuitem" id="editLocalMetadata" hidden>Edit Metadata</button>
+    <button type="button" role="menuitem" id="chooseArtwork" hidden>Choose Artwork</button>
     <button type="button" role="menuitem" id="removeContinueWatching" hidden>Remove from Continue Watching</button>
     <button type="button" role="menuitem" id="removeFromLibrary" hidden>Remove from Library</button>
     <button type="button" role="menuitem" id="showInFolder" hidden>Show in folder</button>

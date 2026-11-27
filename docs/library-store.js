@@ -379,7 +379,7 @@ function excludedDiscovery(row){
 }
 function sourceFor(row,sources){
  if(row?.source!=="native"||!row.nativePath)return null;
- return sources.find(source=>(source.kind===row.kind||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
+ return sources.find(source=>(source.kind===row.kind||!!row.manualClassification||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
 }
 // Standalone South Park films, streaming specials and concert presentations
 // belong in Movies even when their files are stored alongside TV episodes.
@@ -436,7 +436,7 @@ async function resetNativeLibrary(kind,keepHistory){
    if(kind==="all"||row.kind===kind){
     removed.push({id:row.id,filename:row.filename,size:row.size,modified:row.modified});art.delete(row.id);
     if(keepHistory){
-     const saved={};for(const key of ["id","source","kind","title","series","season","episode","year","folderId","nativePath","nativeRoot","volumeIdentity","filename","relative","size","modified","fileNode","position","duration","lastPlayed","completed","watchedSeconds","watchResetAt","watchedChangedAt","continueHidden"])if(row[key]!==undefined)saved[key]=row[key];
+     const saved={};for(const key of ["id","source","kind","title","series","season","episode","year","folderId","nativePath","nativeRoot","volumeIdentity","filename","relative","size","modified","fileNode","position","duration","lastPlayed","completed","watchedSeconds","watchResetAt","watchedChangedAt","continueHidden","manualClassification"])if(row[key]!==undefined)saved[key]=row[key];
      cursor.update({...saved,resetArchived:true,missing:true,scopeExcluded:!!row.scopeExcluded});
     }else cursor.delete();
    }cursor.continue();
@@ -465,7 +465,8 @@ async function ingestNative(scan){
     seen.add(file.id);
     const previous=old.get(file.id);
     if(previous?.userHidden)continue;
-    if(info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
+    if(previous?.manualClassification)info={...previous.manualClassification};
+    if(!previous?.manualClassification&&info.kind==="movie"&&goldenGunIdentity({...previous,filename:file.filename,kind:"movie"}))
       info={...info,title:"The Man with the Golden Gun",year:1974};
     // A provider label must not preserve an obviously wrong title/year
     // once the original filename has been classified correctly.
@@ -817,6 +818,28 @@ async function updateMetadata(id,{episodeTitle,episodeDetails,movieTitle,movieYe
   return changedRow;
 }
 // Manual values are local catalog overrides, not media-file or server writes.
+// Explicit classification applies only to this catalog identity, never the source file.
+async function reclassifyNative(id,fields){
+ const kind=fields?.kind, title=String(fields?.title||"").trim().slice(0,180);
+ if(!["movie","tv"].includes(kind)||!title)return false;
+ const year=fields.year==null||String(fields.year).trim()===""?null:Number(fields.year);
+ if(year!==null&&(!Number.isInteger(year)||year<1800||year>2100))return false;
+ const season=Number(fields.season),episode=Number(fields.episode);
+ if(kind==="tv"&&(String(fields.season??"").trim()===""||String(fields.episode??"").trim()===""||!Number.isInteger(season)||season<0||season>99||!Number.isInteger(episode)||episode<1||episode>999))return false;
+ const info=kind==="movie"?{kind,title,year,series:null,season:null,episode:null,episodeTitle:""}:
+  {kind,title,year,series:title,season,episode,episodeTitle:String(fields.episodeTitle||"").trim().slice(0,180)};
+ const db=await open();let saved=false;
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction("entries","readwrite"),s=tx.objectStore("entries"),req=s.get(id);
+  req.onsuccess=()=>{const row=req.result;if(!row||row.source!=="native"||row.userHidden||row.scopeExcluded||row.resetArchived||row.kind===kind)return;
+   s.put({...row,...info,manualClassification:info,manualMatch:null,manualFields:null,jellyfinIdentity:null,
+    movieMetadataVerified:false,movieDetails:null,movieProvider:null,metadataVerified:false,episodeDetails:null,episodeDescription:null});
+   saved=true;};
+  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Classification save failed"));
+ });
+ if(saved)changed({entries:true,metadata:true,id});return saved;
+}
+
 async function editLocalMetadata(id,fields,unlock=false){
   const db=await open();let saved=false;
   await new Promise((resolve,reject)=>{
@@ -882,7 +905,7 @@ async function saveArtwork(id,blob,credit="",manual=false){
 return Object.freeze({excludedDiscovery,knownFeatureSpecial,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
-  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,
+  checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,reclassifyNative,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });
 });

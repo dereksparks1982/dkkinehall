@@ -483,10 +483,49 @@
      }
      return null;
    }
+   // Compare independent movie and television identities. Do not infer an
+   // episode number from the folder or from a matching series title alone.
+   async function classifyMedia(filename,{seriesHint=""}={}){
+     if(!enabled())return null;
+     const info=parseFilename(filename);
+     if(!info)return null;
+     if(info.type==="episode"){
+       const tv=await tvEpisode(info);
+       return tv?.title?{kind:"tv",title:info.series,series:info.series,season:info.season,episode:info.episode,episodeTitle:tv.title,year:info.year,provider:tv.provider}:null;
+     }
+     const query=info.title, norm=normalize(query);
+     const exactYear=value=>!info.year||Number(String(value||"").slice(0,4))===info.year;
+     const [movies,shows]=await Promise.all([
+       request(CINEMETA+"/catalog/movie/top/search="+encodeURIComponent(query)+".json"),
+       request(TV+"/search/shows?q="+encodeURIComponent(seriesHint||query))
+     ]);
+     // Failed requests are unknown evidence, not negative search results.
+     if(!Array.isArray(movies?.metas)||!Array.isArray(shows))return null;
+     const candidates=movies.metas.filter(x=>x&&x.type==="movie"&&/^tt\d{6,11}$/.test(x.id||"")&&normalize(x.name)===norm&&exactYear(x.year||x.releaseInfo||x.released));
+     const movie=candidates.length===1?candidates[0]:null;
+     const exactShows=shows.filter(x=>x?.show&&normalize(x.show.name)===norm&&exactYear(x.show.premiered));
+     let episode=null;
+     if(seriesHint&&normalize(seriesHint)!==norm){
+       const matching=shows.filter(x=>x?.show&&normalize(x.show.name)===normalize(seriesHint)&&Number.isSafeInteger(x.show.id));
+       if(matching.length===1){
+         const show=matching[0].show;
+         const episodes=await request(TV+"/shows/"+show.id+"/episodes?specials=1");
+         if(!Array.isArray(episodes))return null;
+         const short=norm.startsWith(normalize(seriesHint)+" ")?norm.slice(normalize(seriesHint).length+1):norm;
+         const hits=episodes.filter(x=>x&&normalize(x.name)===short&&Number.isInteger(x.season)&&x.season>=0&&x.season<=99&&Number.isInteger(x.number)&&x.number>=1&&x.number<=999&&exactYear(x.airdate));
+         if(hits.length>1)return {ambiguous:true};
+         if(hits.length===1)episode={kind:"tv",title:show.name,series:show.name,season:hits[0].season,episode:hits[0].number,episodeTitle:hits[0].name,year:Number(String(show.premiered||"").slice(0,4))||null,provider:"TVmaze"};
+       }
+     }
+     if(candidates.length>1||exactShows.length||movie&&episode)return {ambiguous:true};
+     if(episode)return episode;
+     if(!movie)return null;
+     return {kind:"movie",title:movie.name,year:Number(String(movie.year||movie.releaseInfo||movie.released||"").slice(0,4))||info.year,series:null,season:null,episode:null,episodeTitle:"",provider:"Cinemeta"};
+   }
    function clear(){
      searchTV.clear();episodesTV.clear();searchTM.clear();searchApple.clear();searchCinema.clear();movieDetailCache.clear();
    }
-   return {find,episodeTitle,clear};
+   return {find,episodeTitle,classifyMedia,clear};
  }
  return {normalize,parseFilename,findExact,findShow,allowedImage,allowedCredit,applePoster,pickAppleMovie,pickCinemetaMovie,create};
 });

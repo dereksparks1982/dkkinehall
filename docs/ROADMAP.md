@@ -639,3 +639,22 @@ Added bounded native JPEG seek preview with cancellation and a 48-frame cache, p
 - Private Jellyfin server controls: standalone Library power toggle with persisted enabled preference, authenticated status polling, green running/scanning, gold transition, red off/unavailable, gray unknown/external. Stop sends SIGTERM to the owned child and retains the lock until exit; no external server control, no data deletion, fallback metadata remains usable. Installed lifecycle/UI validation pending. Version unchanged.
 
 - Detached private Jellyfin lifecycle: far-right server control on the Live TV navigation row; automatic startup each new desktop session, explicit stop for the current session, continue running after closing Kinehall, validated PID/start-time/executable/private directory reconnect and stale lock handling, no duplicate instance on the same data. Standard Linux updater requests graceful shutdown of detected player and private server processes and aborts on timeout before modifying files. No system service, boot startup or WAN access. Installed lifecycle, updater process identification and narrow-window acceptance remain pending. Version unchanged.
+
+## Owner-approved ten-build Jellyfin integration cycle (2026-11-27)
+Work sequentially on main, no local installation updates until explicitly requested, no per-build version increments, README maintained. These are implementation milestones, not verified release claims.
+
+| Build | Scope | State |
+|---|---|---|
+| 1 | Dedicated movie/series backdrop artwork, independent cache and selection; server control same dimensions as Live TV, far right, light only with accessible status | Next |
+| 2 | Automatic verified franchise/box-set collections, artwork, release ordering and manual overrides | Planned |
+| 3 | Per-field metadata locks, alternative titles, studios, countries, release dates and ratings | Planned |
+| 4 | English/Russian metadata language, original titles, localized descriptions/artwork | Planned |
+| 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Planned |
+| 6 | Settings → Server → Diagnostics, detailed server management, usage, scan scheduling, logs, connected devices, report export and support bundle | Planned |
+| 7 | Authenticated user profiles, separate permissions, watchlists and progress | Planned |
+| 8 | Explicitly enabled secure home-network viewing, paired clients and scoped media access | Planned |
+| 9 | Opt-in remote internet viewing over TLS/VPN or authenticated tunnel, no automatic port forwarding | Planned |
+| 10 | Remote adaptive streaming/transcoding, bandwidth, subtitles and synchronized history | Planned |
+
+### Diagnostic Center source review and port plan
+Inspected DK Media Plus `src/diagnostics/diagnostic_engine.hpp`, `diagnostic_types.hpp`, `diagnostic_engine.cpp`, `modules-system.js`, `web-service-diagnostics.js`, and its roadmap. The earlier native engine models Passed, Needs Attention, Problem, Not Tested and Information, with subsystem, observed/expected evidence, action, timestamps, facts, totals, TXT/JSON exports, support bundle and retained history. Browser diagnostics provide endpoint health/catalog/capabilities, timing and HTTP result, retry, copy and exports. Adapt these concepts to Kinehall's Electron/Linux and private Jellyfin architecture, not its obsolete fixed port 8096 or VLC-specific probes. Nougat-Media-Player currently contains only README/CONTACT; the actual diagnostic code is present in dkmediaplus. Preserve privacy: allowlisted report data, no tokens/passwords, no raw unredacted logs or private media paths by default; user-initiated export only. Test server ownership, authenticated health, uptime, RSS/CPU samples, scan progress, catalog counts, available disk space, codec capability, network exposure and connected-session counts where available. Unperformed DB integrity, external reachability, playback and transcode checks remain Not Tested, not green. Add dedicated Server settings entry, export TXT/JSON, copy, optional redacted support bundle and bounded report history. Runtime tests remain required. Preserve loopback-only private metadata server until the separate network serving builds.

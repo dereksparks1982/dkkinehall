@@ -10,14 +10,14 @@
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
 <link rel="stylesheet" href="./player.css?v=20261127-ab-loop">
-<link rel="stylesheet" href="./library-home.css?v=20261127-single-header">
+<link rel="stylesheet" href="./library-home.css?v=20261127-metadata-refresh">
 <script defer src="./jellyfin-artwork.js?v=20261116-1"></script>
 <script defer src="./episode-metadata.js?v=20261126-golden-gun2"></script>
 <script defer src="./library-store.js?v=20261127-history100"></script>
 <link rel="stylesheet" href="./live-tv.css?v=20261127-cardlayout">
 <script defer src="./live-tv.js?v=20261127-playlists"></script>
 <script defer src="./library-collections.js?v=20261127-collections"></script>
-<script defer src="./library-home.js?v=20261127-single-header"></script>
+<script defer src="./library-home.js?v=20261127-metadata-refresh"></script>
 <script defer src="./i18n.js?v=20261127-ab-loop"></script>
 </head>
 <body>
@@ -31,6 +31,7 @@
       <button type="button" class="btn ghost" id="addLibraryFolder">Add Folder</button>
       <button type="button" class="btn primary" id="scanLibrary">Scan Library</button>
       <button type="button" class="btn primary" id="libraryEmptyTrash" hidden>Empty Trash</button>
+      <button type="button" class="btn" id="libraryRefreshMetadata" hidden>Refresh Metadata</button>
       <label for="languageSelect" class="visually-hidden">Interface language</label>
       <select id="languageSelect" class="language-select" aria-label="Interface language"><option value="en">English</option><option value="ru">Русский</option></select>
     </div>

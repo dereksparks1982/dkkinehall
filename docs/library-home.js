@@ -381,7 +381,7 @@ async function findArtwork(row,id,series=false,force=false){
     if(row.kind==="tv"&&!series&&
        typeof result?.title==="string"&&result.title.trim()&&
        typeof store.updateMetadata==="function"){
-      void store.updateMetadata(row.id,{episodeTitle:result.title.trim().slice(0,180)})
+      await store.updateMetadata(row.id,{episodeTitle:result.title.trim().slice(0,180)})
         .catch(()=>{});
     }
     if(row.kind==="movie"&&result?.title&&(!movieResult||!movieResult.details?.description))await saveMovieResult(row,result);
@@ -483,7 +483,8 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   if(edition){edition.hidden=seriesOnly||row.kind!=="movie"||!window.DKCollections;edition.textContent=say("Movie Editions","Версии фильма");}
   $("deleteFromDisk").hidden=seriesOnly;
   $("movieDetailsAction").hidden=seriesOnly||row.kind!=="movie";
-  $("refreshMovieMetadata").hidden=seriesOnly||row.kind!=="movie";
+  $("refreshMovieMetadata").hidden=!["movie","tv"].includes(row.kind);
+  $("refreshMovieMetadata").disabled=scanning||maintaining;
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
   $("removeFromLibrary").hidden=seriesOnly;
   $("showInFolder").hidden=seriesOnly||!nativeBridge.showInFolder;
@@ -573,21 +574,12 @@ async function showMovieDetails(){
     if(revision===fileInfoRevision&&detailMovieId===latest.id&&$("movieDetailsDialog").open)showFileFields(latest);
   }
 }
-async function refreshMovie(){
-  const row=contextRow;hideContextMenu();
-  if(row?.kind!=="movie")return;
-  if(!navigator.onLine){status("Metadata refresh requires an internet connection.","Для обновления данных требуется интернет.",true);return;}
-  if(activeArtwork.has(row.id)){status("This movie is already being updated.","Данные фильма уже обновляются.");return;}
-  status("Refreshing movie metadata…","Обновление данных фильма…");
-  artworkFinder?.clear();artAttempted.delete(row.id);titleAttempted.delete(row.id);
-  try{
-    await findArtwork(row,row.id,false,true);
-    const updated=await store.item(row.id);
-    await render();
-    if(updated?.movieMetadataVerified){
-      status("Movie metadata refreshed where available.","Доступные данные фильма обновлены.");
-    }else status("No matching movie metadata found.","Данные фильма не найдены.",true);
-  }catch(_){status("Could not refresh movie metadata.","Не удалось обновить данные фильма.",true);}
+async function refreshSelection(){
+  const row=contextRow,series=contextSeries;hideContextMenu();
+  if(!row||!["movie","tv"].includes(row.kind))return;
+  if(scanning||maintaining)return status("Stop the current library operation first.","Сначала остановите текущую операцию.",true);
+  if(!navigator.onLine)return status("Metadata refresh requires an internet connection.","Для обновления данных требуется интернет.",true);
+  await libraryMaintenance("refresh",{row,series});
 }
 async function markHistory(rows,watched){
   if(!rows.length)return;
@@ -1125,8 +1117,9 @@ async function chooseFolder(){
         "Не удалось добавить папку.",true);
   }
 }
-async function libraryMaintenance(action){
-  if(maintaining){if(action==="refresh")refreshCancelled=true;return;}
+async function libraryMaintenance(action,selection=null){
+  if(maintaining){if(action==="refresh"&&!selection)refreshCancelled=true;return;}
+  if(scanning)return;
   maintaining=true;refreshCancelled=false;
   const send=value=>nativeBridge.setMaintenanceStatus({action,...value}).catch(()=>{});
   let result={busy:false};
@@ -1155,19 +1148,26 @@ async function libraryMaintenance(action){
       // Explicit full-library refresh: one item at a time, with a stop
       // command. Retain existing metadata/art when providers fail.
       artworkFinder?.clear();artAttempted.clear();titleAttempted.clear();
-      const rows=(await store.entries()).filter(row=>!row.missing&&!store.excludedDiscovery?.(row));
+      const entries=(await store.entries()).filter(row=>!row.userHidden&&!store.excludedDiscovery?.(row));
+      const rows=selection?entries.filter(row=>selection.series?row.kind==="tv"&&seriesKey(row.series)===seriesKey(selection.row.series):row.id===selection.row.id):entries.filter(row=>!row.missing);
       const tasks=rows.map(row=>({row,series:false,id:artId(row)}));
       const seen=new Set();
       for(const row of rows){
-        if(row.kind!=="tv")continue;
+        if(row.kind!=="tv"||(selection&&!selection.series))continue;
         const id=artId(row,true);
         if(!seen.has(id)){seen.add(id);tasks.push({row,series:true,id});}
       }
       let done=0;
       await send({busy:true,done,total:tasks.length});
+      if(!tasks.length){status("No matching library records to refresh.","Нет записей для обновления.",true);return;}
       for(const task of tasks){
         if(refreshCancelled)break;
-        try{await findArtwork(task.row,task.id,task.series,true);}catch(_){}
+        try{
+          // Wait for any earlier background lookup to finish before forcing a new one.
+          while(activeArtwork.has(task.id)&&!refreshCancelled)await new Promise(resolve=>setTimeout(resolve,80));
+          if(refreshCancelled)break;
+          await findArtwork(task.row,task.id,task.series,true);
+        }catch(_){}
         done++;
         status("Refreshing metadata: "+done+" / "+tasks.length,
           "Обновление данных: "+done+" / "+tasks.length);
@@ -1189,7 +1189,7 @@ function connect(){
   $("manageMovieCollection")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"collection");});
   $("manageMovieEdition")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();collectionDialog(row,"edition");});
   $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
-  $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
+  $("refreshMovieMetadata").addEventListener("click",()=>void refreshSelection());
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
   $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
   $("markWatched").addEventListener("click",()=>markContext(true));
@@ -1251,15 +1251,18 @@ function connect(){
       footer.append(brand,link);
       document.querySelector(".library-shell>main")?.after(footer);
     }
-    const labels=()=>{$("scanLibrary").textContent=say(scanning?"Stop Scan":"Scan Library",scanning?"Остановить":"Проверить медиатеку");$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить данные");};
+    const labels=()=>{$("scanLibrary").textContent=say(scanning?"Stop Scan":"Scan Library",scanning?"Остановить":"Проверить медиатеку");$("movieDetailsAction").textContent=say("Movie Details","О фильме");$("refreshMovieMetadata").textContent=say("Refresh Metadata","Обновить метаданные");};
     labels();$("languageSelect").addEventListener("change",()=>queueMicrotask(labels));
-    const trash=$("libraryEmptyTrash");
+    const trash=$("libraryEmptyTrash"),refresh=$("libraryRefreshMetadata");
     if(nativeBridge.requestMaintenance){
-      trash.hidden=false;
+      trash.hidden=false;refresh.hidden=false;
+      refresh.addEventListener("click",()=>void nativeBridge.requestMaintenance("refresh",lang()).catch(()=>status("Library maintenance failed.","Не удалось выполнить обслуживание медиатеки.",true)));
       trash.addEventListener("click",()=>void nativeBridge.requestMaintenance("trash",lang()).catch(()=>status("Library maintenance failed.","Не удалось выполнить обслуживание медиатеки.",true)));
-      let busy=false;
-      nativeBridge.onMaintenanceStatus?.(value=>{busy=!!value.busy;trash.disabled=busy||scanning;});
-      nativeBridge.onScanState?.(value=>{trash.disabled=busy||!!value;});
+      let busy=false,refreshing=false,scanBusy=false;
+      const sync=()=>{trash.disabled=busy||scanning||scanBusy;refresh.disabled=scanBusy||scanning||(busy&&!refreshing);refresh.textContent=refreshing?say("Stop Refresh","Остановить обновление"):say("Refresh Metadata","Обновить метаданные");};
+      nativeBridge.onMaintenanceStatus?.(value=>{busy=!!value.busy;refreshing=busy&&value.action==="refresh";sync();});
+      nativeBridge.onScanState?.(value=>{scanBusy=!!value;sync();});
+      $("languageSelect").addEventListener("change",()=>queueMicrotask(sync));sync();
     }
     $("scanLibrary").classList.remove("primary","ghost");
     $("scanLibrary").classList.add("dk-scan");

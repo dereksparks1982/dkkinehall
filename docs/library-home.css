@@ -203,3 +203,13 @@ html.dk-standalone .library-shell>.topbar>.library-tools>select.language-select{
   flex:0 0 auto;order:10;width:auto;min-width:0;max-width:none;
   height:46px;min-height:46px;white-space:nowrap;padding-left:12px;padding-right:42px;
 }
+
+/* Restore the approved gold metadata button without wrapping the header. */
+html.dk-standalone .library-shell>.topbar>.library-tools>#libraryRefreshMetadata{
+  background:#e2b956;color:#462a25;border-color:#a58039;
+}
+html.dk-standalone .library-shell>.topbar>.library-tools>#libraryRefreshMetadata:focus-visible{outline:2px solid currentColor;outline-offset:-4px}
+html.dk-standalone .library-shell>.topbar>.library-tools{gap:clamp(4px,.5vw,7px)}
+html.dk-standalone .library-shell>.topbar>.library-tools>button.btn{padding-inline:clamp(6px,.65vw,10px)}
+/* Keep all context actions reachable when zoomed or near a screen edge. */
+html.dk-standalone #libraryContextMenu{max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain}

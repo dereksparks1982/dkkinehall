@@ -881,7 +881,7 @@ function rtspOptions(token){
 function rtmpAddress(value){
  if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid RTMP address");
  const url=new URL(value);
- if(url.protocol!=="rtmp:"||!url.hostname||url.hash||!url.pathname||url.pathname==="/"||
+ if(!["rtmp:","rtmps:"].includes(url.protocol)||!url.hostname||url.hash||!url.pathname||url.pathname==="/"||
     (url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Invalid RTMP address");
  const normalized=new URL("https://"+url.host);
  url.hostname=normalized.hostname;
@@ -889,18 +889,18 @@ function rtmpAddress(value){
  return url;
 }
 async function grantRTMP(value,language){
- const url=rtmpAddress(value);
+ const url=rtmpAddress(value),secure=url.protocol==="rtmps:";
  if(networkGrants.size>=256)throw Error("Network media queue is full");
  const ru=language==="ru";
  const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
-  message:ru?"Подключиться к серверу RTMP?":"Connect to this RTMP server?",
-  detail:url.protocol+"//"+url.host+"\n"+(ru?"Обычный RTMP не шифрует соединение. Используйте доверенный источник.":"Plain RTMP does not encrypt the connection. Use a source you trust."),
+  message:secure?(ru?"Подключиться к серверу RTMPS?":"Connect to this RTMPS server?"):(ru?"Подключиться к серверу RTMP?":"Connect to this RTMP server?"),
+  detail:url.protocol+"//"+url.host+"\n"+(secure?(ru?"Требуется проверка сертификата и имени сервера.":"Certificate and server-name verification are required."):(ru?"Обычный RTMP не шифрует соединение. Используйте доверенный источник.":"Plain RTMP does not encrypt the connection. Use a source you trust.")),
   buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
  if(answer.response!==1)throw Error("Connection cancelled");
  if(networkGrants.size>=256)throw Error("Network media queue is full");
  const token=randomBytes(24).toString("hex");
- networkGrants.set(token,{rtmp:url.href,clients:new Set()});
- return {token,src:"",transport:"rtmp"};
+ networkGrants.set(token,{rtmp:url.href,rtmpSecure:secure,clients:new Set()});
+ return {token,src:"",transport:secure?"rtmps":"rtmp"};
 }
 // SRT input stays alive between FFprobe and the playback decoder. Only
 // bounded MPEG-TS bytes cross the private HTTP proxy; no public HTTP server.
@@ -3032,4 +3032,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?"rtmp":networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

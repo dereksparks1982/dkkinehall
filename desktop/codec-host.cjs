@@ -24,14 +24,14 @@ let installed=false,windowRef=null,playerContents=null,server=null,session=null,
 const probeCache=new Map();
 const MAX_CACHED_PROBES=64;
 let frameCache=null,frameProbeBusy=false;
-let deinterlaceCapability=null,smoothingCapability=null,dvdCapability=null,dvdPicking=false,networkCapability=null;
+let deinterlaceCapability=null,smoothingCapability=null,dvdCapability=null,dvdPicking=false,networkCapability=null,rtmpsTLSCapability=null;
 async function networkFeatures(){
  if(!networkCapability)networkCapability=Promise.all(["ffmpeg","ffprobe"].map(async name=>{
    const [d,p]=await Promise.all([processOutput(binary(name),["-hide_banner","-demuxers"],8000),processOutput(binary(name),["-hide_banner","-protocols"],8000)]);
    const has=n=>d.split("\n").some(line=>{const m=/^\s*D\s+([^\s]+)/.exec(line);return m&&m[1].split(",").includes(n);});
    const proto=n=>p.split("\n").some(line=>line.trim()===n);
-   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto"),srt:proto("srt"),dash:has("dash"),https:proto("https")&&proto("tls")};
- })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto","srt","dash","https"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
+   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto"),srt:proto("srt"),dash:has("dash"),https:proto("https")&&proto("tls"),rtmps:proto("rtmps")&&proto("tls")&&has("flv")};
+ })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto","srt","dash","https","rtmps"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
  return networkCapability;
 }
 const dvdGrants=new Map();
@@ -77,6 +77,20 @@ function rtspInputArgs(options){
  "-timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","rtsp"];
 }
 const rtmpInputArgs=["-protocol_whitelist","rtmp,tcp","-format_whitelist","flv","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-rtmp_live","any","-f","flv"];
+// Native RTMP forwards protocol options into its TLS child. GnuTLS
+// validates the peer hostname; do not assume the same for all FFmpeg TLS
+// backends or external librtmp builds. No plaintext fallback.
+const rtmpsInputArgs=rtmpInputArgs.map((arg,i)=>i===1?"rtmps,tls,tcp":arg).concat(["-tls_verify","1"]);
+async function requireRTMPSTLS(){
+ const caps=await networkFeatures();
+ if(!caps?.rtmps)throw Error("Bundled decoder lacks RTMPS support");
+ if(!rtmpsTLSCapability)rtmpsTLSCapability=Promise.all(["ffmpeg","ffprobe"].map(async name=>{
+   const config=await processOutput(binary(name),["-hide_banner","-buildconf"],8000);
+   const flags=()=>config.split(/\s+/);
+   return flags().includes("--enable-gnutls")&&!flags().includes("--enable-librtmp")&&!flags().includes("--enable-openssl")&&!flags().includes("--enable-mbedtls")&&!flags().includes("--enable-libtls");
+ })).then(rows=>rows.every(Boolean)).catch(()=>false);
+ if(!await rtmpsTLSCapability)throw Error("Bundled RTMPS TLS backend requires verification");
+}
 const dashInputArgs=["-protocol_whitelist","http,https,tcp,tls","-format_whitelist","dash,mov,matroska,webm,mpegts","-tls_verify","1","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","dash"];
 const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","25000000","-http_proxy","","-probesize","4194304","-analyzeduration","3000000"];
 async function resolvePlaybackSource(value){
@@ -290,11 +304,12 @@ async function probe(localPath) {
   const cacheable=!network&&!dvd?.drive;
   if(cacheable&&probeCache.has(key))return probeCache.get(key);
   const work=(async()=>{
+  if(transport==="rtmps")await requireRTMPSTLS();
   let stdout;
   try{stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="dash"?dashInputArgs:[...networkInputArgs,...(["udp","rtp","srt"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i",file
+    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="rtmps"?rtmpsInputArgs:transport==="dash"?dashInputArgs:[...networkInputArgs,...(["udp","rtp","srt"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i",file
   ],dvd&&!dvd.drive?90000:30000);}catch(error){
     if(!network)throw error;
     const failure=require("./library-host.cjs").networkFailure(localPath.token);
@@ -304,6 +319,7 @@ async function probe(localPath) {
     if(reason)throw Error(reason);
     if(transport==="rtsp")throw Error("RTSP stream could not be opened");
     if(transport==="rtmp")throw Error("RTMP stream could not be opened");
+    if(transport==="rtmps")throw Error("RTMPS stream could not be opened securely");
     if(transport==="dash"){if(caps&&!caps.dash)throw Error("Bundled decoder lacks DASH support");throw Error("DASH manifest could not be opened");}
     if(transport==="srt"){if(caps&&!caps.srt)throw Error("Bundled decoder lacks SRT support");throw Error("SRT stream could not be opened");}
     if(transport!=="http"&&caps&&!caps.mpegts)throw Error("Bundled decoder lacks MPEG-TS support");
@@ -457,7 +473,7 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     ...(hardware?["-hwaccel","vaapi","-hwaccel_device",hardware.device,"-hwaccel_output_format","vaapi"]:[]),
-    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:active.transport==="dash"?dashInputArgs:[...networkInputArgs,...(["udp","rtp","srt"].includes(active.transport)?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:active.transport==="rtmps"?rtmpsInputArgs:active.transport==="dash"?dashInputArgs:[...networkInputArgs,...(["udp","rtp","srt"].includes(active.transport)?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];

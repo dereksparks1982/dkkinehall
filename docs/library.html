@@ -37,12 +37,14 @@
     </div>
   </header>
   <main>
+    <div class="dk-library-nav-row">
     <nav class="library-tabs" role="tablist" aria-label="Media collection">
       <button id="tabMovies" type="button" role="tab" aria-selected="true" aria-controls="libraryCollection">Movies</button>
       <button id="tabTV" type="button" role="tab" aria-selected="false" aria-controls="libraryCollection">TV Shows</button>
     </nav>
-    <div id="libraryStatus" class="library-status" role="status" aria-live="polite">Loading saved library…</div>
     <div id="jellyfinServerControls" class="dk-jellyfin-controls" hidden><button type="button" id="jellyfinPower" class="btn" disabled>Start Server</button><span id="jellyfinStatusLight" class="dk-server-light" data-state="unknown" aria-hidden="true"></span><span id="jellyfinScanStatus" role="status" aria-live="polite"></span></div>
+    </div>
+    <div id="libraryStatus" class="library-status" role="status" aria-live="polite">Loading saved library…</div>
     <section id="continueSection" class="library-section" aria-label="Continue Watching">
       <div class="section-heading"><h2>Continue Watching</h2></div>
       <div id="continueWatching" class="library-continue" aria-live="polite"></div>

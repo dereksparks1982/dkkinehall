@@ -1,8 +1,8 @@
 # DK Kinehall
 
-![DK Kinehall standalone media player screenshot](assets/images/Screenshot%20From%202026-11-26%2005-06-07.png)
+![DK Kinehall standalone media player screenshot](assets/images/Screenshot%20From%202026-11-27%2011-20-10.png)
 
-![DK Kinehall standalone media library screenshot](assets/images/Screenshot%20From%202026-11-26%2007-16-40.png)
+![DK Kinehall standalone media library screenshot](assets/images/Screenshot%20From%202026-11-27%2011-24-49.png)
 
 **Your movies. Your music. Your player.**
 

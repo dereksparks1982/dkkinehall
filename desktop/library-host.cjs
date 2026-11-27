@@ -646,7 +646,7 @@ async function serveNetwork(req,res){
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
   if(entry.rtsp||entry.rtmp||entry.dash)return fail();
-  if(entry.srt){if(!root)return fail();return serveSRT(req,res,entry);}
+  if(entry.srt||entry.rist){if(!root)return fail();return serveSRT(req,res,entry);}
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
@@ -946,6 +946,44 @@ async function grantSRT(value,language){
  networkGrants.set(token,{srt:spec.address,clients:new Set()});
  return {token,src:"http://127.0.0.1:"+port+"/media/"+token,transport:"srt"};
 }
+// RIST uses the same bounded receiver relay, but has independent grants
+// and native protocol options. The @ prefix is librist's listener syntax.
+function ristAddress(value){
+ if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid RIST address");
+ const listen=/^rist:\/\/@/i.test(value),url=new URL(value.replace(/^rist:\/\/@/i,"rist://"));
+ if(url.protocol!=="rist:"||!url.hostname||!url.port||url.username||url.password||url.hash||!["","/"].includes(url.pathname))throw Error("Invalid RIST address");
+ const normalized=new URL("https://"+url.host);url.hostname=normalized.hostname;
+ if(Number(url.port)<1||Number(url.port)>65535)throw Error("Invalid RIST port");
+ const args=[],seen=new Set();
+ for(const [key,val] of url.searchParams){
+  if(seen.has(key)||/[\x00-\x1f\x7f]/.test(val))throw Error("Invalid RIST option");seen.add(key);
+  if(key==="rist_profile"&&!["simple","main","advanced"].includes(val))throw Error("Invalid RIST profile");
+  else if(key==="buffer_size"&&(!/^\d+$/.test(val)||Number(val)>30000))throw Error("Invalid RIST buffer");
+  else if(key==="fifo_size"&&(!/^\d+$/.test(val)||Number(val)<32||Number(val)>262144||(Number(val)&(Number(val)-1))))throw Error("Invalid RIST FIFO");
+  else if(key==="overrun_nonfatal"&&!["0","1"].includes(val))throw Error("Invalid RIST overrun policy");
+  else if(key==="encryption"&&!["128","256"].includes(val))throw Error("Invalid RIST encryption");
+  else if(key==="secret"&&(!val||Buffer.byteLength(val)>127))throw Error("Invalid RIST secret");
+  else if(!["rist_profile","buffer_size","fifo_size","overrun_nonfatal","encryption","secret"].includes(key))throw Error("Unsupported RIST option");
+  args.push("-"+key,val);
+ }
+ if(seen.has("encryption")!==seen.has("secret"))throw Error("RIST encryption requires a secret and key size");
+ if(seen.has("encryption")&&url.searchParams.get("rist_profile")==="simple")throw Error("RIST encryption requires main or advanced profile");
+ return {address:"rist://"+(listen?"@":"")+url.host,display:url.host,listen,args};
+}
+async function grantRIST(value,language){
+ const spec=ristAddress(value),ru=language==="ru";
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Открыть поток RIST?":"Open RIST stream?",
+  detail:spec.display+"\n"+(spec.listen?(ru?"Приложение откроет порт для входящего подключения.":"The player will bind a port for incoming connections."):(ru?"Подключайтесь только к доверенному источнику.":"Connect only to a source you trust.")),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ const port=await startNetworkProxy();
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex");
+ networkGrants.set(token,{rist:spec.address,ristArgs:spec.args,clients:new Set()});
+ return {token,src:"http://127.0.0.1:"+port+"/media/"+token,transport:"rist"};
+}
 const SRT_BUFFER=8*1024*1024;
 function serveSRT(req,res,entry){
  if(req.method==="HEAD"){res.writeHead(200,{"Content-Type":"video/mp2t","Cache-Control":"no-store"});return res.end();}
@@ -954,8 +992,8 @@ function serveSRT(req,res,entry){
  let receiver=entry.srtReceiver;
  if(!receiver){
   let child;
-  try{child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-protocol_whitelist","srt,udp","-format_whitelist","mpegts","-rw_timeout","25000000","-probesize","2097152","-analyzeduration","2000000","-f","mpegts","-i",entry.srt,"-map","0:v:0?","-map","0:a:0?","-c","copy","-mpegts_flags","+resend_headers","-f","mpegts","pipe:1"],{env:tvCodecEnv(),stdio:["ignore","pipe","ignore"],shell:false});}
-  catch(_){entry.failure="srt";res.writeHead(502);return res.end();}
+  try{child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-protocol_whitelist",entry.rist?"rist,udp":"srt,udp","-format_whitelist","mpegts","-rw_timeout","25000000","-probesize","2097152","-analyzeduration","2000000","-f","mpegts",...(entry.ristArgs||[]),"-i",entry.rist||entry.srt,"-map","0:v:0?","-map","0:a:0?","-c","copy","-mpegts_flags","+resend_headers","-f","mpegts","pipe:1"],{env:tvCodecEnv(),stdio:["ignore","pipe","ignore"],shell:false});}
+  catch(_){entry.failure=entry.rist?"rist":"srt";res.writeHead(502);return res.end();}
   receiver={child,chunks:[],bytes:0,next:0,subscribers:new Set(),last:Date.now(),idle:Date.now(),closed:false};entry.srtReceiver=receiver;
   receiver.stop=()=>{
    if(receiver.closed)return;receiver.closed=true;clearInterval(receiver.timer);
@@ -970,8 +1008,8 @@ function serveSRT(req,res,entry){
    while(receiver.bytes>SRT_BUFFER&&receiver.chunks.length){receiver.bytes-=receiver.chunks.shift().data.length;}
    for(const client of [...receiver.subscribers])client.pump();
   });
-  child.once("error",()=>{entry.failure="srt";receiver.stop();});
-  child.once("close",()=>{if(!receiver.closed){entry.failure="srt";receiver.stop();}});
+  child.once("error",()=>{entry.failure=entry.rist?"rist":"srt";receiver.stop();});
+  child.once("close",()=>{if(!receiver.closed){entry.failure=entry.rist?"rist":"srt";receiver.stop();}});
   receiver.timer=setInterval(()=>{
    const now=Date.now();
    if(now-receiver.last>45000||(!receiver.subscribers.size&&now-receiver.idle>45000))receiver.stop();
@@ -2640,6 +2678,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:dash-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("DASH request rejected");return grantDASH(url,language);
   });
+  ipcMain.handle("dk-network:rist-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("RIST request rejected");return grantRIST(url,language);
+  });
   ipcMain.handle("dk-network:srt-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("SRT request rejected");return grantSRT(url,language);
   });
@@ -2669,7 +2710,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.dash||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.rist||entry.dash||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -3032,4 +3073,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.rist?"rist":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

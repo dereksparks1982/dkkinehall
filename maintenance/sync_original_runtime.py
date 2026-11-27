@@ -50,15 +50,15 @@ def verify_player_settings(html):
                 element.decode("ascii"))
 
 def stage_standalone_background(source_root, docs):
-    """Use the approved static Crimson Flow asset only in desktop staging."""
-    source = Path(source_root) / "assets/images/Crimson Liquid Wave Texture.png"
+    """Use the approved vintage film-frame asset only in desktop staging."""
+    source = Path(source_root) / "assets/images/Vintage Sepia Ruins Film Frame.png"
     if not source.is_file():
-        raise RuntimeError("Approved Crimson Flow background asset missing")
+        raise RuntimeError("Approved vintage film-frame background asset missing")
     docs = Path(docs)
-    target = docs / "images/crimson-flow.png"
+    target = docs / "images/vintage-film-frame.png"
     css = docs / "player.css"
     original = 'url("./images/soviet-poster.png") center center / contain fixed no-repeat'
-    replacement = 'url("./images/crimson-flow.png") center center / cover fixed no-repeat'
+    replacement = 'url("./images/vintage-film-frame.png") center center / contain fixed no-repeat'
     text = css.read_text(encoding="utf-8")
     if text.count(original) == 1 and replacement not in text:
         text = text.replace(original, replacement, 1)
@@ -67,6 +67,8 @@ def stage_standalone_background(source_root, docs):
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, target)
     css.write_text(text, encoding="utf-8")
+    # Remove the retired desktop-only background after staging its replacement.
+    (docs / "images/crimson-flow.png").unlink(missing_ok=True)
 
 
 def sha(path):
@@ -95,7 +97,7 @@ def sync(root, codec_source=None):
                 "mkv-subtitles.js","pgs-subtitles.js","vobsub.js",
                 "queue-autoplay.js","folder-access.js","i18n.js",
                 "library.html","library-home.css","library-home.js",
-                "library-store.js","native-file.js","images/crimson-flow.png"}
+                "library-store.js","native-file.js","images/vintage-film-frame.png"}
     if not required.issubset(docs_map):
         raise RuntimeError("Missing original web player resources: " +
                            str(sorted(required - docs_map.keys())))

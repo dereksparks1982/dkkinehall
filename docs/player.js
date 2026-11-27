@@ -3136,6 +3136,23 @@
     const discover=makeButton("Find DLNA servers",()=>void showServers());
     const close=makeButton("Close",()=>dlg.close());
     dlg.append(heading,note,discover);
+    if(bridge.networkSAPDiscover){
+      const sapButton=makeButton("Find multicast streams (SAP)",async()=>{
+        if(opening||sapButton.disabled)return;
+        const epoch=++generation;results.replaceChildren();sapButton.disabled=true;say("Listening for multicast announcements…");
+        try{
+          const rows=await bridge.networkSAPDiscover();
+          if(!dlg.open||epoch!==generation)return;
+          say(rows.length?"Choose a multicast stream.":"No compatible announcements received. Try again if your network advertises streams infrequently.");
+          for(const row of rows){
+            const button=makeButton(row.name+" · "+row.address,()=>void addNetwork(null,row.address,row.name,false,true));
+            results.append(button);
+          }
+        }catch(_){if(dlg.open&&epoch===generation)say("Multicast discovery failed.");}
+        finally{sapButton.disabled=false;}
+      });
+      dlg.append(sapButton);
+    }
     if(bridge.networkRegister)dlg.append(serverURL,manual);
     dlg.append(url,direct,queueLabel,message,results,close);
     document.body.append(dlg);

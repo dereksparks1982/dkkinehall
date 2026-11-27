@@ -90,3 +90,5 @@ Every standalone library poster has a permanent gold-outlined watched-status cir
 Playback startup correction: a duplicate variable declaration in the network settings panel prevented the player script from loading, including episode selection from the Library. The declaration conflict is corrected; installed playback still requires acceptance.
 
 The Up Next playlist import button uses the compact **+ Playlist** label in a three-column action row; the welcome-screen import label remains unchanged.
+
+Standalone Network media includes **Find multicast streams (SAP)**: listen for up to 12 seconds for compatible IPv4 SAP/SDP announcements on 224.2.127.254:9875, then select an RTP MPEG-TS stream to play or queue. Only single-stream static payload 33 announcements are supported; no background listener or arbitrary SDP execution. A quiet network may require another scan. Installed reception has not been verified.

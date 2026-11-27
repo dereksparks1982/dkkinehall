@@ -574,6 +574,60 @@ function serveDatagram(req,res,entry){
  receiver.subscribers.add(client);entry.clients.add(client);networkClients.add(client);
  res.on("drain",()=>{blocked=false;});res.once("close",()=>client.destroy());res.once("error",()=>client.destroy());
 }
+// RFC 2974 SAPv1, IPv4, plain SDP only. Accept a single static PT33
+// multicast MPEG-TS stream; never pass arbitrary SDP to FFmpeg.
+function sapAnnouncement(packet){
+ if(!Buffer.isBuffer(packet)||packet.length<8||packet.length>8192||packet[0]!==0x20)return null;
+ const start=8+packet[1]*4;if(start>=packet.length)return null;
+ let payload=packet.subarray(start);
+ if(!payload.subarray(0,2).equals(Buffer.from("v="))){
+  const zero=payload.indexOf(0);
+  if(zero<0||payload.subarray(0,zero).toString("ascii")!=="application/sdp")return null;
+  payload=payload.subarray(zero+1);
+ }
+ const sdp=payload.toString("utf8").replace(/\0$/,"");
+ if(/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/.test(sdp))return null;
+ const lines=sdp.split(/\r?\n/).filter(Boolean);
+ if(lines.length>128||lines.some(l=>l.length>1024)||lines[0]!=="v=0")return null;
+ const media=lines.map((l,i)=>l.startsWith("m=")?i:-1).filter(i=>i>=0);
+ if(media.length!==1)return null;
+ const index=media[0],m=/^m=(?:video|audio) ([0-9]{1,5}) RTP\/AVP 33$/.exec(lines[index]);
+ if(!m)return null;
+ if(lines.some(l=>/^a=(?:source-filter:|crypto:|key-mgmt:|rtcp:|rtcp-mux|inactive|recvonly)|^k=|^a=rtpmap:33 (?!MP2T\/90000$)/i.test(l)))return null;
+ const session=lines.slice(0,index),section=lines.slice(index+1);
+ const connections=section.filter(l=>l.startsWith("c=")),defaults=session.filter(l=>l.startsWith("c="));
+ if(connections.length>1||defaults.length>1)return null;
+ const c=/^c=IN IP4 ([0-9]{1,3}(?:\.[0-9]{1,3}){3})(?:\/[0-9]{1,3}(?:\/1)?)?$/.exec(connections[0]||defaults[0]||"");
+ if(!c)return null;
+ let spec;try{spec=datagramAddress("rtp://"+c[1]+":"+m[1]);}catch(_){return null;}
+ if(!spec.multicast)return null;
+ const name=(session.find(l=>l.startsWith("s="))||"s=").slice(2).trim().slice(0,160);
+ const address="rtp://"+spec.host+":"+spec.port;
+ return {name:name||address,address};
+}
+let sapScan=null;
+function discoverSAP(){
+ if(sapScan)return sapScan;
+ const task=new Promise((resolve,reject)=>{
+  const socket=netUDP.createSocket({type:"udp4",reuseAddr:true}),rows=new Map();
+  let finished=false,packets=0;
+  const finish=error=>{if(finished)return;finished=true;clearTimeout(timer);try{socket.close();}catch(_){};if(error)reject(error);else resolve([...rows.values()]);};
+  const timer=setTimeout(()=>finish(),12000);
+  socket.on("error",finish);
+  socket.on("message",packet=>{
+   if(finished||++packets>4096){if(!finished)finish();return;}
+   const row=sapAnnouncement(packet);if(!row)return;
+   if(!rows.has(row.address))rows.set(row.address,row);
+   if(rows.size>=128)finish();
+  });
+  try{socket.bind(9875,"0.0.0.0",()=>{
+   if(finished){try{socket.close();}catch(_){};return;}
+   try{socket.addMembership("224.2.127.254");}catch(error){finish(error);}
+  });}catch(error){finish(error);}
+ });
+ sapScan=task;task.then(()=>{if(sapScan===task)sapScan=null;},()=>{if(sapScan===task)sapScan=null;});
+ return task;
+}
 async function grantDatagram(value){
  const datagram=datagramAddress(value);
  if(networkGrants.size>=256)throw Error("Network media queue is full");
@@ -2405,6 +2459,9 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
+  });
+  ipcMain.handle("dk-network:sap-discover",event=>{
+    if(!onlyPlayer(event))throw Error("SAP discovery rejected");return discoverSAP();
   });
   ipcMain.handle("dk-network:datagram-grant",(event,url)=>{
     if(!onlyPlayer(event))throw Error("Datagram request rejected");return grantDatagram(url);

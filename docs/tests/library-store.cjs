@@ -90,7 +90,25 @@ async function run(){
     assert.equal(special.year,2024);
     assert.equal(special.episode,null);
   }
-  assert.equal(store.classifyAssigned({filename:"South.Park.S03E07.mkv",relative:"South Park/South.Park.S03E07.mkv",category:"tv"}).kind,"tv");
+  for(const [name,year] of [
+    ["Bigger, Longer & Uncut",1999],["Joining the Panderverse",2023],
+    ["Not Suitable for Children",2023],["Post COVID - The Return of COVID",2021],
+    ["Post COVID",2021],["The 25th Anniversary Concert",2022],
+    ["The End of Obesity",2024],["The Streaming Wars",2022],
+    ["The Streaming Wars Part 2",2022]
+  ]){
+    const filename="South Park - "+name+".mkv";
+    const movie=store.classifyAssigned({filename,relative:"South Park/"+filename,category:"tv"});
+    assert.equal(movie.kind,"movie",name);
+    assert.equal(movie.year,year,name);
+    assert.equal(movie.episode,null,name);
+    assert.equal(movie.season,null,name);
+    if(name.includes("Part 2"))assert.match(movie.title,/Part 2$/);
+    if(name.includes("Return"))assert.match(movie.title,/Return of COVID$/);
+  }
+  for(const filename of ["South.Park.S03E07.mkv","South.Park.S00E01.Jesus.vs.Frosty.mkv","South.Park.S00E02.Jesus.vs.Santa.mkv"]){
+    assert.equal(store.classifyAssigned({filename,relative:"South Park/"+filename,category:"tv"}).kind,"tv");
+  }
   assert.equal(store.classify("Music.mp3"),null);
   assert.equal(store.classify("Album.ogg"),null);
   assert.equal(store.classify("Film.mp4").kind,"movie");

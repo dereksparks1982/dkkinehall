@@ -546,3 +546,5 @@ Added bounded native JPEG seek preview with cancellation and a 48-frame cache, p
 - Watched indicator interaction: permanent empty/checked gold circle on movies, episodes, series and resume cards; native playback and watched buttons are separate controls with keyboard access, persisted toggle through existing history transaction, bulk confirmation retained, history-only refresh where no status filter is active. No version increment; installed mouse/keyboard and visual acceptance pending.
 
 - Playback regression correction: resolved duplicate lexical `note` declaration in the Player network settings block, which prevented all player initialization and library selection processing. Full Player script and current Library/codec bridge scripts pass JavaScript syntax checks; installed episode handoff remains to be verified. No version increment.
+
+- Up Next layout correction: shorten the standalone queue importer to + Playlist (Russian: + Список), preserve equal-width action buttons and contain longer labels within their own cells. No change to playlist behavior, approved palette or version; installed visual acceptance pending.

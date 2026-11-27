@@ -2471,7 +2471,8 @@
     for(const [anchor,mode] of [["openEmpty","open"],["addQueueFiles","queue"]]){
       const button=document.createElement("button");
       button.type="button";button.className="btn ghost";
-      button.textContent="Import local playlist…";
+      button.textContent=mode==="queue"?"+ Playlist":"Import local playlist…";
+      if(mode==="queue"){button.id="addQueuePlaylist";button.title=streamSay("Import local playlist…","Импорт списка воспроизведения…");}
       button.addEventListener("click",()=>void importPlaylist(mode));
       byId(anchor).after(button);buttons.push(button);
     }

@@ -1460,3 +1460,7 @@ html.dk-standalone .playback-settings-panel .player-settings-section>strong {col
 .screen .controls .seek-preview .dk-native-seek-frame{display:block;width:100%;height:90px;object-fit:contain;margin:0 0 4px;background:#171717;border-radius:3px}.screen .controls .seek-preview .dk-native-seek-frame[hidden]{display:none!important}
 
 .dk-stream-statistics{position:absolute;left:12px;bottom:86px;z-index:18;max-width:85%;white-space:pre-line;background:#211b17e8;color:#e2b956;border:1px solid #a58039;border-radius:6px;padding:8px;font-size:.8rem;pointer-events:none}.dk-stream-statistics[hidden]{display:none!important}
+
+/* Keep the three Up Next actions in equal columns, even in a narrow sidebar. */
+html.dk-standalone .sidebar-top .sidebar-actions:has(#addQueuePlaylist){display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+html.dk-standalone .sidebar-top .sidebar-actions:has(#addQueuePlaylist) .btn{box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:5px 3px;line-height:1.15;white-space:normal;overflow-wrap:anywhere;text-align:center;display:flex;align-items:center;justify-content:center}

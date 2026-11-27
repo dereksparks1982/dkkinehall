@@ -463,7 +463,7 @@
     "Use a direct HTTPS/HTTP video or audio link, such as MP4, MP3, WebM, or an HLS stream on supported browsers. Video website pages are not media files.":"Укажите прямую ссылку на видео или аудиофайл. Поддерживаемые форматы зависят от браузера. Ссылки на страницы видеосайтов не подходят.",
     "Media address":"Адрес медиафайла", "Optional title":"Название (необязательно)",
     "Title (optional)":"Название (необязательно)", "Play URL":"Воспроизвести ссылку",
-    "Import local playlist…":"Импорт списка воспроизведения…",
+    "Import local playlist…":"Импорт списка воспроизведения…", "+ Playlist":"+ Список",
     "Watched status":"Состояние просмотра", "All viewing statuses":"Все состояния просмотра", "Watched":"Просмотрено", "Unwatched":"Не просмотрено", "In progress":"Начат просмотр",
     "Mark as Watched":"Отметить просмотренным", "Mark as Unwatched":"Отметить непросмотренным", "Mark Season as Watched":"Отметить сезон просмотренным", "Mark Season as Unwatched":"Отметить сезон непросмотренным",
     "Playlist":"Плейлист", "Up Next":"Далее", "0 items":"0 файлов",

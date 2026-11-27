@@ -88,3 +88,5 @@ Standalone library cards now show a gold checkmark for completed videos and red 
 Every standalone library poster has a permanent gold-outlined watched-status circle. Click it to mark the video watched or unwatched without starting playback. Series circles toggle all local episodes after the existing bulk confirmation. Right-click and season controls remain available.
 
 Playback startup correction: a duplicate variable declaration in the network settings panel prevented the player script from loading, including episode selection from the Library. The declaration conflict is corrected; installed playback still requires acceptance.
+
+The Up Next playlist import button uses the compact **+ Playlist** label in a three-column action row; the welcome-screen import label remains unchanged.

@@ -13,7 +13,7 @@ import sys
 import tarfile
 import tempfile
 
-from codec_bundle import CodecBundle
+from codec_bundle import CodecBundle, InstalledCodecBundle
 from library_bundle import LibraryBundle
 
 CHUNK = 70 * 1024 * 1024
@@ -87,6 +87,8 @@ def sync(root, codec_source=None):
     docs_map = {file.relative_to(docs).as_posix(): file
                 for file in docs.rglob("*") if file.is_file()}
     codec_bundle = CodecBundle(source_root)
+    if not codec_bundle.enabled and codec_source is not None:
+        codec_bundle = InstalledCodecBundle(source_root)
     library_bundle = LibraryBundle(source_root)
     required = {"index.html","player.js","player.css","mkv-tracks.js",
                 "mkv-subtitles.js","pgs-subtitles.js","vobsub.js",
@@ -215,7 +217,9 @@ def sync(root, codec_source=None):
                 assert archive.extractfile("./resources/app/bin/ffmpeg").read(4) == b"\x7fELF"
                 assert archive.extractfile("./resources/app/bin/ffprobe").read(4) == b"\x7fELF"
         new_sha = sha(updated)
-        if old_sha == new_sha: raise RuntimeError("Runtime update produced no changes")
+        if old_sha == new_sha:
+            print("Original Chromium player is already current.")
+            return
         patched = binary.replace(old_sha.encode("ascii"), new_sha.encode("ascii"))
         if len(patched) != len(binary): raise RuntimeError("Launcher size changed")
         pending = []

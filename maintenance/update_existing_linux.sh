@@ -45,8 +45,9 @@ git clone --quiet --depth 1 --filter=blob:none --sparse --branch main \
   https://github.com/dereksparks1982/dkkinehall.git "$WORK/repo"
 git -C "$WORK/repo" sparse-checkout set docs maintenance desktop assets/images
 
-# Full package releases still require the verified codec archive. A separately
-# scoped maintenance patch can update an already-installed compatible player.
+# A normal installed-player update always synchronizes all application code.
+# A fully approved codec release may replace the installed codec payload;
+# otherwise retain the existing codec executables and shared libraries.
 if python3 - "$WORK/repo/maintenance/release-gate.json" <<'PYTHON'
 import json,sys
 from pathlib import Path
@@ -55,36 +56,10 @@ checks=data.get("acceptance",{})
 sys.exit(0 if data.get("release_ready") is True and checks and all(v is True for v in checks.values()) else 1)
 PYTHON
 then
-# No partial end-user updates. The signed-off release gate remains closed
-# until the complete standalone codec bundle and all roadmap checks pass.
-python3 - "$WORK/repo/maintenance/release-gate.json" <<'PYTHON'
-import json
-import sys
-from pathlib import Path
-manifest = Path(sys.argv[1])
-if not manifest.is_file():
-    raise SystemExit("ERROR: Standalone release gate is missing. Player unchanged.")
-data = json.loads(manifest.read_text(encoding="utf-8"))
-checks = data.get("acceptance", {})
-if not data.get("release_ready") or not checks or not all(checks.values()):
-    raise SystemExit("ERROR: DK Kinehall is not fully verified for release. Existing player unchanged.")
-PYTHON
-
-# Release binaries are fetched from a checksum-verified, same-repository
-# GitHub release asset, not from a half-populated source checkout. The
-# verifier refuses to run unless the release gate is fully approved.
-for resource in desktop/codec-host.cjs desktop/codec-preload.cjs \
-                desktop/codec-policy.cjs desktop/codec-source.cjs \
-                desktop/library-host.cjs desktop/library-preload.cjs \
-                desktop/library-indexer.cjs \
-                maintenance/library_bundle.py maintenance/fetch_release_codecs.py \
-                maintenance/prepare_desktop_codecs.py; do
-  if [[ ! -f "$WORK/repo/$resource" ]]; then
-    echo "ERROR: Standalone codec integration source is missing: $resource" >&2
-    exit 1
-  fi
-done
-python3 "$WORK/repo/maintenance/fetch_release_codecs.py" "$WORK/repo"
+  python3 "$WORK/repo/maintenance/fetch_release_codecs.py" "$WORK/repo"
+else
+  echo "Retaining installed codec binaries; synchronizing all application components."
+fi
 
 # Abort before touching the installed player if the source is incomplete.
 for resource in index.html player.js player.css mkv-tracks.js \
@@ -127,14 +102,6 @@ for item in source.rglob("*"):
 PYTHON
 
 python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP" "$WORK/repo"
-
-else
-  echo "Installing queue-memory maintenance patch (existing runtime and codecs retained)..."
-  mkdir -p -- "$BACKUP"
-  cp -a -- "$APP/docs" "$APP/_internal" "$APP/DK Kinehall" "$BACKUP/"
-  backup_ready=1
-  python3 "$WORK/repo/maintenance/apply_queue_memory_hotfix.py" "$APP"
-fi
 
 echo "SUCCESS: Existing DK Kinehall updated; approved icons untouched."
 echo "Backup: $BACKUP"

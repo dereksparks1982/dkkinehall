@@ -122,3 +122,20 @@ class CodecBundle:
             info.mtime=int(stat.st_mtime)
             with src.open("rb") as inp:
                 archive.addfile(info,inp)
+
+class InstalledCodecBundle(CodecBundle):
+    """Refresh codec bridge code while preserving installed native payload."""
+    def __init__(self,root):
+        super().__init__(root)
+        if self.enabled:
+            raise RuntimeError("Unexpected replacement codec payload")
+        self.enabled=True
+        self.extra={
+            HOST:self.sources/"codec-host.cjs",
+            PRELOAD:self.sources/"codec-preload.cjs",
+            APP_PREFIX+"desktop/codec-policy.cjs":self.sources/"codec-policy.cjs",
+            APP_PREFIX+"desktop/codec-source.cjs":self.sources/"codec-source.cjs",
+        }
+        for source in self.extra.values():
+            if not source.is_file():
+                raise RuntimeError("Missing codec bridge source: "+str(source))

@@ -18,7 +18,7 @@ DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softwork
 - Watch fullscreen or resize the player.
 - Use the interface in English or Russian.
 
-The standalone Linux edition also offers library scanning, file information, library cleanup and additional playback controls. A Live TV button provides access to compatible HDHomeRun network tuner channels, with local network discovery and manual address entry (experimental; requires compatible hardware).
+The standalone Linux edition also offers library scanning, file information, library cleanup and additional playback controls. A Live TV button beside Movies and TV Shows provides access to compatible HDHomeRun network tuner channels, with local network discovery and manual address entry (experimental; requires compatible hardware).
 
 ## Library controls
 
@@ -36,7 +36,7 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 **[Standalone Linux edition: availability and installation](docs/PORTABLE_LINUX.md)**
 
-The normal installed-player updater also supports the queue-memory maintenance patch without replacing installed codecs. Full-package releases retain their separate verification requirements.
+The normal installed-player updater synchronizes the Player, Library and native application components together, preserving installed codec binaries unless a verified replacement codec package is available.
 
 ## More information
 

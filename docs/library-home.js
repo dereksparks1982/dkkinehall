@@ -995,7 +995,8 @@ function connect(){
   }
   if(nativeBridge?.internalPages&&nativeBridge.liveTvLineup&&nativeBridge.openMediaTool){
     const tv=create("button","btn primary","Live TV");tv.type="button";tv.id="libraryLiveTV";
-    $("scanLibrary").before(tv);
+    tv.setAttribute("aria-haspopup","dialog");
+    $("tabTV").after(tv);
     tv.addEventListener("click",async()=>{
       tv.disabled=true;
       try{await nativeBridge.openMediaTool("live-tv");}

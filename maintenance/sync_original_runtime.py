@@ -58,10 +58,12 @@ def stage_standalone_background(source_root, docs):
     target = docs / "images/vintage-film-frame.png"
     css = docs / "player.css"
     original = 'url("./images/soviet-poster.png") center center / contain fixed no-repeat'
-    replacement = 'url("./images/vintage-film-frame.png") center center / contain fixed no-repeat'
+    replacement = 'url("./images/vintage-film-frame.png") center center / 100% 100% fixed no-repeat'
     text = css.read_text(encoding="utf-8")
     if text.count(original) == 1 and replacement not in text:
         text = text.replace(original, replacement, 1)
+    elif text.count('url("./images/vintage-film-frame.png") center center / contain fixed no-repeat') == 1 and original not in text and replacement not in text:
+        text = text.replace('url("./images/vintage-film-frame.png") center center / contain fixed no-repeat', replacement, 1)
     elif text.count(replacement) != 1 or original in text:
         raise RuntimeError("Cannot identify the shared standalone background rule")
     target.parent.mkdir(parents=True, exist_ok=True)

@@ -332,7 +332,7 @@ async function jellyfinArtwork(row,id,series,force){
 async function verifyMediaCategory(row){
  if(!nativeBridge||!navigator.onLine||!artworkFinder?.classifyMedia||row.manualClassification||row.manualMatch||row.manualFields||row.missing)return row;
  const parsed=window.DKMediaMetadata?.parseFilename(row.filename);
- if(!parsed||row.kind==="tv"&&Number(row.episode)>0||row.kind==="movie"&&parsed.type!=="episode"&&row.movieMetadataVerified)return row;
+ if(!parsed||row.featureClassification||store.knownFeatureSpecial(row.filename,row.relative)||row.kind==="tv"&&Number(row.episode)>0||row.kind==="movie"&&parsed.type!=="episode"&&row.movieMetadataVerified)return row;
  const result=await artworkFinder.classifyMedia(row.filename,{seriesHint:row.kind==="tv"?row.series:""});
  if(result&&await store.applyVerifiedClassification(row,result))return await store.item(row.id)||row;
  return row;

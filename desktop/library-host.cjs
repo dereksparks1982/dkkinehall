@@ -2648,6 +2648,23 @@ function install(originalWindow,originalPlayer){
   if(!originalWindow?.webContents||typeof originalPlayer!=="string")
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
+  // Chromium owns the PNG transfer; only this Player view's named Blob
+  // snapshots receive the localized native save prompt. No arbitrary paths
+  // or filesystem API are exposed to the renderer.
+  const snapshotDownloads=home.webContents.session;
+  const onSnapshotDownload=(event,item,contents)=>{
+    if(!installedWindow()||contents!==player.webContents||
+       !/^DK-Kinehall-Snapshot-\d{1,16}-\d{1,12}s\.png$/.test(item.getFilename())||
+       !item.getURL().startsWith("blob:"))return;
+    const bytes=item.getTotalBytes();
+    if(item.getMimeType()!=="image/png"||bytes>160*1024*1024){event.preventDefault();return;}
+    const ru=readInterfaceLanguage("en")==="ru";
+    item.setSaveDialogOptions({title:ru?"Сохранить кадр видео":"Save video snapshot",
+      defaultPath:path.join(app.getPath("pictures"),item.getFilename()),
+      filters:[{name:ru?"Изображение ПНГ":"PNG image",extensions:["png"]}]});
+  };
+  snapshotDownloads.on("will-download",onSnapshotDownload);
+  home.once("closed",()=>snapshotDownloads.removeListener("will-download",onSnapshotDownload));
   home.setTitle("DK Kinehall v"+VERSION);
   home.on("page-title-updated",event=>{event.preventDefault();home?.setTitle("DK Kinehall v"+VERSION);});
   home.on("resize",resizePlayer);

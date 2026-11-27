@@ -4733,6 +4733,43 @@
         void loadEmbeddedTrack(track);
     }
   });
+  // Capture the displayed decoded frame, not a desktop screenshot or a
+  // composite of the HTML controls. No seeking, pausing or source changes.
+  let snapshotBusy=false;
+  const snapshotDimensions=(width,height)=>Number.isSafeInteger(width)&&Number.isSafeInteger(height)&&width>0&&height>0&&width<=8192&&height<=8192&&width*height<=33554432;
+  const canTakeSnapshot=()=>Boolean(window.DKLibraryBridge?.internalPages&&!snapshotBusy&&current()&&!state.stopped&&!current().audio&&!media.seeking&&media.readyState>=2&&snapshotDimensions(media.videoWidth,media.videoHeight));
+  const snapshotFilename=(at,now=Date.now())=>{
+    const seconds=Math.max(0,Math.floor(Number.isFinite(at)?at:0));
+    return "DK-Kinehall-Snapshot-"+now+"-"+seconds+"s.png";
+  };
+  const takeVideoSnapshot=async()=>{
+    if(!canTakeSnapshot())return;
+    const filename=snapshotFilename(playbackSeconds());
+    snapshotBusy=true;
+    let canvas=null,url=null;
+    try{
+      canvas=document.createElement("canvas");
+      canvas.width=media.videoWidth;canvas.height=media.videoHeight;
+      const context=canvas.getContext("2d",{alpha:false});
+      if(!context)throw Error("Snapshot canvas unavailable");
+      // Draw synchronously before any await, so the picture belongs to the
+      // source timestamp recorded when the user activated the command.
+      context.drawImage(media,0,0,canvas.width,canvas.height);
+      const blob=await new Promise((resolve,reject)=>{
+        try{canvas.toBlob(value=>value?resolve(value):reject(Error("PNG encoding failed")),"image/png");}
+        catch(error){reject(error);}
+      });
+      if(blob.type!=="image/png"||blob.size<1||blob.size>160*1024*1024)throw Error("Invalid snapshot");
+      url=URL.createObjectURL(blob);
+      const link=document.createElement("a");link.href=url;link.download=filename;link.hidden=true;
+      document.body.append(link);
+      try{link.click();}finally{link.remove();}
+      // Let Chromium acquire the Blob before releasing the renderer's URL.
+      const release=url;url=null;setTimeout(()=>URL.revokeObjectURL(release),60000);
+      status("Choose where to save the video snapshot.",true);
+    }catch(_){status("Could not capture this video frame.");}
+    finally{if(url)URL.revokeObjectURL(url);if(canvas){canvas.width=0;canvas.height=0;}snapshotBusy=false;}
+  };
   const canJumpToTime=()=>{
     const item=current(),length=playbackDuration();
     return Boolean(item&&!state.stopped&&!item.liveChannel&&Number.isFinite(length)&&length>0);
@@ -5014,6 +5051,7 @@
         {disabled: byId("pip").hidden});
     }
     activeMenuSection=contextMenu;
+    if(window.DKLibraryBridge?.internalPages)addMenuItem("Take video snapshot",()=>void takeVideoSnapshot(),{disabled:!canTakeSnapshot()});
     addMenuItem("Media information", openMediaInfo).classList.add("dk-menu-information");
   };
   // If Matroska inspection finishes while the Subtitles section is open,
@@ -5207,6 +5245,9 @@
     } catch (_) { status("Couldn't read that subtitle file."); }
   });
   document.addEventListener("keydown", event => {
+    if(window.DKLibraryBridge?.internalPages&&event.shiftKey&&!event.ctrlKey&&!event.altKey&&!event.metaKey&&!event.repeat&&event.key.toLowerCase()==="s"&&!["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName)&&!event.target?.isContentEditable&&!document.querySelector("dialog[open]")&&!settingsDetails?.open&&!event.target?.closest?.("#dkApplicationMenu")){
+      if(canTakeSnapshot()){event.preventDefault();if(menuOpen)closeContextMenu();void takeVideoSnapshot();}return;
+    }
     if(window.DKLibraryBridge?.internalPages&&event.ctrlKey&&!event.altKey&&!event.metaKey&&!event.shiftKey&&event.key.toLowerCase()==="t"&&!["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName)&&!event.target?.isContentEditable&&!document.querySelector("dialog[open]")){
       if(canJumpToTime()){event.preventDefault();if(menuOpen)closeContextMenu();openJumpToTime();}return;
     }
@@ -6225,6 +6266,7 @@
         ["Decrease volume",()=>setVolume(volumePercent-5)]
       ]],
       ["Video",[
+        ["Take video snapshot",()=>void takeVideoSnapshot(),canTakeSnapshot],
         ["Picture Settings",()=>settings("picture"),()=>categoryAvailable("picture")],
         ["Fullscreen",()=>void toggleFullscreen()],
         ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],

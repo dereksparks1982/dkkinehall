@@ -11,7 +11,7 @@ html.dk-standalone main.dk-live-active > :is(#libraryStatus,#continueSection,.li
 .dk-live-panel .dk-live-direct{background:#d52b1e;color:#fff}
 .dk-live-panel .dk-live-playlist{background:#fff;color:#432822}
 .dk-live-panel .dk-live-scan,.dk-live-panel .dk-live-world{background:#432822;color:#e2b956}
-.dk-live-panel .dk-live-tile:hover{filter:brightness(1.09)}
+
 .dk-live-panel button:focus-visible,.dk-live-panel input:focus-visible,.dk-live-panel select:focus-visible{outline:2px solid #e2b956;outline-offset:3px}
 .dk-live-workspace,.dk-live-guidebar,.dk-live-devices{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
 .dk-live-workspace:empty,.dk-live-notice:empty{display:none}

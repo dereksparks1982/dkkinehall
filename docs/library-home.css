@@ -8,7 +8,7 @@
   background:rgba(18,13,19,.86);border-radius:11px}
 .library-tabs button[aria-selected="true"]{background:var(--dk-russian-red,#9a252e);
   color:#fff;border-color:var(--dk-russian-red,#fc626a)}
-.library-tabs button:hover{background:var(--dk-russian-red-deep,#68202a);color:#fff}
+
 .library-status{font-size:.84rem;min-height:26px;color:var(--dk-russian-red-muted,#d9babe);margin-bottom:15px}
 .library-status.error{color:var(--dk-russian-red,#ff9299)}
 .library-section{margin-bottom:29px}
@@ -82,8 +82,7 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 .library-context-menu button{display:block;width:100%;min-height:40px;
   border:0;border-radius:6px;background:transparent;color:var(--dk-russian-red-muted,#ffd5d7);
   text-align:left;font-size:.87rem;font-weight:700;padding:7px 12px}
-.library-context-menu button:hover,.library-context-menu button:focus-visible{
-  background:var(--dk-russian-red-deep,#7c2029);color:white}
+
 .library-tools button[hidden],#addFirstFolder[hidden]{display:none}
 
 /* Movie metadata is displayed only on demand; leave the grid unchanged. */
@@ -95,7 +94,7 @@ html[lang="ru"] .library-unavailable .library-poster:after{content:"Недост
 .dk-movie-details dt{color:#e2b956;font-weight:700}
 .dk-movie-details dd{margin:0;overflow-wrap:anywhere}
 .dk-movie-details-close{position:absolute;right:12px;top:12px;width:32px;height:32px;border:1px solid var(--dk-russian-red,#f4515c);border-radius:8px;background:#351419;color:var(--dk-russian-red,#ff515d);font-size:25px;font-weight:800;line-height:1}
-.dk-movie-details-close:hover{background:var(--dk-russian-red,#b92430);color:white}
+
 .library-context-menu button[hidden]{display:none!important}
 
 /* Standalone resume cards use the collection's exact portrait geometry.
@@ -120,7 +119,7 @@ html.dk-standalone .library-progress{z-index:1}
 
 #libraryEmptyTrash[hidden],#movieFileSection[hidden]{display:none!important}
 html.dk-standalone #libraryEmptyTrash{background:var(--dk-russian-red,#c52832);border-color:var(--dk-russian-red,#c52832);color:white;font-weight:700}
-html.dk-standalone #libraryEmptyTrash:hover:not(:disabled){filter:brightness(1.16)}
+
 #movieFileSection{margin-top:22px;padding-top:16px;border-top:1px solid #a5803966}
 #movieFileHeading{color:#e2b956;margin:0;font-size:1.1rem}
 #movieFileStatus{margin:12px 0 0}
@@ -136,11 +135,7 @@ html.dk-standalone .library-tabs button#tabTV {
 html.dk-standalone .library-tabs button#libraryLiveTV {
   background:#462a25;color:#e2b956;border-color:#a58039;
 }
-html.dk-standalone .library-tabs button#tabMovies:hover:not(:disabled),
-html.dk-standalone .library-tabs button#tabTV:hover:not(:disabled),
-html.dk-standalone .library-tabs button#libraryLiveTV:hover:not(:disabled) {
-  filter:brightness(1.08);
-}
+
 html.dk-standalone .library-tabs button:is(#tabMovies,#tabTV)[aria-selected="true"] {
   box-shadow:inset 0 0 0 2px #a58039;
 }
@@ -152,11 +147,10 @@ html.dk-standalone .library-tabs button:is(#tabMovies,#tabTV,#libraryLiveTV):foc
 html.dk-standalone .library-context-menu button {
   background:var(--dk-surface-raised);color:#fff;border:1px solid var(--dk-antique);margin:3px 0;
 }
-html.dk-standalone .library-context-menu button:is(:hover,:focus-visible):not(:disabled) {
-  background:var(--dk-surface-raised);color:#fff;outline:2px solid var(--dk-gold);outline-offset:-4px;
+html.dk-standalone .library-context-menu button:is(:hover,:focus-visible):not(:disabled) {outline:2px solid var(--dk-gold);outline-offset:-4px;
 }
 html.dk-standalone .dk-movie-details-close {background:var(--dk-brown);color:var(--dk-russian-red)}
-html.dk-standalone .dk-movie-details-close:is(:hover,:focus-visible) {background:var(--dk-russian-red);color:#fff}
+
 html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
 
 /* Standalone local collections. Existing card dimensions and icons unchanged. */

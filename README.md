@@ -36,7 +36,7 @@ Movies (gold), TV Shows (white), and Live TV (brown) are the three standalone li
 
 **[Try the Web App](https://dereksparks1982.github.io/dkkinehall/)**
 
-**[Standalone Linux edition: availability and installation](docs/PORTABLE_LINUX.md)**
+**[Standalone Linux edition: standard update instructions](docs/PORTABLE_LINUX.md)**
 
 The normal installed-player updater synchronizes the Player, Library and native application components together, preserving installed codec binaries unless a verified replacement codec package is available.
 

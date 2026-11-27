@@ -1,29 +1,29 @@
-# DK Kinehall native Linux release
+# DK Kinehall standalone Linux
 
-DK Kinehall is now a **native standalone Linux player**, not a Chromium
-application. The retired portable Electron executable and associated bundled
-runtime were removed from the repository. The former download/run directions
-in this file no longer apply.
+The current standalone edition uses the approved DK Kinehall interface in a bundled Chromium/Electron runtime. The separate Qt/libmpv source in `native/` is not the installed edition described here.
 
-## Current status
+## Update an existing installation
 
-The source lives in `native/` and uses Qt 6 Widgets plus libmpv. It has
-native local-media controls and embedded MKV subtitle-track selection without
-a subtitle file picker. A native release candidate **was compiled and packaged on November 25,
-2026**. Download the `DK-Kinehall-native-linux-x86_64` artifact from
-[the build run](https://github.com/dereksparks1982/dkkinehall/actions/runs/45644468833)
-and extract its tar.gz. The folder contains an executable named
-`DK Kinehall` and the bundled libraries. The archive is a release
-candidate: real media playback and MKV subtitle selection are not yet
-verified on the user's own Linux desktop.
+Close DK Kinehall. Run the standard updater in a terminal:
 
-The executable is distributed in the build artifact, not the repository
-root.
+```bash
+python3 - <<'PY'
+import urllib.request
+import subprocess
 
-Maintainers can see `native/README.md` for source build requirements.
-The eventual portable release must include all required native runtime
-libraries and codecs in a distribution-compliant way. End users should not
-need to install external players, browser engines or codec packs.
+url = "https://raw.githubusercontent.com/dereksparks1982/dkkinehall/main/maintenance/update_existing_linux.sh"
 
-The application is local-only. Any future live conversion engine must be
-separately integrated and tested before it is declared available.
+with urllib.request.urlopen(url, timeout=30) as response:
+    subprocess.run(["bash"], input=response.read(), check=True)
+PY
+```
+
+The updater synchronizes the Player, Library and native bridge in the existing installation, preserves approved icons and installed codec binaries unless a verified replacement is available, creates a backup, and reopens the player. The default installation location is `~/DKLab/Projects/DK Kinehall`.
+
+## New installations
+
+A fully verified standalone distribution package is not currently published in this repository. The existing-installation updater is not a fresh installer. No separate preview installation is required for routine updates.
+
+## Live TV
+
+The Library provides Movies, TV Shows and Live TV buttons. Live TV supports compatible HDHomeRun network tuner discovery and channel selection; USB/internal tuner discovery does not yet provide channel scanning or playback.

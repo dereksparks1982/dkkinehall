@@ -109,6 +109,16 @@ async function run(){
   for(const filename of ["South.Park.S03E07.mkv","South.Park.S00E01.Jesus.vs.Frosty.mkv","South.Park.S00E02.Jesus.vs.Santa.mkv"]){
     assert.equal(store.classifyAssigned({filename,relative:"South Park/"+filename,category:"tv"}).kind,"tv");
   }
+  const cached={kind:"tv",series:"South Park",season:0,episode:0,filename:"special.mkv",relative:"South Park/special.mkv",episodeTitle:"South Park - The End of Obesity",position:123,completed:false};
+  const repaired=store.repairCachedFeature(cached);
+  assert.equal(repaired.kind,"movie");
+  assert.equal(repaired.title,"South Park: The End of Obesity");
+  assert.equal(repaired.position,123);
+  assert.equal(repaired.episode,null);
+  const numbered={...cached,episode:1};
+  assert.equal(store.repairCachedFeature(numbered),numbered);
+  const manual={...cached,manualClassification:{kind:"tv"}};
+  assert.equal(store.repairCachedFeature(manual),manual);
   assert.equal(store.classify("Music.mp3"),null);
   assert.equal(store.classify("Album.ogg"),null);
   assert.equal(store.classify("Film.mp4").kind,"movie");

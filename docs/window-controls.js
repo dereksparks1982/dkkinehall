@@ -6,14 +6,14 @@
 "use strict";
 const KEY="dk-kinehall.player-window.v1";
 const clamp=(value,min,max)=>Math.max(min,Math.min(max,value));
-function attach({screen,button,onResize=()=>{}}){
+function attach({screen,button,theaterButton,onResize=()=>{}}){
   if(!screen||!button)return null;
   const container=screen.parentElement;
   const nativeDock=Boolean(root.DKLibraryBridge?.internalPages);
   const grid=nativeDock?container.closest(".main-grid"):null;
   const sidebar=grid?.querySelector(":scope > aside");
   const dockGripHost=nativeDock?(container.querySelector(":scope > .now-playing")||container):container;
-  let expanded=false;
+  let expanded=false,normalDockWidth=0;
   // Match the standalone grid's reserved queue width at every viewport
   // size, including when the queue is deliberately hidden in expanded mode.
   const normalLimit=()=>{
@@ -28,6 +28,12 @@ function attach({screen,button,onResize=()=>{}}){
     expanded=Boolean(value&&grid&&sidebar);
     grid?.classList.toggle("dk-player-expanded",expanded&&!floating);
     if(sidebar)sidebar.inert=expanded&&!floating;
+    if(theaterButton){
+      theaterButton.setAttribute("aria-pressed",String(expanded&&!floating));
+      const label=expanded?"Exit Theater Mode":"Theater Mode";
+      if(theaterButton.title!==label){theaterButton.title=label;theaterButton.setAttribute("aria-label",label);root.DKLocale?.apply();}
+      theaterButton.disabled=floating||screen.classList.contains("desktop-fullscreen")||Boolean(document.fullscreenElement);
+    }
   };
   const availableWidth=()=>Math.max(0,nativeDock?(grid?.clientWidth??container.parentElement?.clientWidth??0):container.clientWidth);
   const placeholder=document.createElement("div");
@@ -111,15 +117,28 @@ function attach({screen,button,onResize=()=>{}}){
     layout();
     save();
   }
+  function toggleTheater(){
+    if(!nativeDock||!grid||!sidebar||floating||screen.classList.contains("desktop-fullscreen")||document.fullscreenElement)return false;
+    cancelPointer?.();
+    if(expanded){dockWidth=normalDockWidth;expanded=false;}
+    else{normalDockWidth=dockWidth;dockWidth=0;expanded=true;}
+    screen.classList.toggle("dk-sized",dockWidth>0);
+    layout();save();return true;
+  }
   function reset(){
     cancelPointer?.();
-    dockWidth=0;expanded=false;
+    dockWidth=0;normalDockWidth=0;expanded=false;
     floatWidth=560;floatHeight=315;left=48;top=48;
     container.style.removeProperty("width");
     toggle(false);
     save();
   }
   button.addEventListener("click",()=>toggle());
+  if(nativeDock&&theaterButton){
+    theaterButton.hidden=false;
+    theaterButton.addEventListener("click",toggleTheater);
+    document.addEventListener("fullscreenchange",layout);
+  }
   if(nativeDock)resetButton.addEventListener("click",event=>{event.stopPropagation();reset();});
   function startPointer(element,onMove,onDone){
     element.addEventListener("pointerdown",event=>{
@@ -169,7 +188,7 @@ function attach({screen,button,onResize=()=>{}}){
         const limit=normalLimit();
         // Cross the normal two-column boundary to hide Up Next; crossing
         // back restores it. Hysteresis avoids flicker at the threshold.
-        if(!expanded&&dockWidth>limit+12)expanded=true;
+        if(!expanded&&dockWidth>limit+12){normalDockWidth=Math.min(sizingStart.width,limit);expanded=true;}
         else if(expanded&&dockWidth<=limit)expanded=false;
       }
       screen.classList.add("dk-sized");
@@ -188,7 +207,7 @@ function attach({screen,button,onResize=()=>{}}){
       const available=availableWidth();
       dockWidth=clamp(sizingStart.width+dx,nativeDock?minimumDockWidth():Math.min(300,available),available);
       const limit=normalLimit();
-      if(!expanded&&dockWidth>limit+12)expanded=true;
+      if(!expanded&&dockWidth>limit+12){normalDockWidth=Math.min(sizingStart.width,limit);expanded=true;}
       else if(expanded&&dockWidth<=limit)expanded=false;
       screen.classList.add("dk-sized");layout();
     });
@@ -202,7 +221,7 @@ function attach({screen,button,onResize=()=>{}}){
   window.addEventListener("resize",layout);
   if(!nativeDock&&(dockWidth||saved.floating))toggle(Boolean(saved.floating));
   else layout();
-  return {toggle,isFloating:()=>floating,layout,reset};
+  return {toggle,toggleTheater,isFloating:()=>floating,isTheater:()=>expanded&&!floating,layout,reset};
 }
 root.DKPlayerWindow={attach};
 })(typeof window!=="undefined"?window:globalThis);

@@ -1412,3 +1412,22 @@ html.dk-standalone .playback-settings-panel .player-settings-section>strong {col
 /* Keep the three Up Next actions in equal columns, even in a narrow sidebar. */
 html.dk-standalone .sidebar-top .sidebar-actions:has(#addQueuePlaylist){display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 html.dk-standalone .sidebar-top .sidebar-actions:has(#addQueuePlaylist) .btn{box-sizing:border-box;width:100%;min-width:0;max-width:100%;padding:5px 3px;line-height:1.15;white-space:normal;overflow-wrap:anywhere;text-align:center;display:flex;align-items:center;justify-content:center}
+
+/* Approved Float / Theater / PiP / Fullscreen reference group. */
+html.dk-standalone .screen .controls .extras :is(#floatPlayer,#theaterMode,#pip,#fullscreen){border-radius:8px;box-shadow:none;border-color:transparent;padding:6px;flex:0 0 auto}
+html.dk-standalone .screen .controls .extras #floatPlayer{min-width:58px;width:auto;background:#462a25;color:#e2b956;font-size:.74rem;font-weight:500}
+html.dk-standalone .screen .controls .extras :is(#theaterMode,#fullscreen){background:#e2b956;color:#462a25;border-color:transparent}
+html.dk-standalone .screen .controls .extras #pip{background:#d52b1e;color:#fff;border-color:transparent}
+html.dk-standalone .screen .controls .extras :is(#theaterMode,#pip,#fullscreen) .player-tool-icon{width:24px;height:24px}
+html.dk-standalone .screen .controls .extras #theaterMode[aria-pressed="true"]{box-shadow:inset 0 0 0 2px #462a25}
+html.dk-standalone .screen .controls .extras #theaterMode:focus-visible{outline:2px solid currentColor;outline-offset:-4px}
+html.dk-standalone .dk-jump-dialog{width:min(340px,calc(100vw - 32px));box-sizing:border-box;padding:16px;border:1px solid #a58039;border-radius:12px;background:#24201d;color:#fff}
+html.dk-standalone .dk-jump-dialog::backdrop{background:#0008}
+html.dk-standalone .dk-jump-dialog form{display:grid;gap:10px}
+html.dk-standalone .dk-jump-dialog strong{color:#e2b956}
+html.dk-standalone .dk-jump-dialog input{width:100%;box-sizing:border-box;min-height:42px;padding:8px;border-radius:8px;border:1px solid #a58039}
+html.dk-standalone .dk-jump-dialog .helper{margin:0}
+html.dk-standalone .dk-jump-dialog .helper:empty{display:none}
+html.dk-standalone .dk-jump-dialog .inline-buttons{justify-content:flex-end}
+html.dk-standalone .dk-jump-dialog .btn{background:#462a25;color:#e2b956;border-color:#a58039}
+html.dk-standalone .dk-jump-dialog .btn.primary{background:#d52b1e;color:#fff;border-color:#d52b1e}

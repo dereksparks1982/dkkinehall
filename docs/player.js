@@ -3689,7 +3689,7 @@
   window.addEventListener("resize",syncPgsOverlay);
   // Same media element and controls in both docked and movable modes.
   const playerWindow = window.DKPlayerWindow?.attach({
-    screen,button:byId("floatPlayer"),onResize:syncPgsOverlay
+    screen,button:byId("floatPlayer"),theaterButton:window.DKLibraryBridge?.internalPages?byId("theaterMode"):null,onResize:syncPgsOverlay
   });
   if (media.textTracks && typeof media.textTracks.addEventListener === "function") {
     media.textTracks.addEventListener("addtrack", () => setTimeout(applySubtitlePreference, 0));
@@ -4241,6 +4241,10 @@
     showVolumeOverlay();
   });
   byId("rate").addEventListener("change", event => { media.playbackRate = Number(event.target.value); });
+  if(window.DKLibraryBridge?.internalPages){
+    byId("pip").innerHTML='<svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/></svg>';
+    byId("fullscreen").innerHTML='<svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3m0 8v3a2 2 0 0 1-2 2h-3m-8 0H5a2 2 0 0 1-2-2v-3"/></svg>';
+  }
   if (!document.pictureInPictureEnabled || typeof media.requestPictureInPicture !== "function") {
     byId("pip").disabled = true;
     byId("pip").title = "Picture in picture isn't available for this video or player.";
@@ -4269,6 +4273,7 @@
     screen.classList.toggle("desktop-fullscreen", !!fullscreen);
     document.documentElement.classList.toggle("dk-desktop-fullscreen", !!fullscreen);
     if(wasFullscreen&&!fullscreen&&window.DKLibraryBridge?.internalPages)playerWindow?.reset();
+    else playerWindow?.layout();
     updateFullscreenButton();
     requestAnimationFrame(syncPgsOverlay);
     revealControls();
@@ -4643,6 +4648,37 @@
         void loadEmbeddedTrack(track);
     }
   });
+  const canJumpToTime=()=>{
+    const item=current(),length=playbackDuration();
+    return Boolean(item&&!state.stopped&&!item.liveChannel&&Number.isFinite(length)&&length>0);
+  };
+  const parseJumpTime=raw=>{
+    const value=String(raw).trim();
+    if(!/^\d{1,7}(?::\d{1,2}){0,2}(?:\.\d{1,3})?$/.test(value))return NaN;
+    const parts=value.split(":").map(Number);
+    if(parts.slice(1).some(part=>part>=60))return NaN;
+    return parts.reduce((total,part)=>total*60+part,0);
+  };
+  const openJumpToTime=()=>{
+    if(!window.DKLibraryBridge?.internalPages||!canJumpToTime()||document.querySelector("dialog[open]"))return;
+    const item=current(),epoch=item.playbackEpoch;
+    const dlg=document.createElement("dialog");dlg.className="dk-jump-dialog";
+    dlg.setAttribute("aria-labelledby","dkJumpHeading");
+    dlg.innerHTML='<form><strong id="dkJumpHeading">Jump to Time</strong><label for="dkJumpPosition">Time (hours:minutes:seconds)</label><input id="dkJumpPosition" type="text" inputmode="decimal" autocomplete="off" maxlength="24" required><p class="helper" id="dkJumpLength"></p><p class="helper" id="dkJumpError" role="alert"></p><div class="inline-buttons"><button type="button" class="btn" data-jump-cancel>Cancel</button><button type="submit" class="btn primary">Jump</button></div></form>';
+    const input=dlg.querySelector("input"),feedback=dlg.querySelector("#dkJumpError");
+    input.value=time(playbackSeconds());input.setAttribute("aria-describedby","dkJumpLength dkJumpError");
+    dlg.querySelector("#dkJumpLength").textContent=streamSay("Duration: ","Длительность: ")+time(playbackDuration());
+    dlg.querySelector("[data-jump-cancel]").addEventListener("click",()=>dlg.close());
+    dlg.querySelector("form").addEventListener("submit",event=>{
+      event.preventDefault();
+      if(current()!==item||item.playbackEpoch!==epoch||!canJumpToTime()){dlg.close();return;}
+      const value=parseJumpTime(input.value),length=playbackDuration();
+      if(!Number.isFinite(value)||value<0||value>=length){feedback.textContent="Enter a valid time before the end of the video.";window.DKLocale?.apply();input.focus();return;}
+      dlg.close();setPlaybackPosition(value);updateTime();revealControls();
+    });
+    dlg.addEventListener("close",()=>{dlg.remove();revealControls();},{once:true});
+    screen.append(dlg);dlg.showModal();window.DKLocale?.apply();input.focus();input.select();revealControls();
+  };
   const buildContextMenu = () => {
     contextMenu.replaceChildren();
     activeMenuSection = contextMenu;
@@ -4656,6 +4692,7 @@
     addMenuItem("↷  Forward 10 seconds", () => skipTen(10),
       {disabled: !current() || !Number.isFinite(media.duration) || state.stopped});
 
+    if(window.DKLibraryBridge?.internalPages)addMenuItem("Jump to Time",openJumpToTime,{disabled:!canJumpToTime()});
     addMenuHeading("Playback format");
     for (const [value,label] of [["auto","Automatic"],["original","Original (no conversion)"],
       ["mp4","MP4 (H.264/AAC)"],["webm","WebM (VP9/Opus)"]]) {
@@ -5014,6 +5051,9 @@
     } catch (_) { status("Couldn't read that subtitle file."); }
   });
   document.addEventListener("keydown", event => {
+    if(window.DKLibraryBridge?.internalPages&&event.ctrlKey&&!event.altKey&&!event.metaKey&&!event.shiftKey&&event.key.toLowerCase()==="t"&&!["INPUT","TEXTAREA","SELECT"].includes(event.target?.tagName)&&!event.target?.isContentEditable&&!document.querySelector("dialog[open]")){
+      if(canJumpToTime()){event.preventDefault();if(menuOpen)closeContextMenu();openJumpToTime();}return;
+    }
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     if (event.key === "Escape") {
       if(window.DKLibraryBridge?.internalPages){
@@ -5051,6 +5091,9 @@
       event.preventDefault();void stepFrame(key==="arrowleft"?-1:1);return;
     }
     if (["INPUT", "TEXTAREA", "SELECT"].includes(tag)||event.target?.isContentEditable) return;
+    if(window.DKLibraryBridge?.internalPages&&key==="t"&&!event.shiftKey&&!event.repeat&&!menuOpen&&!settingsDetails?.open&&infoPanel.hidden&&!document.querySelector("dialog[open]")&&!event.target?.closest?.('[role="menu"],[role="dialog"]')){
+      if(playerWindow?.toggleTheater()){event.preventDefault();revealControls();}return;
+    }
     // Keep native form/menu navigation intact, but a focused queue or
     // transport button must not swallow the standalone seek shortcut.
     if(tag==="BUTTON"&&!(standaloneChapters&&arrowSeek))return;

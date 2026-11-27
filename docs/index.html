@@ -10,10 +10,10 @@
 <link rel="manifest" href="./manifest.webmanifest?v=20261117-3">
 <link rel="icon" href="./icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png">
-<link rel="stylesheet" href="./player.css?v=20261127-app-palette2">
+<link rel="stylesheet" href="./player.css?v=20261127-theater-jump">
 <script src="./mkv-tracks.js?v=20261125-codecs4" defer></script>
 <script src="./mkv-chapters.js?v=20261126-features1" defer></script>
-<script src="./window-controls.js?v=20261126-dock-reset1" defer></script>
+<script src="./window-controls.js?v=20261127-theater-jump" defer></script>
 <script src="./mkv-webm.js?v=20261125-webm5" defer></script>
 <script src="./mkv-mp4.js?v=20261125-scan12" defer></script>
 <script src="./audio-tracks.js?v=20261117-6" defer></script>
@@ -34,13 +34,13 @@
 <script src="./metadata-ui.js?v=20261126-library11" defer></script>
 <script src="./artwork-recovery.js?v=20261126-episode-title3" defer></script>
 <script src="./queue-hover.js?v=20261116-1" defer></script>
-<script src="./i18n.js?v=20261126-live-tv3" defer></script>
+<script src="./i18n.js?v=20261127-theater-jump" defer></script>
 <script src="./queue-autoplay.js?v=20261124-1" defer></script>
 <script src="./folder-access.js?v=20261126-formats2" defer></script>
 <script src="./codec-playback.js?v=20261127-history-cue" defer></script>
 <script src="./segment-skip.js?v=20261127-manual-skip" defer></script>
 <script src="./audio-output.js?v=20261127-output" defer></script>
-<script src="./player.js?v=20261127-history-cue" defer></script>
+<script src="./player.js?v=20261127-theater-jump" defer></script>
 <script src="./playback-settings-layer.js?v=20261126-picture-context1" defer></script>
 </head>
 <body>
@@ -91,7 +91,7 @@
 <label><input id="removeWatched" type="checkbox" checked> Remove watched videos from Up Next</label>
 <p id="playbackFormatNote">MP4 and WebM currently use compatible MKV remuxing, not full transcoding. Changes apply to the next opened file.</p>
 </div>
-</div></details><button type="button" class="icon-btn player-tool-button dk-text-tool" id="chapters" aria-label="Select chapters" title="Select chapters" disabled>Chapters</button><button type="button" class="icon-btn player-tool-button dk-text-tool" id="floatPlayer" aria-label="Float player" title="Float or dock the video">Float</button><button type="button" class="icon-btn player-tool-button" id="pip" aria-label="Picture in picture" title="Picture in picture"><svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="4.5" width="17" height="15" rx="1.7" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12" y="11.5" width="7" height="5.5" rx=".6" fill="currentColor"/></svg></button><button type="button" class="icon-btn player-tool-button" id="fullscreen" aria-label="Fullscreen" title="Fullscreen"><svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+</div></details><button type="button" class="icon-btn player-tool-button dk-text-tool" id="chapters" aria-label="Select chapters" title="Select chapters" disabled>Chapters</button><button type="button" class="icon-btn player-tool-button dk-text-tool" id="floatPlayer" aria-label="Float player" title="Float or dock the video">Float</button><button type="button" class="icon-btn player-tool-button" id="theaterMode" aria-label="Theater Mode" title="Theater Mode" aria-pressed="false" hidden><svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="2" y="5" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><rect x="5" y="8" width="14" height="8" rx="1" fill="currentColor"/></svg></button><button type="button" class="icon-btn player-tool-button" id="pip" aria-label="Picture in picture" title="Picture in picture"><svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="3.5" y="4.5" width="17" height="15" rx="1.7" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="12" y="11.5" width="7" height="5.5" rx=".6" fill="currentColor"/></svg></button><button type="button" class="icon-btn player-tool-button" id="fullscreen" aria-label="Fullscreen" title="Fullscreen"><svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
 </div>
 </div>
 <div id="chapterPicker" class="dk-chapter-picker" role="dialog" aria-label="Select chapters" hidden><div class="dk-chapter-heading"><strong>Chapters</strong><button type="button" id="closeChapters" aria-label="Close chapters" title="Close chapters">×</button></div><div id="chapterEntries" class="dk-chapter-entries"></div></div>

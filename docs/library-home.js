@@ -528,6 +528,89 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
     window.innerHeight/scale-menu.offsetHeight-8))+"px";
   (seriesOnly?watch:row.kind==="movie"?$("movieDetailsAction"):!$("showInFolder").hidden&&!$("showInFolder").disabled?$("showInFolder"):$("deleteFromDisk")).focus();
 }
+const creditRole=type=>({Actor:say("Actor","Актёр"),Director:say("Director","Режиссёр"),Writer:say("Writer","Сценарист"),Producer:say("Producer","Продюсер"),GuestStar:say("Guest star","Приглашённый актёр"),Composer:say("Composer","Композитор"),ExecutiveProducer:say("Executive producer","Исполнительный продюсер"),VoiceActor:say("Voice actor","Актёр озвучивания"),Lyricist:say("Lyricist","Автор текста"),Conductor:say("Conductor","Дирижёр"),Arranger:say("Arranger","Аранжировщик"),Sound:say("Sound","Звук"),Unknown:say("Crew","Съёмочная группа")}[type]||say("Crew","Съёмочная группа"));
+const creditParams=(row,scope)=>({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",scope});
+async function creditImage(row,scope,person){
+  const url="dk-jellyfin://catalog/person-image?"+new URLSearchParams({...creditParams(row,scope),person});
+  const response=await nativeBridge.metadataRequest(url,"image");
+  if(!response.ok||!/^image\/(jpeg|png|webp)$/.test(response.mime))return null;
+  return new Blob([response.bytes],{type:response.mime});
+}
+async function showPersonProfile(row,scope,credit){
+  const {dialog,message,close}=localEditDialog(credit.name);
+  const image=create("img","dk-person-photo");image.alt="";image.hidden=true;
+  const role=create("p",null,[creditRole(credit.type),credit.role].filter(Boolean).join(" · "));
+  const facts=create("dl"),bio=create("p","dk-person-biography"),heading=create("h3",null,say("In your library","В вашей медиатеке")),titles=create("div","dk-person-titles");
+  let objectURL=null;
+  dialog.addEventListener("close",()=>{if(objectURL)URL.revokeObjectURL(objectURL);});
+  message.textContent=say("Loading profile…","Загрузка сведений…");
+  dialog.append(image,role,facts,bio,heading,titles,message,close);dialog.showModal();
+  void (async()=>{try{const blob=await creditImage(row,scope,credit.id);if(blob&&dialog.open){objectURL=URL.createObjectURL(blob);image.src=objectURL;image.hidden=false;}}catch(_){}})();
+  try{
+    const data=await jfCall("person",{...creditParams(row,scope),person:credit.id});
+    if(!dialog.open)return;
+    const add=(label,value)=>{if(value)facts.append(create("dt",null,label),create("dd",null,value));};
+    const date=value=>{if(!value)return "";const d=new Date(value);return Number.isFinite(d.getTime())?new Intl.DateTimeFormat(lang(),{dateStyle:"long",timeZone:"UTC"}).format(d):"";};
+    add(say("Born","Дата рождения"),date(data.born));
+    add(say("Died","Дата смерти"),date(data.died));
+    add(say("Locations","Места"),data.locations?.join(", "));
+    bio.textContent=data.biography||say("No biography available.","Биография недоступна.");
+    for(const title of data.filmography||[]){
+      const item=create("div","dk-person-title");
+      item.append(create("strong",null,title.title+(title.year?" ("+title.year+")":"")));
+      const roles=(title.roles||[]).map(p=>[creditRole(p.type),p.role].filter(Boolean).join(" · ")).join("; ");
+      if(roles)item.append(create("span","helper",roles));
+      titles.append(item);
+    }
+    if(!titles.children.length)titles.append(create("p","helper",data.filmographyAvailable?say("No matching indexed titles.","Нет совпадающих проиндексированных записей."):say("Library credits unavailable.","Сведения о работах в медиатеке недоступны.")));
+    message.textContent=data.limited?say("Some library results may be omitted.","Некоторые записи медиатеки могут быть пропущены."):"";
+  }catch(_){if(dialog.open)message.textContent=say("Profile unavailable from the metadata engine.","Сведения недоступны в службе метаданных.");}
+}
+function personCreditsPanel(dialog,row,scope,people=[]){
+  const panel=create("section","dk-person-credits");
+  const heading=create("h3",null,say("Cast and Crew","Актёры и съёмочная группа"));
+  const status=create("p","helper");status.setAttribute("role","status");
+  const grid=create("div","dk-person-grid");
+  const refresh=create("button","btn",say("Load cast and crew","Загрузить актёров и съёмочную группу"));refresh.type="button";
+  const more=create("button","btn",say("Show more","Показать ещё"));more.type="button";more.hidden=true;
+  let credits=[],shown=0,epoch=0,urls=[],closed=false;
+  const clear=()=>{epoch++;for(const url of urls)URL.revokeObjectURL(url);urls=[];grid.replaceChildren();shown=0;};
+  const cleanup=()=>{closed=true;clear();};
+  dialog.addEventListener("close",cleanup,{once:true});
+  function append(){
+    const revision=epoch,entries=credits.slice(shown,shown+20),images=[];
+    shown+=entries.length;
+    for(const person of entries){
+      const card=create("button","btn dk-person-card");card.type="button";
+      const img=create("img");img.alt="";img.hidden=true;
+      card.append(img,create("strong",null,person.name),create("span",null,[creditRole(person.type),person.role].filter(Boolean).join(" · ")));
+      card.addEventListener("click",()=>void showPersonProfile(row,scope,person));grid.append(card);
+      if(person.hasImage)images.push({person,img});
+    }
+    more.hidden=shown>=credits.length;
+    void (async()=>{for(const {person,img} of images){
+      if(closed||!dialog.open||!panel.isConnected||epoch!==revision)break;
+      try{const blob=await creditImage(row,scope,person.id);if(!blob||closed||!dialog.open||!panel.isConnected||epoch!==revision)continue;const u=URL.createObjectURL(blob);urls.push(u);img.src=u;img.hidden=false;}catch(_){}
+    }})();
+  }
+  function show(values){
+    clear();credits=Array.isArray(values)?values.filter(x=>x?.id&&x.name):[];
+    status.textContent=credits.length?"":say("No person records available.","Сведения об участниках недоступны.");
+    append();
+  }
+  refresh.addEventListener("click",async()=>{
+    refresh.disabled=true;status.textContent=say("Loading credits…","Загрузка сведений об участниках…");
+    try{const data=await jfCall("item",{...creditParams(row,scope),force:"1"});if(!closed&&panel.isConnected)show(data.details?.people);}
+    catch(_){if(!closed)status.textContent=say("Credits unavailable from the metadata engine.","Сведения недоступны в службе метаданных.");}
+    finally{refresh.disabled=false;}
+  });
+  more.addEventListener("click",append);
+  panel.append(heading,refresh,status,grid,more);
+  // Start only after the caller attaches the panel and opens its dialog.
+  queueMicrotask(()=>{if(panel.isConnected&&dialog.open)show(people);});
+  panel.dispose=cleanup;return panel;
+}
+
 let detailMovieId=null;
 function displayMovieDetails(row){
   const d=$("movieDetailsDialog");
@@ -550,6 +633,12 @@ function displayMovieDetails(row){
   $("movieDetailsClose").title=say("Close","Закрыть");
   $("movieDetailsClose").setAttribute("aria-label",say("Close","Закрыть"));
   if(!d.open)d.showModal();
+  const previous=d.querySelector(".dk-person-credits");
+  const key=row.id+":"+JSON.stringify(data.people||[]);
+  if(!previous||previous.dataset.creditKey!==key){
+    if(previous){previous.dispose?.();previous.remove();}
+    const panel=personCreditsPanel(d,row,"item",data.people);panel.dataset.creditKey=key;list.after(panel);
+  }
 }
 let fileInfoRevision=0;
 function showFileFields(row,info=null,loading=false){
@@ -1444,6 +1533,7 @@ async function showTVDetails(row,scope){
   add(say("Director","Режиссёр"),data.details?.directors?.join(", "));
   add(say("Rating","Рейтинг"),data.details?.rating);
   if(scope==="item")add(say("Episode","Серия"),formatCode(row));
+  fields.after(personCreditsPanel(dialog,row,scope,data.details?.people));
   message.textContent="";
 }
 async function editHierarchyDialog(row,scope){
@@ -1491,7 +1581,7 @@ function connect(){
   $("chooseArtwork").addEventListener("click",()=>void chooseArtworkDialog());
   if(nativeBridge?.metadataRequest){void pollJellyfin();setInterval(pollJellyfin,10000);}
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
-  $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;});
+  $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;const p=$("movieDetailsDialog").querySelector(".dk-person-credits");p?.dispose?.();p?.remove();});
   $("markWatched").addEventListener("click",()=>markContext(true));
   $("markUnwatched").addEventListener("click",()=>markContext(false));
   $("watchedFilter").addEventListener("change",event=>{watchedFilter=event.target.value;visibleCount=72;void render();});

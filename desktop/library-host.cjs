@@ -2580,6 +2580,67 @@ async function jfGallery(cfg,target,url,kind){
   return missing;
 }
 
+// Person profiles are authorized only through a verified selected media
+// item and its actual credits. The renderer never supplies an arbitrary URL.
+function jfCreditList(people){
+  const seen=new Set(),results=[];
+  for(const p of Array.isArray(people)?people:[]){
+    if(!jellyfinId(p?.Id)||typeof p.Name!=="string"||!p.Name.trim())continue;
+    const type=typeof p.Type==="string"?p.Type.slice(0,40):"Unknown";
+    const role=typeof p.Role==="string"?p.Role.slice(0,180):"";
+    const key=p.Id+":"+type+":"+role;
+    if(seen.has(key))continue;seen.add(key);
+    results.push({id:p.Id,name:p.Name.slice(0,180),type,role,hasImage:!!p.PrimaryImageTag});
+    if(results.length>=100)break;
+  }
+  return results;
+}
+async function jfPerson(cfg,info,catalog,url,kind){
+  const missing={ok:false,status:404};
+  const personId=url.searchParams.get("person");
+  const credit=jfCreditList(info.People).find(p=>p.id===personId);
+  if(!credit)return missing;
+  const user=cfg.userId?{UserId:cfg.userId}:{};
+  if(url.pathname==="/person-image"&&kind==="image")
+    return await jellyfinGet(cfg,"/Items/"+personId+"/Images/Primary",{maxWidth:280,maxHeight:420,quality:85},true)||missing;
+  if(url.pathname!=="/person"||kind!=="json")return missing;
+  const person=await jellyfinGet(cfg,"/Items/"+personId,user);
+  if(!person||person.Id!==personId||person.Type!=="Person")return missing;
+  const selected=getLibrarySources(),allowed=new Set();
+  for(const entry of catalog.values()){
+    if(!entry||typeof entry.Path!=="string"||!selected.some(root=>root.kind===(entry.Type==="Movie"?"movie":"tv")&&inSource(root.path,entry.Path)))continue;
+    if(jellyfinId(entry.Id))allowed.add(entry.Id);
+    if(jellyfinId(entry.SeriesId))allowed.add(entry.SeriesId);
+  }
+  const titles=[],seen=new Set();
+  let filmographyAvailable=false,limited=false;
+  try{
+    for(let start=0;start<600;start+=100){
+      const page=await jellyfinGet(cfg,"/Items",{...user,Recursive:true,IncludeItemTypes:"Movie,Series,Episode",PersonIds:personId,EnableUserData:false,EnableImages:false,StartIndex:start,Limit:100,Fields:"People"},false,12000);
+      if(!Array.isArray(page?.Items))break;
+      filmographyAvailable=true;
+      for(const entry of page.Items){
+        if(!allowed.has(entry?.Id)||!["Movie","Series","Episode"].includes(entry.Type)||typeof entry.Name!=="string")continue;
+        const key=entry.Type==="Episode"&&jellyfinId(entry.SeriesId)&&allowed.has(entry.SeriesId)?entry.SeriesId:entry.Id;
+        if(seen.has(key))continue;seen.add(key);
+        const isEpisode=entry.Type==="Episode";
+        const name=isEpisode&&entry.SeriesName?entry.SeriesName:entry.Name;
+        const credits=jfCreditList(entry.People).filter(p=>p.id===personId);
+        titles.push({id:key,title:String(name).slice(0,180),year:!isEpisode?Number(entry.ProductionYear)||null:null,type:isEpisode&&entry.SeriesName?"Series":entry.Type,roles:credits.map(p=>({type:p.type,role:p.role})).slice(0,8)});
+      }
+      const more=page.Items.length===100&&(!Number.isFinite(page.TotalRecordCount)||start+page.Items.length<page.TotalRecordCount);
+      if(!more)break;
+      if(start===500)limited=true;
+    }
+  }catch(_){limited=true;}
+  const clip=(value,n)=>typeof value==="string"?value.slice(0,n):"";
+  titles.sort((a,b)=>(b.year||0)-(a.year||0)||a.title.localeCompare(b.title));
+  return jfJSON({name:clip(person.Name,180)||credit.name,biography:clip(person.Overview,18000),
+    born:clip(person.PremiereDate,32),died:clip(person.EndDate,32),
+    locations:Array.isArray(person.ProductionLocations)?person.ProductionLocations.filter(x=>typeof x==="string").slice(0,8).map(x=>x.slice(0,180)):[],
+    credit,filmography:titles.slice(0,150),filmographyAvailable,limited:limited||titles.length>150});
+}
+
 async function jellyfinMetadata(raw,kind){
   const missing={ok:false,status:404};
   try{
@@ -2587,7 +2648,7 @@ async function jellyfinMetadata(raw,kind){
     if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.username||url.password||url.port||url.hash)return missing;
     if(url.pathname==="/status"&&kind==="json")return await jfStatus();
     if(["/search","/apply"].includes(url.pathname))return await jfMatch(url,kind);
-    const cfg=jellyfinConfig()||jfConfig;if(!cfg||!["/item","/gallery","/gallery-image"].includes(url.pathname))return missing;
+    const cfg=jellyfinConfig()||jfConfig;if(!cfg||!["/item","/gallery","/gallery-image","/person","/person-image"].includes(url.pathname))return missing;
     const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
     const series=url.searchParams.get("series")==="1";
     if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Episode"].includes(type)||series&&type!=="Episode")return missing;
@@ -2600,8 +2661,8 @@ async function jellyfinMetadata(raw,kind){
     if(!["item","series","season"].includes(scope)||scope!=="item"&&type!=="Episode")return missing;
     const target=scope==="series"?item.SeriesId:scope==="season"?item.SeasonId:item.Id;
     if(!jellyfinId(target))return missing;
-    if(url.pathname!=="/item")return await jfGallery(cfg,target,url,kind);
-    if(kind==="image"){
+    if(["/gallery","/gallery-image"].includes(url.pathname))return await jfGallery(cfg,target,url,kind);
+    if(url.pathname==="/item"&&kind==="image"){
       const imageType=url.searchParams.get("image")||"Primary";
       if(!["Primary","Backdrop","Thumb"].includes(imageType))return missing;
       return await jellyfinGet(cfg,"/Items/"+target+"/Images/"+imageType,{maxWidth:imageType==="Backdrop"?960:scope!=="item"||type==="Movie"?480:640,quality:85},true)||missing;
@@ -2614,10 +2675,11 @@ async function jellyfinMetadata(raw,kind){
       if(!info)return missing;
       if(scope==="season"&&info.SeriesId&&info.SeriesId!==item.SeriesId)return missing;
     }
+    if(["/person","/person-image"].includes(url.pathname))return await jfPerson(cfg,info,catalog,url,kind);
     const clip=(value,n)=>typeof value==="string"?value.slice(0,n):"";
     const people=Array.isArray(info.People)?info.People:[];
     const result={title:clip(info.Name,180),year:Number(info.ProductionYear)||null,scope,
-      provider:"Jellyfin",identity:{itemId:info.Id,seriesId:jellyfinId(item.SeriesId)?item.SeriesId:null,seasonId:jellyfinId(item.SeasonId)?item.SeasonId:null,providerIds:jfProviderIds(info.ProviderIds)},details:{description:clip(info.Overview,6000),
+      provider:"Jellyfin",identity:{itemId:info.Id,seriesId:jellyfinId(item.SeriesId)?item.SeriesId:null,seasonId:jellyfinId(item.SeasonId)?item.SeasonId:null,providerIds:jfProviderIds(info.ProviderIds)},details:{description:clip(info.Overview,6000),people:jfCreditList(people),
       genres:Array.isArray(info.Genres)?info.Genres.filter(x=>typeof x==="string").slice(0,20):[],
       directors:people.filter(x=>x?.Type==="Director").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,15),
       cast:people.filter(x=>x?.Type==="Actor").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,30),

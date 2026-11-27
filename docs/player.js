@@ -579,9 +579,16 @@
       !subtitleTracks().length &&
       !(codecPlayback?.isActive(item) &&
         (item.nativeSubtitleTracks||[]).some(track=>isTextNativeSubtitle(track)||isDVDSubtitle(item,track))));
-    const label=button.querySelector(".subtitle-state");
-    if(label)label.textContent=on?"On":"Off";
-    else button.textContent=on?"On":"Off";
+    if(window.DKLibraryBridge?.internalPages){
+      if(button.dataset.ccGlyph!=="approved"){
+        button.innerHTML="<svg class=\"subtitle-cc\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" focusable=\"false\"><rect x=\"1.5\" y=\"4\" width=\"21\" height=\"16\" rx=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/><path d=\"M10 9a3.5 3.5 0 1 0 0 6M18 9a3.5 3.5 0 1 0 0 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\"/></svg>";
+        button.dataset.ccGlyph="approved";
+      }
+    }else{
+      const label=button.querySelector(".subtitle-state");
+      if(label)label.textContent=on?"On":"Off";
+      else button.textContent=on?"On":"Off";
+    }
     button.setAttribute("aria-pressed",String(on));
     button.setAttribute("aria-label",on ? "Turn subtitles off" : "Turn subtitles on");
     button.title = on ? "Turn subtitles off" : "Turn subtitles on";

@@ -667,3 +667,6 @@ Build 1 source pass: separate movie and series backdrop keys in existing artwork
 - Implemented in source: default standalone Home, collapsible sidebar, featured local movie and metadata-only discovery, mixed Continue Watching, owned movie/TV shelves, filters and sort, widescreen episode cards. Preserve gold palette, vintage background, existing player, catalog and server controls.
 - Local history-based genre ranking with cold-start random selection; bounded public catalog lookup, duplicate-title exclusion and local fallback. No external acquisition links.
 - Pending: installed visual/keyboard/remote testing, actual discovery provider acceptance, richer TV metadata and recommendation preferences. No release version increment for this build.
+
+
+Cinema Home reference correction: the previous visual arrangement was rejected. Replaced its oversized gold navigation buttons and intervening Home filter bar with reference-proportioned flat sidebar, compact header, hero, immediate landscape Continue Watching and six portrait cards per shelf at desktop width; anchored controls and branding below. Maintain approved gold actions and vintage film background. Installed screenshot comparison and user acceptance pending.

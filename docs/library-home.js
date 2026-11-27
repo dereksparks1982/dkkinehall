@@ -14,7 +14,7 @@ const storedMode=()=>{
   catch(_){return "movie";}
 };
 let mode=storedMode(),selectedSeries=null,selectedSeason=null;
-let cinema=null,homePage=nativeBridge?.internalPages?"home":null,seriesMetadata=new Map();
+let cinema=null,homePage=nativeBridge?.internalPages?"home":null,seriesMetadata=new Map(),homeSearchOpen=false,resumeExpanded=false;
 let homeFilters={query:"",genre:"",year:"",rating:"",watched:"",sort:"title"};
 let collectionFilter={kind:"",value:"",query:"",saved:false},collectionTools=null;
 let all=[],folders=[],assignedSources=[],visibleCount=72,renderEpoch=0;
@@ -61,6 +61,7 @@ const status=(en,ru=null,error=false)=>{
   const node=$("libraryStatus");
   node.textContent=ru?say(en,ru):en;
   node.classList.toggle("error",error);
+  node.classList.toggle("dk-cinema-idle",en==="Library loaded from local cache."&&!error);
 };
 const nameSort=(a,b)=>String(a).localeCompare(String(b),undefined,{
   numeric:true,sensitivity:"base"
@@ -214,6 +215,7 @@ function createCard(row,{landscape=false,series=false}={}){
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   if(row.classificationReview||row.kind==="tv"&&!Number(row.episode)&&!series){detail.textContent=[detail.textContent,say("Check classification","Проверить категорию")].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
+  if(cinema&&(homePage==="home"||landscape)){card.classList.add("dk-cinema-overlay-card");box.append(title);}
   if(nativeBridge){
     const open=create("button","dk-library-open-card");
     open.type="button";
@@ -1388,6 +1390,7 @@ function paintJellyfinState(data){
  controls.hidden=false;light.dataset.state=data.state;node.textContent=(messages[data.state]||messages.unknown)+(data.state==="scanning"&&data.progress!=null?" "+Math.round(data.progress)+"%":"");
  light.title=node.textContent;light.setAttribute("aria-label",node.textContent);
  button.textContent=data.enabled&&(data.state!=="unavailable"||data.runningProcess)?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
+ button.title=button.textContent+" · "+node.textContent;button.setAttribute("aria-label",button.title);
  button.disabled=jfPowerBusy||!data.controllable||!nativeBridge?.jellyfinPower;
 }
 async function toggleJellyfinPower(){
@@ -1779,22 +1782,30 @@ async function discover(ticket){
  try{const im=await nativeBridge.metadataRequest("https://images.metahub.space/background/medium/"+r.id+"/img","image");if(ticket!==featureEpoch||!externalShowing||!im.ok||!/^image\/(jpeg|png|webp)$/.test(im.mime))return;const url=URL.createObjectURL(new Blob([im.bytes],{type:im.mime}));backdropViews.set(hero,{id:"discovery:"+r.id,url});hero.style.setProperty("--dk-detail-backdrop",'url("'+url+'")');hero.classList.add("dk-has-detail-backdrop");}catch(_){}
 }
 function navigateCinema(page){
- window.DKLiveTV?.close();clearFeature();homePage=page;selectedSeries=null;selectedSeason=null;visibleCount=72;collectionFilter={kind:"",value:"",query:"",saved:false};void render();
+ window.DKLiveTV?.close();clearFeature();homeSearchOpen=false;resumeExpanded=false;homePage=page;selectedSeries=null;selectedSeason=null;visibleCount=72;collectionFilter={kind:"",value:"",query:"",saved:false};void render();
 }
 function setupCinema(){
  const shell=document.querySelector(".library-shell"),main=shell.querySelector("main"),top=shell.querySelector(".topbar"),tabs=main.querySelector(".library-tabs");
  const side=create("aside","dk-cinema-sidebar"),nav=create("nav","dk-cinema-nav"),bottom=create("div","dk-cinema-bottom"),brand=top.querySelector(".brand");
  const collapse=cinemaButton("☰","☰",()=>{const v=shell.classList.toggle("dk-cinema-collapsed");collapse.setAttribute("aria-expanded",String(!v));try{localStorage.setItem("dk-kinehall.cinema.collapsed",v?"1":"0");}catch(_){}},"btn dk-cinema-collapse");collapse.setAttribute("aria-expanded","true");
- side.append(brand,collapse,nav,bottom);shell.prepend(side);shell.classList.add("dk-cinema");
+ const brandRow=create("div","dk-cinema-brand-row");brandRow.append(brand,collapse);side.append(brandRow,nav,bottom);shell.prepend(side);shell.classList.add("dk-cinema");
  try{if(localStorage.getItem("dk-kinehall.cinema.collapsed")==="1"){shell.classList.add("dk-cinema-collapsed");collapse.setAttribute("aria-expanded","false");}}catch(_){}
  const navButton=(id,icon,en,ru,fn)=>{const b=cinemaButton(en,ru,fn);b.id=id;return adopt(b,icon,en,ru);};
- function adopt(b,icon,en,ru){if(!b)return null;b.classList.add("dk-cinema-nav-button");b.dataset.icon=icon;b.dataset.en=en;b.dataset.ru=ru;b.removeAttribute("role");return b;}
- nav.append(navButton("dkNavSearch","⌕","Search","Поиск",()=>{if(main.classList.contains("dk-live-active"))navigateCinema("home");setTimeout(()=>$("dkCinemaSearch").focus(),100);}),navButton("dkNavHome","⌂","Home","Главная",()=>navigateCinema("home")));
+ function adopt(b,icon,en,ru){
+  if(!b)return null;
+  b.classList.add("dk-cinema-nav-button");b.dataset.icon=icon;b.dataset.en=en;b.dataset.ru=ru;b.removeAttribute("role");
+  const paths={dkNavSearch:"M21 21l-5-5M18 11a7 7 0 1 1-14 0 7 7 0 0 1 14 0",dkNavHome:"M3 10l9-7 9 7v10H4V10M9 20v-7h6v7",tabMovies:"M4 3h16v18H4zM4 8h16M4 16h16M8 3v18M16 3v18",tabTV:"M3 5h18v14H3zM6 9h12M6 12h12M6 15h12",libraryLiveTV:"M3 7h18v13H3zM8 3l4 4 4-4",dkNavWatch:"m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2-5.5-3-5.5 3 1-6.2L3 9.6l6.2-.9z",dkNavCollections:"M3 4h4v16H3zM10 4h4v16h-4zM17 4h4v16h-4z",showPlayer:"M6 3l15 9-15 9z",librarySettings:"M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1M17 12a5 5 0 1 1-10 0 5 5 0 0 1 10 0"};
+  const svg=document.createElementNS("http://www.w3.org/2000/svg","svg"),path=document.createElementNS("http://www.w3.org/2000/svg","path");
+  svg.setAttribute("viewBox","0 0 24 24");svg.setAttribute("aria-hidden","true");svg.setAttribute("class","dk-cinema-nav-icon");path.setAttribute("d",paths[b.id]||paths.dkNavHome);path.setAttribute("fill",b.id==="showPlayer"?"currentColor":"none");path.setAttribute("stroke","currentColor");path.setAttribute("stroke-width","1.65");path.setAttribute("stroke-linejoin","round");path.setAttribute("stroke-linecap","round");svg.append(path);
+  b.replaceChildren(svg,create("span","dk-cinema-nav-label",say(en,ru)));return b;
+ }
+ nav.append(navButton("dkNavSearch","⌕","Search","Поиск",()=>{if(main.classList.contains("dk-live-active"))navigateCinema("home");homeSearchOpen=true;if(cinema)syncCinema();requestAnimationFrame(()=>$("dkCinemaSearch").focus());}),navButton("dkNavHome","⌂","Home","Главная",()=>navigateCinema("home")));
  for(const [id,icon,en,ru] of [["tabMovies","▣","Movies","Фильмы"],["tabTV","▤","TV Shows","Сериалы"],["libraryLiveTV","▦","Live TV","Прямой эфир"]]){const b=adopt($(id),icon,en,ru);if(b)nav.append(b);}
  nav.append(navButton("dkNavWatch","☆","Watchlist","Список просмотра",()=>navigateCinema("watch")),navButton("dkNavCollections","▥","Collections","Коллекции",()=>{switchMode("movie");collectionFilter={kind:"collection",value:"",query:"",saved:false};void render();}));
  const player=adopt($("showPlayer"),"▶","Player","Проигрыватель");if(player)nav.append(player);
  const settings=adopt($("librarySettings"),"⚙","Settings","Настройки");if(settings)bottom.append(settings);
  bottom.append($("jellyfinServerControls"));tabs.hidden=true;
+ const footer=shell.querySelector(".dk-branded-footer");if(footer){footer.classList.add("dk-cinema-brand-footer");bottom.append(footer);}
  for(const id of ["addLibraryFolder","scanLibrary","libraryEmptyTrash","libraryRefreshMetadata"])$(id)?.classList.add("dk-management-only");
  const heading=create("h1","dk-cinema-heading");top.prepend(heading);
  const hero=create("section","dk-cinema-hero");hero.id="dkCinemaHero";hero.hidden=true;hero.setAttribute("aria-live","polite");
@@ -1805,9 +1816,11 @@ function setupCinema(){
  const shelves=create("div","dk-cinema-shelves");shelves.id="dkCinemaShelves";
  function shelf(kind,en,ru){const section=create("section","library-section"),head=create("div","section-heading"),title=create("h2",null,say(en,ru)),list=create("div","library-posters dk-cinema-shelf"),more=cinemaButton("View all ›","Все ›",()=>switchMode(kind),"btn");head.append(title,more);section.append(head,list);shelves.append(section);return {title,list,more};}
  const movies=shelf("movie","Your Movies","Ваши фильмы"),tv=shelf("tv","Your TV Shows","Ваши сериалы");
+ for(const s of [movies,tv])s.more.classList.add("dk-cinema-view-all");
+ const resumeMore=cinemaButton("View all ›","Все ›",()=>{resumeExpanded=!resumeExpanded;$("continueWatching").classList.toggle("dk-resume-expanded",resumeExpanded);resumeMore.textContent=resumeExpanded?say("Show less","Свернуть"):say("View all ›","Все ›");},"btn dk-cinema-view-all");$("continueSection").querySelector(".section-heading").append(resumeMore);
  main.insertBefore(hero,$("libraryStatus"));hero.after(filters);$("continueSection").after(shelves);
  const collection=$("libraryCollection").closest(".library-section");collection.id="dkCinemaCollection";
- cinema={shell,main,side,nav,bottom,collapse,heading,hero,filters,input,controls,reset,shelves,movies,tv,collection};
+ cinema={shell,main,side,nav,bottom,collapse,heading,hero,filters,input,controls,reset,shelves,movies,tv,collection,resumeMore};
  $("languageSelect").addEventListener("change",()=>queueMicrotask(()=>{clearFeature();void render();}));
 }
 function setOptions(key,label,values){
@@ -1818,12 +1831,13 @@ function setOptions(key,label,values){
 function syncCinema(){
  const n=cinema,live=n.main.classList.contains("dk-live-active"),home=homePage==="home",watch=homePage==="watch";
  n.shell.classList.toggle("dk-cinema-home",home&&!live);n.shell.classList.toggle("dk-cinema-watch",watch&&!live);
- n.hero.hidden=!home||live;n.shelves.hidden=!(home||watch)||live;n.collection.hidden=home||watch||live;n.filters.hidden=live;
+ n.hero.hidden=!home||live;n.shelves.hidden=!(home||watch)||live;n.collection.hidden=home||watch||live;n.filters.hidden=live||(home&&!homeSearchOpen);
  $("continueSection").hidden=!home||live;
  if(!home||live){if(featureTimer||externalBusy||externalShowing)clearFeature();}
  n.heading.textContent=live?say("Live TV","Прямой эфир"):home?say("Home","Главная"):watch?say("Watchlist","Список просмотра"):mode==="tv"?say("TV Shows","Сериалы"):collectionFilter.kind==="collection"?say("Collections","Коллекции"):say("Movies","Фильмы");
  const selected=live?"libraryLiveTV":home?"dkNavHome":watch?"dkNavWatch":mode==="tv"?"tabTV":collectionFilter.kind==="collection"?"dkNavCollections":"tabMovies";
- for(const b of n.side.querySelectorAll(".dk-cinema-nav-button")){const label=say(b.dataset.en,b.dataset.ru);b.textContent=label;b.title=label;b.setAttribute("aria-label",label);b.setAttribute("aria-current",b.id===selected?"page":"false");}
+ for(const b of n.side.querySelectorAll(".dk-cinema-nav-button")){const label=say(b.dataset.en,b.dataset.ru);const span=b.querySelector(".dk-cinema-nav-label");if(span)span.textContent=label;b.title=label;b.setAttribute("aria-label",label);b.setAttribute("aria-current",b.id===selected?"page":"false");}
+ $("jellyfinPower").dataset.label=say("Server","Сервер");n.resumeMore.textContent=resumeExpanded?say("Show less","Свернуть"):say("View all ›","Все ›");$("continueWatching").classList.toggle("dk-resume-expanded",resumeExpanded);
  n.collapse.setAttribute("aria-label",say("Toggle sidebar","Свернуть или развернуть меню"));
  n.input.placeholder=say("Search library","Поиск в медиатеке");n.input.setAttribute("aria-label",n.input.placeholder);if(document.activeElement!==n.input)n.input.value=homeFilters.query;
  const pool=all.filter(r=>cinemaEligible(r)&&(home||watch||r.kind===mode));

@@ -17,13 +17,26 @@ function setChannels(node,mode){
  node.channelCount=2;
  node.channelCountMode=stereo?"explicit":"max";
 }
+// Web Audio starts with two destination channels even on many surround
+// devices. Only explicit Surround mode requests the available PCM channels;
+// return to the original destination configuration in all other modes.
+function destinationChannels(mode,maximum,original){
+ const max=Math.max(1,Math.floor(Number(maximum)||2));
+ if(mode==="surround")return max>=8?8:max>=6?6:Math.min(max,2);
+ return Math.max(1,Math.min(max,original));
+}
 function create(context,master,getSettings){
+ const originalChannels=context.destination.channelCount;
  const bus=context.createGain();
  master.connect(bus);
  let compressor=null,guard=null,route=null;
  function apply(){
   const s=getSettings();
   setChannels(bus,s.mode);
+  try{
+   const requested=destinationChannels(s.mode,context.destination.maxChannelCount,originalChannels);
+   if(context.destination.channelCount!==requested)context.destination.channelCount=requested;
+  }catch(_){/* OS/browser may reject multichannel routing; retain supported output. */}
   const stereo=s.mode==="headphones"||s.mode==="stereo"||context.destination.channelCount<=2;
   const next=!s.protect?"direct":stereo?"compressed":"guard";
   if(next===route)return;
@@ -50,5 +63,5 @@ function create(context,master,getSettings){
  try{apply();}catch(_){}
  return {bus,apply};
 }
-window.DKAudioOutput=Object.freeze({create,setChannels});
+window.DKAudioOutput=Object.freeze({create,setChannels,destinationChannels});
 })();

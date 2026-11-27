@@ -62,7 +62,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         if(item.activeSmoothing)item.playbackMethod="Bundled native decoder (motion interpolation)";
         item.nativeOutputFormat=result.format||format;
         item.nativePassthrough={video:result.copyVideo===true,audio:result.copyAudio===true};
-        item.nativeMediaInfo={hasVideo:result.hasVideo,hasAudio:result.hasAudio,videoCodec:result.videoCodec,audioCodec:result.audioCodec,format:result.format};
+        item.nativeMediaInfo={hasVideo:result.hasVideo,hasAudio:result.hasAudio,videoCodec:result.videoCodec,audioCodec:result.audioCodec,format:result.format,outputAudioChannels:Number(result.outputAudioChannels)||0};
         if(result.hasVideo){item.audio=false;media.closest(".screen")?.classList.remove("audio");}
         else if(result.hasVideo===false&&result.hasAudio){item.audio=true;media.closest(".screen")?.classList.add("audio");}
         item.nativeAudioTracks=Array.isArray(result.audioTracks)?

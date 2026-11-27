@@ -4143,7 +4143,7 @@
   const saveOutputVolume=()=>{if(desktopVolume){outputPrefs.levels[outputPrefs.mode]=volumePercent;write(outputKey,outputPrefs);}};
   const applyVolume = () => {
     const separateAudio=Boolean(mkvAudio?.active());
-    if(!separateAudio&&(volumePercent>100||((audioEffectsActive()||explicitStereo())&&current()&&!state.stopped))){
+    if(!separateAudio&&(volumePercent>100||((audioEffectsActive()||explicitStereo()||outputPrefs.mode==="surround")&&current()&&!state.stopped))){
       if(!ensureVolumeBoost()&&volumePercent>100)volumePercent=100;
     }
     const center=setVoiceCenter(separateAudio?null:voiceoverCenterFactor());
@@ -4207,6 +4207,7 @@
     const outputNote=document.createElement("p");outputNote.className="helper";
     outputNote.textContent=local("Choose a mode manually. Headphones and stereo speakers use stereo downmixing. Other modes follow system routing. Volume is remembered for each mode. Peak protection reduces clipping inside the player, not hardware distortion.","Выберите режим вручную. Наушники и стереодинамики используют стереосведение. Другие режимы используют системный вывод. Громкость запоминается для каждого режима. Защита уменьшает перегрузку в проигрывателе, но не искажения оборудования.");
     section.append(modeLabel,modeSelect,protectLabel,outputNote);
+    const surroundNote=document.createElement("p");surroundNote.className="helper";surroundNote.textContent=local("Surround mode requests supported 5.1 or 7.1 decoded PCM output. Local native decoding retains standard 5.1 AAC or Opus and 7.1 Opus channels where supported. HDMI receiver and system routing determine actual output. Encoded Dolby/DTS bitstream passthrough is not available yet.","Режим объёмного звука запрашивает поддерживаемый декодированный вывод ИКМ 5.1 или 7.1. Локальное декодирование сохраняет стандартные каналы ААС или Опус 5.1 и Опус 7.1 при наличии поддержки. Фактический вывод зависит от приёмника и системных настроек. Передача закодированного потока Долби или ДТС пока недоступна.");section.append(surroundNote);
     const title=document.createElement("strong");title.textContent="Audio enhancements";section.append(title);
     const enable=document.createElement("input");enable.type="checkbox";enable.id="audioEnhancementsEnabled";
     const enabledLabel=document.createElement("label");enabledLabel.append(enable,document.createTextNode("Enable audio enhancements"));section.append(enabledLabel);
@@ -4308,7 +4309,7 @@
     });
     byId("playerSettingsPanel").append(section);
     byId("languageSelect").addEventListener("change",()=>queueMicrotask(applyAudioSettings));
-    media.addEventListener("loadedmetadata",()=>{if(audioEffectsActive()||explicitStereo()||volumeAudioGraph)applyAudioSettings();});
+    media.addEventListener("loadedmetadata",()=>{if(audioEffectsActive()||explicitStereo()||outputPrefs.mode==="surround"||volumeAudioGraph)applyAudioSettings();});
     if(!supportsVolumeBoost){for(const control of section.querySelectorAll("input,select,button"))control.disabled=true;}
     // Existing preferences can be shown before a file is selected.
     applyAudioSettings();window.DKLocale?.apply();

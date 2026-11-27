@@ -328,7 +328,7 @@ async function probe(localPath) {
   try{
     const args=[
     "-v","error","-show_entries",
-    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,channel_layout,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="rtmps"?rtmpsInputArgs:transport==="dash"?dashInputArgs:transport==="mms"?mmsInputArgs:["ftp","sftp","smb"].includes(transport)?transferInputArgs(transport):[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i"
     ];
     if(transport==="mms"){
@@ -383,7 +383,7 @@ async function probe(localPath) {
     audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
     audioTracks:streams.filter(s=>s.codec_type==="audio").map((s,index)=>({
       index,codec:String(s.codec_name||""),profile:String(s.profile||"").slice(0,40),
-      channels:Number(s.channels)||null,sampleRate:Number(s.sample_rate)||null,
+      channels:Number(s.channels)||null,layout:String(s.channel_layout||"").slice(0,40),sampleRate:Number(s.sample_rate)||null,
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
     })),
@@ -523,7 +523,7 @@ function serve(req,res) {
   }else if(filters.length)args.push("-vf",filters.join(","),"-fps_mode","passthrough");
   if(active.format==="webm") {
     if(active.hasVideo)args.push("-c:v","libvpx-vp9","-deadline","realtime","-cpu-used",active.network?"7":"5","-b:v","0","-crf","33","-pix_fmt","yuv420p");
-    if(active.hasAudio)args.push("-c:a","libopus","-b:a","160k","-ac","2");
+    if(active.hasAudio)args.push(...active.audioOutput.args);
     args.push("-f","webm","pipe:1");
   }else{
     // Prefer an LGPL-compatible OpenH264 build when supplied. libx264
@@ -537,7 +537,7 @@ function serve(req,res) {
       args.push("-c:v","libx264","-preset","veryfast","-crf","23");
     if(!active.copyVideo)args.push("-pix_fmt","yuv420p","-g","48");
     }
-    if(active.hasAudio){if(active.copyAudio)args.push("-c:a","copy");else args.push("-c:a","aac","-ac","2","-b:a","160k");}
+    if(active.hasAudio){if(active.copyAudio)args.push("-c:a","copy");else args.push(...active.audioOutput.args);}
     args.push(
       "-movflags","+frag_keyframe+empty_moov+default_base_moof",
       "-frag_duration","1000000","-f","mp4","pipe:1");
@@ -607,6 +607,23 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
+// Decoded surround, not IEC 61937/HDMI compressed bitstream passthrough.
+// Keep the established stereo stream path for network and disc sessions.
+// Restrict preservation to standard speaker layouts supported by the output
+// encoders; unfamiliar layouts keep the existing stereo compatibility path.
+function audioOutputPlan(track,format,network=false,dvd=false){
+  const count=Number(track?.channels),layout=String(track?.layout||"");
+  let channels=2;
+  if(!network&&!dvd){
+    if(count===6&&["5.1","5.1(side)"].includes(layout))channels=6;
+    else if(count===8&&layout==="7.1")channels=format==="webm"?8:6;
+  }
+  const bitrate=channels===8?384:channels===6?384:160;
+  const args=format==="webm"?["-c:a","libopus","-b:a",bitrate+"k","-ac",String(channels),...(channels>2?["-mapping_family","1"]:[])]:
+    ["-c:a","aac","-ac",String(channels),"-b:a",bitrate+"k"];
+  return {channels,args};
+}
+
 async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off",subtitleIndex=-1,hardwareEnabled=true) {
   const info=await probe(localPath);
   const available=await status();
@@ -643,16 +660,17 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
   const hardware=await hardwarePlan(info,hardwareEnabled,selectedFormat==="mp4"&&copyVideo,network,frameStep);
   const audioTrack=info.audioTracks[audioOrdinal];
+  const audioOutput=audioOutputPlan(audioTrack,selectedFormat,network,Boolean(dvd));
   const copyAudio=network&&selectedFormat==="mp4"&&audioTrack?.codec==="aac"&&audioTrack.profile==="LC"&&audioTrack.channels===2&&[44100,48000].includes(audioTrack.sampleRate);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,dvd,network,transport,rtspOptions:transport==="rtsp"?require("./library-host.cjs").rtspOptions(localPath.token):null,networkToken:network?localPath.token:null,position,duration:info.duration,format:selectedFormat,hardware,hardwareMode:hardware?"vaapi-pending":selectedFormat==="mp4"&&copyVideo?"copy":"software",hardwareFallback:false,decoderStalled:false,decodeSpeed:null,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
-    copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,audioOutput,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};
   return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",smoothing:smoothFps,
-    copyVideo:session.copyVideo,copyAudio:session.copyAudio,
+    copyVideo:session.copyVideo,copyAudio:session.copyAudio,outputAudioChannels:info.hasAudio?audioOutput.channels:0,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }
 function onlyWindow(event) {

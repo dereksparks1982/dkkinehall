@@ -399,12 +399,32 @@ html.dk-standalone body #dkCinemaSidebar #dkSidebarServer:focus-visible{outline:
 html.dk-standalone body .dk-cinema-collapsed #dkCinemaSidebar #dkSidebarServer{justify-content:center!important;padding-inline:0}
 @media(max-width:620px){html.dk-standalone body #dkCinemaSidebar #dkSidebarServer{justify-content:center!important;padding-inline:0}}
 
-/* Larger Library navigation targets; preserve the established sidebar width. */
+/* Large, zoom-independent navigation. Library zoom still scales media cards,
+   but navigation must remain readable and usable even when posters are shrunk. */
+#dkCinemaSidebar{
+ --dk-nav-zoom:var(--dk-library-zoom,1);
+ --dk-nav-text:calc(22px / var(--dk-nav-zoom));
+ --dk-nav-icon:calc(26px / var(--dk-nav-zoom));
+ --dk-nav-height:calc(60px / var(--dk-nav-zoom));
+}
 html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button,
 html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button:is(:hover,:focus,:active,:focus-visible),
 html.dk-standalone body #dkCinemaSidebar #dkSidebarServer,
 html.dk-standalone body #dkCinemaSidebar #dkSidebarServer:is(:hover,:focus,:active,:focus-visible){
-  font-size:16px!important;height:48px!important;min-height:48px!important;flex-shrink:0
+  font-size:var(--dk-nav-text)!important;font-weight:550!important;
+  height:auto!important;min-height:var(--dk-nav-height)!important;flex-shrink:0;
+  gap:calc(10px / var(--dk-nav-zoom))!important;
+  padding-block:calc(8px / var(--dk-nav-zoom))!important;
+  padding-inline:calc(9px / var(--dk-nav-zoom))!important;
+  line-height:1.15!important;
 }
-#dkCinemaSidebar .dk-cinema-nav-icon{width:20px;height:20px;flex:0 0 20px}
-#dkSidebarServerLight{width:12px;height:12px;flex:0 0 12px}
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button[aria-current="page"]{font-weight:650!important}
+#dkCinemaSidebar .dk-cinema-nav-label{font-size:var(--dk-nav-text)!important;line-height:1.15;overflow-wrap:anywhere}
+#dkCinemaSidebar .dk-cinema-nav-icon{width:var(--dk-nav-icon);height:var(--dk-nav-icon);flex:0 0 var(--dk-nav-icon)}
+#dkSidebarServerLight{width:calc(14px / var(--dk-nav-zoom));height:calc(14px / var(--dk-nav-zoom));flex:0 0 calc(14px / var(--dk-nav-zoom));margin-inline:calc(6px / var(--dk-nav-zoom))}
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-collapse{
+ color:#e2b956!important;opacity:1!important;font-size:var(--dk-nav-text)!important;
+ min-width:calc(32px / var(--dk-nav-zoom));min-height:calc(32px / var(--dk-nav-zoom));flex-shrink:0
+}
+html.dk-standalone body .dk-cinema-collapsed #dkCinemaSidebar :is(.dk-cinema-nav-button,#dkSidebarServer){padding-inline:0!important}
+@media(max-width:620px){html.dk-standalone body #dkCinemaSidebar :is(.dk-cinema-nav-button,#dkSidebarServer){padding-inline:0!important}}

@@ -217,3 +217,5 @@ Server navigation: the sidebar again includes a flat Server shortcut directly be
 
 
 Control cleanup: removed the redundant Playlist toolbar button and its duplicate Theatre Mode menu action; retained Up Next, queue management, playlist import, dedicated Theatre Mode and fullscreen. Library navigation uses 16px labels, 20px icons and 48px targets. Up Next gold cards use dark brown text throughout; chapter marks are plain white ticks with transparent click targets instead of gold boxes. Installed visual verification pending.
+
+Library sidebar readability correction: large 22px navigation labels, 26px icons, and minimum 60px row heights are compensated for the library's independent zoom setting. The Server lamp and gold sidebar collapse control are enlarged. Poster zoom and the approved sidebar width, layout, and palette are retained. Actual installed appearance requires user verification.

@@ -680,3 +680,5 @@ Server settings: moved existing power and status controls out of the Home sideba
 Server shortcut correction: add live sidebar status lamp and direct navigation to Server Settings, with no sidebar power switch. Local visual and functional acceptance pending.
 
 Player and Library polish: remove duplicate Playlist toggle; enlarge navigation buttons; improve Up Next card text contrast; exempt chapter marker buttons from gold action styling. Local acceptance pending.
+
+Sidebar size correction: replace the previous 16px/20px/48px targets with zoom-compensated 22px/26px/60px targets, preserving library poster zoom. Installed acceptance pending.

@@ -83,6 +83,14 @@ const handle={kind:"directory",name:"Movies",
   }
 };
 async function run(){
+  for(const filename of ["South Park - The End of Obesity.mkv","The.End.of.Obesity.2024.1080p.mkv"]){
+    const special=store.classifyAssigned({filename,relative:"South Park/"+filename,category:"tv"});
+    assert.equal(special.kind,"movie");
+    assert.equal(special.title,"South Park: The End of Obesity");
+    assert.equal(special.year,2024);
+    assert.equal(special.episode,null);
+  }
+  assert.equal(store.classifyAssigned({filename:"South.Park.S03E07.mkv",relative:"South Park/South.Park.S03E07.mkv",category:"tv"}).kind,"tv");
   assert.equal(store.classify("Music.mp3"),null);
   assert.equal(store.classify("Album.ogg"),null);
   assert.equal(store.classify("Film.mp4").kind,"movie");

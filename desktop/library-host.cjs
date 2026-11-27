@@ -645,7 +645,7 @@ async function serveNetwork(req,res){
   const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
-  if(entry.rtsp||entry.rtmp||entry.dash)return fail();
+  if(entry.rtsp||entry.rtmp||entry.dash||entry.mms)return fail();
   if(entry.srt||entry.rist){if(!root)return fail();return serveSRT(req,res,entry);}
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
@@ -1054,11 +1054,42 @@ async function grantDASH(value,language){
  networkGrants.set(token,{dash:url.href,clients:new Set()});
  return {token,src:"",transport:"dash"};
 }
+// Legacy Microsoft Media Server addresses. Generic MMS tries both
+// native FFmpeg transports during probe and remembers the successful one.
+async function grantMMS(value,language){
+ if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid MMS URL");
+ const url=new URL(value);
+ if(!["mms:","mmst:","mmsh:"].includes(url.protocol)||!url.hostname||url.hash)throw Error("Invalid MMS URL");
+ const normalized=new URL("http://"+url.host);url.hostname=normalized.hostname;
+ if(!url.hostname||url.hostname.includes("%")||(url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Invalid MMS host");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const ru=language==="ru";
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Открыть поток MMS?":"Open this MMS stream?",
+  detail:url.host+"\n"+(ru?"Соединение MMS не шифруется. Используйте доверенный источник.":"MMS is unencrypted. Use a source you trust."),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex"),auto=url.protocol==="mms:";
+ const candidates=auto?["mmst","mmsh"].map(s=>url.href.replace(/^mms:/,s+":")):[url.href];
+ networkGrants.set(token,{mms:candidates[0],mmsCandidates:candidates,clients:new Set()});
+ return {token,src:"",transport:"mms"};
+}
+function mmsCandidates(token){
+ const entry=networkGrants.get(token);if(!entry?.mms)throw Error("MMS selection expired");
+ return [entry.mms,...entry.mmsCandidates.filter(v=>v!==entry.mms)];
+}
+function selectMMS(token,address){
+ const entry=networkGrants.get(token);
+ if(!entry?.mmsCandidates?.includes(address))throw Error("MMS selection expired");
+ entry.mms=address;
+}
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
   const entry=networkGrants.get(token);
   if(entry.rtsp)return entry.rtsp;
   if(entry.rtmp)return entry.rtmp;
+  if(entry.mms)return entry.mms;
   if(entry.dash)return entry.dash;
   const port=await startNetworkProxy();
   if(!networkGrants.has(token))throw Error("Network media selection expired");
@@ -2678,6 +2709,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:dash-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("DASH request rejected");return grantDASH(url,language);
   });
+  ipcMain.handle("dk-network:mms-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("MMS request rejected");return grantMMS(url,language);
+  });
   ipcMain.handle("dk-network:rist-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("RIST request rejected");return grantRIST(url,language);
   });
@@ -2710,7 +2744,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.rist||entry.dash||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.rist||entry.dash||entry.mms||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -3073,4 +3107,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.rist?"rist":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,mmsCandidates,selectMMS,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?(networkGrants.get(token).rtmpSecure?"rtmps":"rtmp"):networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.rist?"rist":networkGrants.get(token)?.dash?"dash":networkGrants.get(token)?.mms?"mms":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

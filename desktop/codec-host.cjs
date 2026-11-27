@@ -30,8 +30,8 @@ async function networkFeatures(){
    const [d,p]=await Promise.all([processOutput(binary(name),["-hide_banner","-demuxers"],8000),processOutput(binary(name),["-hide_banner","-protocols"],8000)]);
    const has=n=>d.split("\n").some(line=>{const m=/^\s*D\s+([^\s]+)/.exec(line);return m&&m[1].split(",").includes(n);});
    const proto=n=>p.split("\n").some(line=>line.trim()===n);
-   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto"),srt:proto("srt"),rist:proto("rist"),dash:has("dash"),https:proto("https")&&proto("tls"),rtmps:proto("rtmps")&&proto("tls")&&has("flv")};
- })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto","srt","rist","dash","https","rtmps"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
+   return {hls:has("hls"),mpegts:has("mpegts"),http:proto("http")&&proto("tcp"),crypto:proto("crypto"),srt:proto("srt"),rist:proto("rist"),mmst:proto("mmst")&&has("asf"),mmsh:proto("mmsh")&&has("asf"),dash:has("dash"),https:proto("https")&&proto("tls"),rtmps:proto("rtmps")&&proto("tls")&&has("flv")};
+ })).then(rows=>Object.fromEntries(["hls","mpegts","http","crypto","srt","rist","mmst","mmsh","dash","https","rtmps"].map(k=>[k,rows.every(r=>r[k])]))).catch(()=>null);
  return networkCapability;
 }
 const dvdGrants=new Map();
@@ -91,6 +91,7 @@ async function requireRTMPSTLS(){
  })).then(rows=>rows.every(Boolean)).catch(()=>false);
  if(!await rtmpsTLSCapability)throw Error("Bundled RTMPS TLS backend requires verification");
 }
+const mmsInputArgs=["-protocol_whitelist","mmst,mmsh,http,tcp","-format_whitelist","asf","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","asf"];
 const dashInputArgs=["-protocol_whitelist","http,https,tcp,tls","-format_whitelist","dash,mov,matroska,webm,mpegts","-tls_verify","1","-rw_timeout","12000000","-probesize","4194304","-analyzeduration","3000000","-f","dash"];
 const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","25000000","-http_proxy","","-probesize","4194304","-analyzeduration","3000000"];
 async function resolvePlaybackSource(value){
@@ -306,11 +307,21 @@ async function probe(localPath) {
   const work=(async()=>{
   if(transport==="rtmps")await requireRTMPSTLS();
   let stdout;
-  try{stdout=await processOutput(binary("ffprobe"),[
+  try{
+    const args=[
     "-v","error","-show_entries",
     "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
-    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="rtmps"?rtmpsInputArgs:transport==="dash"?dashInputArgs:[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i",file
-  ],dvd&&!dvd.drive?90000:30000);}catch(error){
+    "-show_chapters","-of","json",...(network?(transport==="rtsp"?rtspInputArgs(require("./library-host.cjs").rtspOptions(localPath.token)):transport==="rtmp"?rtmpInputArgs:transport==="rtmps"?rtmpsInputArgs:transport==="dash"?dashInputArgs:transport==="mms"?mmsInputArgs:[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(transport)?["-f","mpegts"]:[])]):dvd?dvdArgs(dvd):[]),"-i"
+    ];
+    if(transport==="mms"){
+      const host=require("./library-host.cjs"),caps=await networkFeatures();
+      const candidates=host.mmsCandidates(localPath.token).filter(v=>!caps||caps[new URL(v).protocol.slice(0,-1)]);
+      if(!candidates.length)throw Error("Bundled decoder lacks MMS support");
+      let lastError;
+      for(const address of candidates){try{stdout=await processOutput(binary("ffprobe"),[...args,address],15000);const parsed=JSON.parse(stdout);if(!parsed.streams?.some(s=>s.codec_type==="video"||s.codec_type==="audio"))throw Error("No MMS media tracks");host.selectMMS(localPath.token,address);break;}catch(error){stdout=undefined;lastError=error;}}
+      if(stdout===undefined)throw lastError||Error("MMS stream could not be opened");
+    }else stdout=await processOutput(binary("ffprobe"),[...args,file],dvd&&!dvd.drive?90000:30000);
+  }catch(error){
     if(!network)throw error;
     const failure=require("./library-host.cjs").networkFailure(localPath.token);
     const caps=await networkFeatures();
@@ -318,6 +329,7 @@ async function probe(localPath) {
     const reason={denied:"TV stream denied by broadcaster",offline:"TV stream no longer available",upstream:"TV broadcaster returned an error",format:"Unsupported TV stream format",manifest:"Unsupported HLS manifest",address:"TV stream destination rejected",timeout:"TV stream timed out",connection:"TV stream connection failed"}[failure];
     if(reason)throw Error(reason);
     if(transport==="rtsp")throw Error("RTSP stream could not be opened");
+    if(transport==="mms"){if(/lacks MMS support/.test(msg))throw Error("Bundled decoder lacks MMS support");throw Error("MMS stream could not be opened");}
     if(transport==="rtmp")throw Error("RTMP stream could not be opened");
     if(transport==="rtmps")throw Error("RTMPS stream could not be opened securely");
     if(transport==="dash"){if(caps&&!caps.dash)throw Error("Bundled decoder lacks DASH support");throw Error("DASH manifest could not be opened");}
@@ -474,7 +486,7 @@ function serve(req,res) {
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
     ...(hardware?["-hwaccel","vaapi","-hwaccel_device",hardware.device,"-hwaccel_output_format","vaapi"]:[]),
-    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:active.transport==="rtmps"?rtmpsInputArgs:active.transport==="dash"?dashInputArgs:[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(active.transport)?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...(active.transport==="rtsp"?rtspInputArgs(active.rtspOptions):active.transport==="rtmp"?rtmpInputArgs:active.transport==="rtmps"?rtmpsInputArgs:active.transport==="dash"?dashInputArgs:active.transport==="mms"?mmsInputArgs:[...networkInputArgs,...(["udp","rtp","srt","rist"].includes(active.transport)?["-f","mpegts"]:[])]),...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];

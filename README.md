@@ -16,6 +16,7 @@ DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softwork
 - In the standalone Library, search titles, filter movies by genre, decade, actor, director or filename-marked edition, and save movies or entire TV series to your local Watchlist.
 - Add large TV collections to Up Next without scanning every episode at once.
 - Adjust picture, sound, subtitles and playback speed.
+- Optional standalone Skip Intro and Skip Credits buttons for explicitly named chapters. Skipping is manual by default; automatic options are off unless enabled. Unmarked introductions and credits are not detected yet.
 - Watch fullscreen or resize the player.
 - Use the interface in English or Russian.
 

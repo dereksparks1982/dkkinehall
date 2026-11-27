@@ -65,7 +65,7 @@ fi
 for resource in index.html player.js player.css mkv-tracks.js \
                 mkv-subtitles.js pgs-subtitles.js vobsub.js i18n.js \
                 library.html library-home.js library-home.css library-store.js \
-                native-file.js live-tv.js live-tv.css library-collections.js assets/channel_logos/manifest.json; do
+                native-file.js live-tv.js live-tv.css library-collections.js segment-skip.js assets/channel_logos/manifest.json; do
   if [[ ! -f "$WORK/repo/docs/$resource" ]]; then
     echo "ERROR: GitHub source is missing $resource." >&2
     exit 1

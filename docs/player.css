@@ -1447,3 +1447,8 @@ html.dk-standalone .dk-chapter-entries button:is(:hover,:focus-visible):not(:dis
 html.dk-standalone .queue .remove {background:var(--dk-brown);color:var(--dk-russian-red)}
 html.dk-standalone .queue .remove:is(:hover,:focus-visible):not(:disabled) {background:var(--dk-russian-red);color:#fff}
 html.dk-standalone .playback-settings-panel .player-settings-section>strong {color:var(--dk-gold)}
+
+/* Standalone, optional chapter skip overlay; keep approved transport bar unchanged. */
+.screen > .dk-segment-skip{position:absolute;right:20px;bottom:105px;z-index:15;background:#e2b956;color:#462a25;border:1px solid #a58039;border-radius:8px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer;box-shadow:0 2px 8px #0008}
+.screen > .dk-segment-skip[hidden],.screen.empty > .dk-segment-skip,.screen.stopped > .dk-segment-skip,.screen.audio > .dk-segment-skip{display:none!important}
+.screen > .dk-segment-skip:focus-visible{outline:2px solid #fff;outline-offset:3px}

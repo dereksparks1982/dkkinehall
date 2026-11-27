@@ -6,6 +6,7 @@
   let translationSession=null;
   let resetVoiceover=()=>{},refreshVoiceover=()=>{},voiceoverOriginalFactor=()=>1,voiceoverCenterFactor=()=>null,updateVoiceoverGain=()=>{};
   let nextCountdown=null;
+  let refreshSegmentSkip=()=>{};
   let deferStartup=Boolean(window.DKLibraryBridge?.internalPages&&new URLSearchParams(location.search).get("settingsOnly")==="1");
   let mkvAudio = null;
   let userMuted = false;
@@ -865,6 +866,7 @@
     byId("rewind10").disabled = !current() || !seekable || state.stopped;
     byId("forward10").disabled = !current() || !seekable || state.stopped;
     byId("seek").value = seekable ? String(Math.max(0, Math.min(1000, Math.round(1000 * position / length)))) : "0";
+    refreshSegmentSkip();
   };
   const queueHover = window.DKQueueHover && window.DKQueueHover.create({
     makeVideo: () => document.createElement("video")
@@ -982,8 +984,69 @@
     item.chapters=[...entries,...(item.chapters||[])].filter(ch=>Number.isFinite(ch.startTime)&&ch.startTime>=0)
       .sort((a,b)=>a.startTime-b.startTime)
       .filter((ch,i,list)=>i===0||Math.abs(ch.startTime-list[i-1].startTime)>.01).slice(0,500);
-    if(current()===item)updateChapterMarkers();
+    if(current()===item){updateChapterMarkers();refreshSegmentSkip();}
   };
+  if(standaloneChapters&&window.DKSegmentSkip){
+    const key="dk-kinehall.segment-skip.v1",stored=read(key,{});
+    const options={enabled:stored?.enabled!==false,autoIntro:stored?.autoIntro===true,autoCredits:stored?.autoCredits===true};
+    const local=(en,ru)=>window.DKLocale?.pair(en,ru)??(document.documentElement.lang==="ru"?ru:en);
+    const overlay=document.createElement("button");overlay.type="button";overlay.id="dkSegmentSkip";overlay.className="dk-segment-skip";overlay.hidden=true;screen.append(overlay);
+    const section=document.createElement("section");section.className="player-settings-section";section.id="segmentSkipSettings";
+    const heading=document.createElement("strong");heading.textContent=local("Intro and credits","Заставки и титры");section.append(heading);
+    function setting(id,prop,en,ru){
+      const label=document.createElement("label"),input=document.createElement("input"),text=document.createElement("span");
+      input.type="checkbox";input.id=id;input.checked=options[prop];text.textContent=local(en,ru);label.append(input,text);section.append(label);
+      input.addEventListener("change",()=>{options[prop]=input.checked;write(key,options);refreshSegmentSkip();});
+      return input;
+    }
+    setting("showSegmentSkip","enabled","Show Skip Intro and Skip Credits buttons","Показывать кнопки пропуска заставки и титров");
+    setting("autoSkipIntro","autoIntro","Automatically skip marked intros","Автоматически пропускать отмеченные заставки");
+    setting("autoSkipCredits","autoCredits","Automatically skip bounded credits","Автоматически пропускать титры с известной границей");
+    const note=document.createElement("p");note.className="helper";note.textContent=local("Skipping is manual by default. Only named chapter boundaries are supported. Final credits are never skipped automatically.","По умолчанию пропуск выполняется вручную. Поддерживаются только именованные главы. Финальные титры не пропускаются автоматически.");
+    section.append(note);byId("playerSettingsPanel").append(section);
+    let lastItem=null,lastEpoch=null,lastAt=NaN,shown=null,cachedRows=null,cachedLength=null,cachedSegments=[],cachedLanguage="",lastLabel="";
+    const used=new Set();
+    const hide=()=>{shown=null;overlay.hidden=true;};
+    function refresh(){
+      const item=current(),at=playbackSeconds(),length=playbackDuration();
+      if(item!==lastItem||item?.playbackEpoch!==lastEpoch){
+        lastItem=item;lastEpoch=item?.playbackEpoch;lastAt=NaN;used.clear();cachedRows=null;cachedLength=null;hide();
+      }
+      if(!item||item.audio||!item.file||item.file.dvdToken||state.stopped||!options.enabled||!Number.isFinite(at)||!Number.isFinite(length)||length<=0){lastAt=NaN;hide();return;}
+      const rows=getChapterEntries();
+      const signature=rows.map(c=>[c.startTime,c.endTime,c.text,c.virtual].join("\u0001")).join("\u0002");
+      if(signature!==cachedRows||length!==cachedLength){cachedRows=signature;cachedLength=length;cachedSegments=window.DKSegmentSkip.identify(rows,length);}
+      const segment=cachedSegments.find(s=>at>=s.start&&at<s.end-.1);
+      const prior=lastAt;lastAt=at;
+      if(!segment){hide();return;}
+      const tag=segment.kind+":"+segment.start+":"+segment.end;
+      shown={item,epoch:item.playbackEpoch,tag,segment};
+      const language=window.DKLocale?.get()||document.documentElement.lang;
+      if(lastLabel!==segment.kind||cachedLanguage!==language){
+        lastLabel=segment.kind;cachedLanguage=language;
+        overlay.textContent=segment.kind==="intro"?local("Skip Intro","Пропустить заставку"):local("Skip Credits","Пропустить титры");
+      }
+      overlay.hidden=false;
+      const natural=Number.isFinite(prior)&&at>=prior&&at-prior<=2.5&&(prior<segment.start||segment.start===0&&prior===0&&at<=2.5);
+      const automatic=segment.kind==="intro"?options.autoIntro:options.autoCredits;
+      if(automatic&&segment.autoSafe&&natural&&!media.paused&&!media.seeking&&!used.has(tag)){
+        used.add(tag);hide();try{setPlaybackPosition(segment.end);}catch(_){}
+      }
+    }
+    refreshSegmentSkip=refresh;
+    overlay.addEventListener("pointerdown",e=>e.stopPropagation());
+    overlay.addEventListener("dblclick",e=>e.stopPropagation());
+    overlay.addEventListener("click",e=>{
+      e.stopPropagation();const choice=shown;
+      if(!choice||choice.item!==current()||choice.epoch!==current()?.playbackEpoch||state.stopped)return;
+      const at=playbackSeconds();
+      if(at<choice.segment.start||at>=choice.segment.end)return;
+      used.add(choice.tag);hide();
+      try{setPlaybackPosition(choice.segment.end);}catch(_){}
+    });
+    for(const event of ["loadedmetadata","loadeddata","seeked","seeking","emptied","ended","pause","play"])media.addEventListener(event,refresh);
+    new MutationObserver(refresh).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
+  }
   let dragItem = null;
   const clearDropMarkers = () => {
     for (const li of queueView.children)
@@ -5404,6 +5467,7 @@
     syncSubtitleDefault();
     const allowedSections=()=>[
       byId("playbackFormat")?.closest(".player-settings-section"),
+      byId("segmentSkipSettings"),
       globalSubtitles,
       byId("pictureEnhancements"),
       byId("picture-fit")?.closest(".player-settings-section"),

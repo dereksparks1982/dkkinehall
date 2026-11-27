@@ -223,7 +223,7 @@ Owner-approved 2026-11-26. Planned, not implemented. Standalone Linux first; hos
 3. **Audio synchronization:** Per-file/per-track positive and negative audio delay with reset and remembered values; preserve subtitle delay independently. Verify direct, native-decoded and alternate-audio playback, seeking, speed changes and Voiceover interactions.
 4. **DK Cinema Mode:** Optional fullscreen viewing with dimmed surrounding interface, automatic hiding of controls, user-selected picture/audio presets and notification suppression only where supported by desktop permissions; restore prior state on exit.
 5. **Personal scene bookmarks:** Named, editable source-time markers per media identity and edition, accessible from player settings/right-click and library details; persist across restart, seek correctly across decoder modes and avoid applying bookmarks to mismatched files.
-6. **Automatic intro and credits skipping:** Opt-in local detection of repeated intro segments across episodes, and credits detection or validated markers. Provide preview/manual correction and an undo/disable option; avoid skipping content on uncertain matches, including post-credit scenes. Integrate queue countdown and resume safely.
+6. **Optional intro and credits skipping:** Manual by default: gold Skip Intro and Skip Credits buttons appear only within identified segments. Source added for explicit named chapter boundaries; never use synthetic chapter markers. Independent automatic modes default OFF and require explicit opt-in; terminal credits are never automatically skipped. Local repeated-intro fingerprinting, credits analysis, editable markers and additional post-credit safeguards remain planned. Preserve normal queue countdown, seeking and resume.
 7. **Mobile remote control:** Optional phone-friendly remote for play/pause, seek, volume, tracks, queue and fullscreen; initially iPhone-compatible local-network browser interface with explicit pairing, revocable session credentials and a visible off switch. No media streaming/server, internet exposure, persistent daemon or cloud requirement; minimize network permissions and validate commands.
 8. **HDR tone mapping and intelligent upscaling:** Capability-gated HDR-to-SDR conversion with correct color metadata and opt-in scaling/sharpening for older videos. Evaluate GPU-assisted methods and CPU fallback, retain Original mode, avoid claiming native HDR output or AI enhancement until actually verified, and monitor performance on the Surface Pro.
 
@@ -235,7 +235,7 @@ All features remain free and standalone-first. No mandatory account, cloud, sepa
 
 | Capability | State and scope |
 | --- | --- |
-| Skip Intro / Skip Credits | Planned; extend existing automatic intro and credits entry with opt-in local detection and manual correction. |
+| Skip Intro / Skip Credits | Partial source: gold manual skip controls from named chapter metadata, separate automatic options OFF by default, disable controls entirely. Fingerprinting, content detection and marker editing remain planned. |
 | Commercial skipping | Planned; local analysis of DVR recordings, confidence and editable skip markers; never modify original recordings. |
 | Smart Collections | Partial source: genre, decade, actor, director and edition filters; franchise metadata, manual collections, order and art remain planned. |
 | Cast and crew browsing | Source added: clickable verified movie genre, cast and director links filter the existing local collection. Expanded person details and TV metadata planned. |

@@ -15,7 +15,7 @@ const storedMode=()=>{
 };
 let mode=storedMode(),selectedSeries=null,selectedSeason=null;
 let collectionFilter={kind:"",value:"",query:"",saved:false},collectionTools=null;
-let all=[],folders=[],visibleCount=72,renderEpoch=0;
+let all=[],folders=[],assignedSources=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
 let maintaining=false,refreshCancelled=false;
 let bottomObserver=null;
@@ -669,22 +669,7 @@ async function recoverFile(row,manual=false){
     return row;
   }
   row=await store.setUnavailable(row.id,true);await render();if(!row)return null;
-  if(!manual&&!scanning&&!maintaining){
-   status("Searching for the moved video…","Поиск перемещённого видео…");
-   const discovered=await nativeBridge.discover(false);
-   if(!discovered.cancelled){
-    const matches=discovered.items.filter(file=>{
-     const info=store.classify(file.filename,file.relative);
-     return info&&store.relocationMatches(row,{...info,...file,source:"native"});
-    });
-    // A partial scan cannot establish uniqueness without a matching inode.
-    const hit=matches.length===1&&(!discovered.partial||(row.fileNode&&row.fileNode===matches[0].fileNode&&row.volumeIdentity===matches[0].volumeIdentity))?matches[0]:null;
-    if(hit&&await nativeBridge.playbackAvailability(hit.id,hit.nativePath)){
-     const updated=await store.relocateNative(row,hit);
-     if(updated){await render();status("Moved video found. History restored.","Перемещённое видео найдено. История восстановлена.");return updated;}
-    }
-   }
-  }
+  // No implicit scans, even on missing-file playback. Use Scan Library.
   if(manual){
    const file=await nativeBridge.locateFile(document.documentElement.lang);if(!file)return null;
    if(file.id===row.id){await store.setUnavailable(row.id,false);await render();return store.item(row.id);}
@@ -913,18 +898,19 @@ async function render(){
   }
   if(collectionFilter.saved)$("collectionTitle").textContent=say("Watchlist","Список просмотра");
   $("collectionCount").textContent=say(cards.length+" "+(cards.length===1?"title":"titles"),cards.length+" наименований");
-  $("emptyLibrary").hidden=all.length>0;
+  $("emptyLibrary").hidden=unfiltered.length>0;
   if(nativeBridge){
-    $("addLibraryFolder").hidden=true;
-    $("addFirstFolder").hidden=true;
+    $("addLibraryFolder").hidden=false;
+    $("addFirstFolder").hidden=false;
+    $("addLibraryFolder").textContent=say(mode==="movie"?"Add Movies Folder":"Add TV Shows Folder",mode==="movie"?"Добавить папку фильмов":"Добавить папку сериалов");
     const empty=$("emptyLibrary");
     const heading=empty?.querySelector("h3");
     const info=empty?.querySelector("p");
     if(heading)heading.textContent=say("No movies or TV shows discovered yet",
       "Фильмы и сериалы пока не найдены");
     if(info)info.textContent=say(
-      "DK Kinehall searches your device and connected drives automatically. Use Scan Library to search again.",
-      "ДК Кинехолл автоматически ищет видео на устройстве и подключённых накопителях. Повторите поиск кнопкой проверки.");
+      "Assign Movies and TV Shows folders, then select Scan Library. Only those folders will be searched.",
+      "Выберите папки фильмов и сериалов, затем запустите проверку. Поиск выполняется только в выбранных папках.");
   }
   visibleCount=Math.min(Math.max(72,visibleCount),cards.length);
   list.replaceChildren(...cards.slice(0,visibleCount)
@@ -949,8 +935,7 @@ async function render(){
     bottomObserver.observe(more);
   }
   $("folderSummary").textContent=nativeBridge?
-    say("Automatic local media discovery · no media server · no duplicated video files",
-      "Автоматический поиск местных видео · без медиасервера · без копирования видео"):
+    say("Assigned folders: "+assignedSources.length+" · Manual scans only","Выбранные папки: "+assignedSources.length+" · Только ручная проверка"):
     folders.length?
       say("Saved local folders: ","Сохранённые локальные папки: ")+
         folders.map(folder=>folder.name).join(" · "):
@@ -1009,9 +994,12 @@ async function scan(manual=false){
   let stopListening=null;
   try{
     if(nativeBridge){
+      assignedSources=await nativeBridge.librarySources();
+      await store.applyNativeScope(assignedSources);
+      if(!assignedSources.length){await render();status("Add a Movies or TV Shows folder before scanning.","Добавьте папку фильмов или сериалов перед проверкой.");return;}
       stopListening=nativeBridge.onScanProgress(progress=>{
-        status("Searching device: "+progress.found+" videos found…",
-          "Поиск на устройстве: найдено видео "+progress.found+"…");
+        status("Scanning assigned folders: "+progress.found+" videos found…",
+          "Проверка выбранных папок: найдено видео "+progress.found+"…");
       });
       const discovered=await nativeBridge.discover(manual);
       // Cancellation retains successfully discovered records. Never mark
@@ -1073,8 +1061,50 @@ async function scan(manual=false){
     $("scanLibrary").setAttribute("aria-pressed","false");
   }
 }
+async function openLibraryManagement(){
+ if(scanning||maintaining||recoveringFile)return status("Stop the current library operation first.","Сначала остановите текущую операцию.",true);
+ const dlg=create("dialog","dk-collection-dialog dk-library-management"),body=create("div","dk-library-management-body"),feedback=create("p","helper"),close=create("button","btn",say("Close","Закрыть"));
+ close.type="button";close.addEventListener("click",()=>dlg.close());dlg.append(create("h2",null,say("Library Management","Управление медиатекой")),body,feedback,close);document.body.append(dlg);
+ dlg.addEventListener("close",()=>dlg.remove(),{once:true});let busy=false;
+ const action=async(fn)=>{if(busy||scanning||maintaining||recoveringFile)return;busy=true;body.inert=true;close.disabled=true;try{await fn();await render();if(dlg.open)draw();}catch(_){feedback.textContent=say("Operation failed. Check folder access and overlapping paths.","Операция не выполнена. Проверьте доступ к папкам и пересечения путей.");}finally{busy=false;body.inert=false;close.disabled=false;}};
+ const button=(en,ru,fn,style="")=>{const b=create("button","btn "+style,say(en,ru));b.type="button";b.addEventListener("click",()=>void action(fn));return b;};
+ const reset=async(kind,keep)=>{
+  if(!confirm(say("Clear the selected library catalog? Video files will not be deleted. "+(keep?"Keep viewing history.":"Erase viewing history."),"Очистить выбранную медиатеку? Видеофайлы не будут удалены. "+(keep?"Сохранить историю просмотров.":"Удалить историю просмотров."))))return;
+  const removed=await store.resetNativeLibrary(kind,keep);
+  if(!keep){try{
+   const resume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}");
+   const fingerprints=new Map(removed.map(row=>["file:"+row.filename+":"+row.size,row.modified]));
+   for(const key of Object.keys(resume)){const split=key.lastIndexOf(":");if(kind==="all"||fingerprints.has(key.slice(0,split))&&Math.abs(Number(key.slice(split+1))-Number(fingerprints.get(key.slice(0,split))))<=1)delete resume[key];}
+   localStorage.setItem("dkmedia.web.resume.v1",JSON.stringify(resume));
+   localStorage.setItem("dk-kinehall.library-reset.v1",JSON.stringify({kind,ids:removed.map(r=>r.id),time:Date.now()}));
+  }catch(_){}}
+  selectedSeries=null;selectedSeason=null;visibleCount=72;artAttempted.clear();titleAttempted.clear();
+  feedback.textContent=say("Library cleared. Files and folder assignments unchanged. Scan when ready.","Медиатека очищена. Файлы и выбранные папки не изменены. Запустите проверку при необходимости.");
+ };
+ let preserve=true;
+ function draw(){
+  body.replaceChildren();
+  body.append(create("p","helper",say("Device-wide discovery disabled. Only assigned folders are scanned, on request.","Поиск по всему устройству отключён. Проверяются только выбранные папки по запросу.")));
+  const keep=create("label","dk-collection-membership"),check=create("input");check.type="checkbox";check.checked=preserve;check.addEventListener("change",()=>{preserve=check.checked;});keep.append(check,create("span",null,say("Keep viewing history when clearing","Сохранять историю просмотров при очистке")));body.append(keep);
+  for(const [kind,en,ru] of [["movie","Movies","Фильмы"],["tv","TV Shows","Сериалы"]]){
+   const group=create("section","dk-library-source-group "+kind);group.append(create("strong",null,say(en,ru)));
+   const rows=assignedSources.filter(r=>r.kind===kind);
+   if(!rows.length)group.append(create("p","helper",say("No folders assigned","Папки не выбраны")));
+   for(const row of rows){
+    const line=create("div","dk-library-source-row");line.append(create("span",null,row.path),button("Remove","Удалить",async()=>{if(!confirm(say("Remove this folder from the library? Files stay on disk.","Убрать папку из медиатеки? Файлы останутся на диске.")))return;assignedSources=await nativeBridge.removeLibrarySource(row.id);await store.applyNativeScope(assignedSources);},"dk-source-brown"));group.append(line);
+   }
+   group.append(button("+ Add Folder","+ Добавить папку",async()=>{assignedSources=await nativeBridge.addLibrarySource(kind,lang());await store.applyNativeScope(assignedSources);},"dk-source-brown"),button(kind==="movie"?"Clear Movies":"Clear TV Shows",kind==="movie"?"Очистить фильмы":"Очистить сериалы",()=>reset(kind,preserve),"dk-source-red"));body.append(group);
+  }
+  body.append(button("Reset Entire Library","Очистить всю медиатеку",()=>reset("all",preserve),"dk-source-red"));
+  const scanButton=create("button","btn dk-scan",say("Scan Library","Проверить медиатеку"));scanButton.type="button";scanButton.addEventListener("click",()=>{if(busy)return;dlg.close();void scan(true);});body.append(scanButton);
+ }
+ try{assignedSources=await nativeBridge.librarySources();draw();dlg.showModal();}catch(_){dlg.remove();status("Could not open Library Management.","Не удалось открыть управление медиатекой.",true);}
+}
 async function chooseFolder(){
-  if(scanning)return;
+  if(scanning||maintaining)return;
+  if(nativeBridge?.addLibrarySource){
+    try{assignedSources=await nativeBridge.addLibrarySource(mode,lang());await store.applyNativeScope(assignedSources);await render();status("Folders saved. Select Scan Library when ready.","Папки сохранены. Запустите проверку медиатеки.");}catch(_){status("Could not add folder. Library folders must not overlap.","Не удалось добавить папку. Папки не должны пересекаться.",true);}return;
+  }
   if(typeof window.showDirectoryPicker!=="function"){
     status("Persistent folder selection is unavailable in this browser.",
       "Постоянный доступ к папкам недоступен в этом браузере.",true);
@@ -1288,6 +1318,7 @@ function connect(){
         extra.append(create("p","helper",id==="network"?"Discover DLNA servers and open compatible local network streams.":"Open DVD drives, ISO images and DVD folders with a compatible decoder."));
       }
       if(id==="library"){
+        if(nativeBridge.librarySources)toolButton(say("Library Management","Управление медиатекой"),()=>{dlg.close();void openLibraryManagement();});
         toolButton("Scan Library",()=>{dlg.close();void scan(true);});
         toolButton("Refresh Metadata",()=>{dlg.close();void libraryMaintenance("refresh");});
         toolButton("Empty Trash",()=>{dlg.close();void nativeBridge.requestMaintenance("trash",lang());});
@@ -1432,12 +1463,12 @@ function connect(){
     matchResumeCards();
     requestAnimationFrame(matchResumeCards);
   }
-  void render().then(()=>{
+  void (async()=>{if(nativeBridge?.librarySources){assignedSources=await nativeBridge.librarySources();await store.applyNativeScope(assignedSources);}await render();})().then(()=>{
     recordNavigation();
     // Render saved posters immediately. A bounded, one-shot rescan is
     // attempted only after initialization; no daemon or persistent server.
     const start=()=>{
-      if(nativeBridge||folders.length)void scan(false);
+      if(!nativeBridge&&folders.length)void scan(false);
     };
     if("requestIdleCallback" in window)
       requestIdleCallback(start,{timeout:3500});

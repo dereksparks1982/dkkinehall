@@ -7,6 +7,24 @@ const fs=require("node:fs");
 const {fileURLToPath,pathToFileURL}=require("node:url");
 const {randomBytes}=require("node:crypto");
 const VERSION="0.9.3";
+// Native folder chooser is the only discovery configuration. Empty means
+// no scanning, never a fallback to home or attached drives.
+const sourceFile=()=>path.join(app.getPath("userData"),"library-sources-v1.json");
+let librarySources=null;
+function getLibrarySources(){
+ if(librarySources)return librarySources;
+ let rows=[];try{rows=JSON.parse(fs.readFileSync(sourceFile(),"utf8"));}catch(_){}
+ librarySources=Array.isArray(rows)?rows.filter(r=>r&&["movie","tv"].includes(r.kind)&&typeof r.path==="string"&&path.isAbsolute(r.path)&&r.path!==path.parse(r.path).root&&r.path.length<=4096&&/^[a-f0-9]{32}$/.test(r.id||"")).slice(0,128):[];
+ native.setSelectedRoots(librarySources.map(r=>r.path));return librarySources;
+}
+function inSource(root,target){
+ const rel=path.relative(root,target);return rel===""||(!path.isAbsolute(rel)&&rel!==".."&&!rel.startsWith(".."+path.sep));
+}
+function saveLibrarySources(rows){
+ const dest=sourceFile(),temp=dest+".tmp";fs.mkdirSync(path.dirname(dest),{recursive:true});
+ fs.writeFileSync(temp,JSON.stringify(rows),{mode:0o600});fs.renameSync(temp,dest);
+ librarySources=rows;native.setSelectedRoots(rows.map(r=>r.path));return rows;
+}
 
 /* Explicit, bounded IPv4 LAN discovery and read-only network playback.
  * No background discovery, UPnP port mapping, redirects, DNS resolution,
@@ -3041,17 +3059,44 @@ function install(originalWindow,originalPlayer){
       catch(_){finish(null);}
     });
   });
+  getLibrarySources();
+  ipcMain.handle("dk-library:sources",event=>{
+    if(!allowed(event))throw Error("Library sources request rejected");return getLibrarySources();
+  });
+  ipcMain.handle("dk-library:add-source",async(event,kind,language)=>{
+    if(!allowed(event)||!["movie","tv"].includes(kind)||scanPromise)throw Error("Library source request rejected");
+    const ru=language==="ru",picked=await dialog.showOpenDialog(home,{title:kind==="movie"?(ru?"Выберите папку фильмов":"Choose Movies folder"):(ru?"Выберите папку сериалов":"Choose TV Shows folder"),properties:["openDirectory"]});
+    if(picked.canceled||!picked.filePaths[0])return getLibrarySources();
+    if(scanPromise)throw Error("Stop the current scan first");
+    const root=await fs.promises.realpath(picked.filePaths[0]),rows=getLibrarySources();
+    if(root===path.parse(root).root||!(await fs.promises.stat(root)).isDirectory()||root.length>4096)throw Error("Choose a specific media folder");
+    if(rows.some(r=>r.path===root&&r.kind===kind))return rows;
+    if(rows.length>=128||rows.some(r=>inSource(r.path,root)||inSource(root,r.path)))throw Error("Library folders must not overlap");
+    return saveLibrarySources([...rows,{id:randomBytes(16).toString("hex"),path:root,kind}]);
+  });
+  ipcMain.handle("dk-library:remove-source",(event,id)=>{
+    if(!allowed(event)||scanPromise)throw Error("Library source request rejected");
+    return saveLibrarySources(getLibrarySources().filter(r=>r.id!==id));
+  });
   ipcMain.handle("dk-library:discover",async(event,manual=false)=>{
     if(!allowed(event))throw Error("Native discovery rejected");
     if(scanPromise)return scanPromise;
+    const sources=getLibrarySources().slice();
+    if(!sources.length)return {items:[],sources,roots:[],rejected:[],errors:[],complete:true,partial:false,cancelled:false,found:0};
     scanController=new AbortController();
-    scanPromise=native.discover({
+    scanPromise=(async()=>{
+      const roots=[],errors=[];for(const source of sources){try{if(await fs.promises.realpath(source.path)!==source.path)throw Error("Folder changed");roots.push(source.path);}catch(_){errors.push({path:source.path,operation:"open-directory",code:"SOURCE_UNAVAILABLE"});}}
+      const result=await native.discover({testRoots:roots,
       manual:Boolean(manual),signal:scanController.signal,probe:probeAvailable?probeLibraryVideo:null,
       onProgress:p=>{
         if(home&&!home.isDestroyed())
           home.webContents.send("dk-library:scan-progress",p);
       }
     });
+      const byRoot=new Map(sources.map(r=>[r.path,r]));
+      result.items=result.items.filter(file=>byRoot.has(file.root)).map(file=>({...file,category:byRoot.get(file.root).kind,sourceId:byRoot.get(file.root).id}));
+      return {...result,sources,errors:[...errors,...result.errors],complete:result.complete&&!errors.length,partial:result.partial||!!errors.length};
+    })();
     try{return await scanPromise;}
     finally{scanPromise=null;scanController=null;}
   });
@@ -3080,7 +3125,10 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event))throw Error("File location request rejected");
     const ru=language==="ru",picked=await dialog.showOpenDialog(home,{title:ru?"Найти перемещённое видео":"Locate moved video",properties:["openFile"]});
     if(picked.canceled||!picked.filePaths[0])return null;
-    return native.relocationCandidate(picked.filePaths[0]);
+    const result=await native.relocationCandidate(picked.filePaths[0]);
+    const source=getLibrarySources().find(r=>inSource(r.path,result.nativePath));
+    if(!source)throw Error("Choose a file inside an assigned library folder");
+    return {...result,root:source.path,relative:path.relative(source.path,result.nativePath).split(path.sep).join("/"),category:source.kind,sourceId:source.id};
   });
   ipcMain.handle("dk-library:check-catalog-paths",(event,rows)=>{
     if(!allowed(event))throw Error("Catalog status request rejected");

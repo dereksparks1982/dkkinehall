@@ -177,3 +177,7 @@ html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
 .library-poster:has(.dk-watched-mark) .dk-watchlist-mark{left:7px;right:auto}
 .library-season-row{flex-wrap:wrap}
 #seasonWatchedCount{color:var(--dk-gold,#e2b956);font-size:.84rem}
+
+/* Standalone library source management, approved palette. */
+html.dk-standalone .dk-library-management{width:min(640px,calc(100vw - 24px));max-height:90vh;overflow:auto}
+.dk-library-management-body,.dk-library-source-group{display:grid;gap:8px}.dk-library-source-group{padding:12px;border-radius:8px;border:1px solid #a58039;color:#462a25}.dk-library-source-group.movie{background:#e2b956}.dk-library-source-group.tv{background:#fff}.dk-library-source-group .helper{color:#462a25}.dk-library-source-row{display:flex;align-items:center;gap:8px;overflow-wrap:anywhere}.dk-library-source-row span{flex:1;min-width:0}.dk-library-source-row button{flex:none}html.dk-standalone .dk-library-management .dk-source-brown{background:#462a25;color:#e2b956;border-color:#a58039}html.dk-standalone .dk-library-management .dk-source-red{background:#d52b1e;color:#fff;border-color:#d52b1e}

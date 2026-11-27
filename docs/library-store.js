@@ -369,7 +369,7 @@ async function scanAll({manual=false,onProgress=()=>{},signal}={}){
 // Quarantine catalog noise without deleting files, artwork or history.
 function excludedDiscovery(row){
   if(!row)return false;
-  if(row.userHidden||row.libraryExcluded)return true;
+  if(row.userHidden||row.libraryExcluded||row.scopeExcluded||row.resetArchived)return true;
   if(row.source!=="native")return false;
   const parts=String(row.nativePath||"").split("/").map(p=>p.toLowerCase());
   return parts.some(p=>["node_modules","__pycache__","cmakefiles","testdata","test-data","fixtures","test-fixtures","desktop-codecs","_internal","vendor","site-packages"].includes(p))||
@@ -377,9 +377,54 @@ function excludedDiscovery(row){
     /^(?:av1|apv|cardimageurl|compiler[._ -]?depend)\.[^.]+$/i.test(row.filename||"")||
     Number.isFinite(row.size)&&row.size<1024*1024;
 }
+function sourceFor(row,sources){
+ if(row?.source!=="native"||!row.nativePath)return null;
+ return sources.find(source=>source.kind===row.kind&&row.nativePath.startsWith(source.path+"/"))||null;
+}
+function classifyAssigned(file){
+ const info=classify(file.filename,file.relative);if(!info)return null;
+ if(file.category==="movie"&&info.kind!=="movie"){
+  const title=String(file.filename).replace(/\.[^.]+$/,"").replace(/[._]+/g," ").trim();
+  return {kind:"movie",title,year:null,series:null,season:null,episode:null,episodeTitle:""};
+ }
+ if(file.category==="tv"&&info.kind!=="tv"){
+  const parts=String(file.relative||file.filename).split("/"),series=(parts.length>1?parts[0]:info.title).replace(/[._]+/g," ").trim();
+  return {kind:"tv",title:series,series,season:0,episode:0,episodeTitle:info.title,year:null};
+ }
+ return info;
+}
+async function applyNativeScope(sources){
+ if(!Array.isArray(sources))throw Error("Invalid library sources");
+ const db=await open();let count=0;
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction("entries","readwrite"),req=tx.objectStore("entries").openCursor();
+  req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;const row=cursor.value,excluded=!sourceFor(row,sources);
+   if(!!row.scopeExcluded!==excluded){cursor.update({...row,scopeExcluded:excluded});count++;}cursor.continue();};
+  tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Could not apply library folders"));
+ });
+ if(count)changed({entries:true,native:true});return count;
+}
+async function resetNativeLibrary(kind,keepHistory){
+ if(!["movie","tv","all"].includes(kind))throw Error("Invalid library category");
+ const db=await open(),removed=[];
+ await new Promise((resolve,reject)=>{
+  const tx=db.transaction(["entries","art"],"readwrite"),art=tx.objectStore("art"),req=tx.objectStore("entries").openCursor();
+  req.onsuccess=()=>{const cursor=req.result;if(!cursor)return;const row=cursor.value;
+   if(kind==="all"||row.kind===kind){
+    removed.push({id:row.id,filename:row.filename,size:row.size,modified:row.modified});art.delete(row.id);
+    if(keepHistory){
+     const saved={};for(const key of ["id","source","kind","title","series","season","episode","year","folderId","nativePath","nativeRoot","volumeIdentity","filename","relative","size","modified","fileNode","position","duration","lastPlayed","completed","watchedSeconds","watchResetAt","watchedChangedAt","continueHidden"])if(row[key]!==undefined)saved[key]=row[key];
+     cursor.update({...saved,resetArchived:true,missing:true,scopeExcluded:!!row.scopeExcluded});
+    }else cursor.delete();
+   }cursor.continue();
+  };tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Library reset failed"));
+ });
+ changed({entries:true,native:true,libraryReset:true,keepHistory:!!keepHistory,kind,removed});return removed;
+}
 async function ingestNative(scan){
   if(!scan||!Array.isArray(scan.items))
     throw new Error("Invalid native library scan");
+  if(Array.isArray(scan.sources))await applyNativeScope(scan.sources);
   const existing=(await entries()).filter(row=>row.source==="native");
   const old=new Map(existing.map(row=>[row.id,row]));
   const rejected=new Set(Array.isArray(scan.rejected)?scan.rejected.filter(id=>/^native:[a-f0-9]{64}$/.test(id)):[]);
@@ -392,7 +437,7 @@ async function ingestNative(scan){
        !file.nativePath.startsWith("/")||
        !Number.isFinite(file.size)||!Number.isFinite(file.modified))
       continue;
-    let info=classify(file.filename,file.relative);
+    let info=classifyAssigned(file);
     if(!info)continue;
     seen.add(file.id);
     const previous=old.get(file.id);
@@ -408,7 +453,7 @@ async function ingestNative(scan){
     const sameClass=previous&&previous.kind===info.kind&&previous.series===info.series&&
       previous.season===info.season&&previous.episode===info.episode&&
       !staleMovie&&(validMovie||previous.title===info.title)&&(!info.year||Number(previous.year)===Number(info.year));
-    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing&&!previous.unavailable&&!previous.libraryExcluded&&previous.fileNode===(file.fileNode||null)&&previous.volumeIdentity===(file.volumeIdentity||null))continue;
+    if(sameClass&&previous.size===file.size&&previous.modified===file.modified&&!previous.missing&&!previous.unavailable&&!previous.libraryExcluded&&!previous.resetArchived&&!previous.scopeExcluded&&previous.sourceId===(file.sourceId||null)&&previous.fileNode===(file.fileNode||null)&&previous.volumeIdentity===(file.volumeIdentity||null))continue;
     changes.push({...previous,...info,
       // A verified metadata provider title survives unchanged film contents.
       episodeTitle:previous?.kind===info.kind&&previous?.metadataVerified?
@@ -420,8 +465,8 @@ async function ingestNative(scan){
       movieProvider:validMovie?previous.movieProvider:null,
       metadataVerified:previous?.kind===info.kind&&Boolean(previous?.metadataVerified),
       id:file.id,source:"native",nativePath:file.nativePath,
-      nativeRoot:file.root,volumeIdentity:file.volumeIdentity||null,filename:file.filename,relative:file.relative,
-      size:file.size,modified:file.modified,fileNode:file.fileNode||null,missing:false,unavailable:false,libraryExcluded:false,
+      nativeRoot:file.root,sourceId:file.sourceId||null,volumeIdentity:file.volumeIdentity||null,filename:file.filename,relative:file.relative,
+      size:file.size,modified:file.modified,fileNode:file.fileNode||null,missing:false,unavailable:false,libraryExcluded:false,scopeExcluded:false,resetArchived:false,
       position:previous?.position||0,duration:previous?.duration||0,
       lastPlayed:previous?.lastPlayed||0,completed:previous?.completed||false,
       updatedAt:Date.now()});
@@ -456,8 +501,8 @@ async function reconcileNative(){
   }
   let merged=0;
   for(const old of rows){
-    if(excludedDiscovery(old))continue;
-    if(old.source==="native"&&!old.missing)continue;
+    if(excludedDiscovery({...old,scopeExcluded:false,resetArchived:false}))continue;
+    if(old.source==="native"&&!old.missing&&!old.unavailable&&!old.scopeExcluded&&!old.resetArchived)continue;
     if(!Number.isFinite(old.modified)||!Number.isFinite(old.size))continue;
     const candidates=old.source==="native"?rows.filter(row=>relocationMatches(old,row)):live.get(fingerprint(old))||[];
     if(candidates.length!==1)continue;
@@ -477,7 +522,7 @@ async function reconcileNative(){
 }
 // Only match unique candidates; size and modification time must agree.
 function relocationMatches(old,row){
- if(old.id===row.id||row.source!=="native"||row.missing||row.unavailable||row.userHidden||excludedDiscovery(row)||old.size!==row.size||!Number.isFinite(old.modified)||!Number.isFinite(row.modified)||Math.abs(old.modified-row.modified)>1)return false;
+ if(old.kind!==row.kind||old.id===row.id||row.source!=="native"||row.missing||row.unavailable||row.userHidden||excludedDiscovery(row)||old.size!==row.size||!Number.isFinite(old.modified)||!Number.isFinite(row.modified)||Math.abs(old.modified-row.modified)>1)return false;
  if(old.fileNode&&row.fileNode&&old.fileNode===row.fileNode&&old.volumeIdentity===row.volumeIdentity)return true;
  if(old.filename===row.filename)return true;
  const norm=v=>String(v||"").toLowerCase().replace(/[^\p{L}\p{N}]+/gu," ").trim();
@@ -493,9 +538,9 @@ async function mergeNativeRows(old,target,candidate=null){
       const a=entries.get(old.id),b=entries.get(target.id);
       let count=0;
       const combine=()=>{
-        if(++count!==2||!a.result||(!b.result&&!candidate)||b.result?.userHidden||a.result.userHidden||(!a.result.missing&&!a.result.unavailable&&a.result.source==="native"))return;
+        if(++count!==2||!a.result||(!b.result&&!candidate)||b.result?.userHidden||a.result.userHidden||(!a.result.missing&&!a.result.unavailable&&!a.result.scopeExcluded&&!a.result.resetArchived&&a.result.source==="native"))return;
         const from=a.result,to=candidate?{...b.result,...candidate}:b.result;
-        if(!to||to.missing||to.unavailable)return;
+        if(!to||to.missing||to.unavailable||to.scopeExcluded||to.resetArchived)return;
         let recent=(from.lastPlayed||0)>(to.lastPlayed||0)?from:to;
         // A newly created zero-progress row is not evidence of completion.
         const other=recent===from?to:from;
@@ -539,9 +584,9 @@ async function setUnavailable(id,value){
  if(result)changed({entries:true,id});return result;
 }
 async function relocateNative(old,file){
- if(!old||old.source!=="native"||(!old.unavailable&&!old.missing)||!file||old.id===file.id)return null;
+ if(!old||old.source!=="native"||(!old.unavailable&&!old.missing)||!file||old.id===file.id||(file.category&&file.category!==old.kind))return null;
  const existing=await item(file.id);if(existing?.userHidden)return null;
- const candidate={id:file.id,source:"native",nativePath:file.nativePath,filename:file.filename,relative:file.relative,nativeRoot:file.root,volumeIdentity:file.volumeIdentity||null,fileNode:file.fileNode||null,size:file.size,modified:file.modified,missing:false,unavailable:false,kind:old.kind,title:old.title,series:old.series,season:old.season,episode:old.episode,year:old.year};
+ const candidate={id:file.id,source:"native",nativePath:file.nativePath,filename:file.filename,relative:file.relative,nativeRoot:file.root,sourceId:file.sourceId||null,volumeIdentity:file.volumeIdentity||null,fileNode:file.fileNode||null,size:file.size,modified:file.modified,missing:false,unavailable:false,scopeExcluded:false,resetArchived:false,kind:old.kind,title:old.title,series:old.series,season:old.season,episode:old.episode,year:old.year};
  if(!await mergeNativeRows(old,candidate,candidate))return null;
  changed({entries:true,native:true});return item(candidate.id);
 }
@@ -673,7 +718,7 @@ async function updateProgress(id,position,duration,completed=false,playedDelta=0
     const request=object.get(id);
     request.onsuccess=()=>{
       const row=request.result;
-      if(!row)return;
+      if(!row||row.resetArchived||row.scopeExcluded)return;
       const seconds=Number(position),length=Number(duration);
       const progress=Number.isFinite(seconds)?Math.max(0,seconds):row.position||0;
       const total=Number.isFinite(length)&&length>0?length:row.duration||0;
@@ -756,7 +801,7 @@ async function saveArtwork(id,blob,credit=""){
 }
 return Object.freeze({excludedDiscovery,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
-  ingestNative,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
+  ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
   checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,artwork,saveArtwork,removeArtwork,onChange,
   MAX_FILES,MAX_VISITS
 });

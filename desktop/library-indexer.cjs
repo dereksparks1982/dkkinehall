@@ -70,10 +70,12 @@ const containment=(root,target)=>{
   return rel!==""&&!rel.startsWith(".."+path.sep)&&rel!==".."&&
     !path.isAbsolute(rel);
 };
+let selectedRoots=[];
+function setSelectedRoots(roots){selectedRoots=roots.filter(r=>typeof r==="string"&&path.isAbsolute(r));}
 const rootPath=()=>{
   const home=os.homedir();
   const user=os.userInfo().username;
-  return [home,path.join("/media",user),path.join("/run/media",user),"/mnt"]
+  return [home,path.join("/media",user),path.join("/run/media",user),"/mnt",...selectedRoots]
     .filter((r,i,a)=>a.indexOf(r)===i)
     .filter(r=>{try{return fs.statSync(r).isDirectory();}catch(_){return false;}});
 };
@@ -184,11 +186,12 @@ async function discover({manual=false,signal,onProgress=()=>{},testRoots=null,pr
             if(!excludedPath(filePath))pending.push(filePath);
             continue;
           }
-          if(!entry.isFile()||!VIDEO.test(entry.name)||/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(entry.name))continue;
+          if(!entry.isFile()||!VIDEO.test(entry.name)||/(?:^|[ ._-])(?:sample|partial|incomplete|crdownload|part|tmp)(?:[ ._-]|$)/i.test(entry.name))continue;
           try{
             const stat=await fsp.stat(filePath);
             if(!stat.isFile())continue;
             const valid=await inspectCandidate(filePath,stat,signal,probe);
+            const after=await fsp.stat(filePath);if(after.size!==stat.size||after.mtimeMs!==stat.mtimeMs){record(filePath,"inspect-video",{code:"FILE_CHANGING"});continue;}
             if(signal?.aborted)break;
             const id=fileIdentity(filePath);
             if(seenFiles.has(id))continue;
@@ -318,5 +321,5 @@ async function deleteVideo(id,filePath,{dialog,shell,window}={}){
 }
 module.exports={
   discover,openVideo,readRange,localArtwork,deleteVideo,
-  fileIdentity,checkVideo,rootPath,chooseLocalPoster,checkCatalogPaths,playbackAvailability,relocationCandidate
+  fileIdentity,checkVideo,rootPath,setSelectedRoots,chooseLocalPoster,checkCatalogPaths,playbackAvailability,relocationCandidate
 };

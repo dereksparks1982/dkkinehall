@@ -63,6 +63,7 @@
       } : {mode: "off"};
     })()
   };
+  window.addEventListener("storage",event=>{if(event.key==="dkmedia.web.resume.v1")state.resume=read(store.resume,{});if(event.key==="dk-kinehall.library-reset.v1"){state.resume=read(store.resume,{});try{const reset=JSON.parse(event.newValue||"{}"),ids=new Set(reset.ids||[]);for(const item of state.queue){if(reset.kind==="all"||ids.has(item.libraryId)||ids.has(item.file?.nativeId)){delete state.resume[item.key];item.watchPending=0;item.historyReady=false;item.historyResumeTarget=0;item.libraryId=null;}}}catch(_){}}});
   const validPlaybackFormats = ["auto","original","mp4","webm"];
   const savedPlayback = read(store.playbackSettings, {});
   const playbackSettings = {
@@ -5126,7 +5127,7 @@
     }
     try{
       const row=await window.DKLibraryStore.item(id);
-      if(!row)throw new Error("The library item was not found");
+      if(!row||row.resetArchived||row.scopeExcluded)throw new Error("The library item was not found");
       if(row.source==="native"&&window.DKLibraryBridge?.playbackAvailability&&!await window.DKLibraryBridge.playbackAvailability(row.id,row.nativePath)){
         await window.DKLibraryStore.setUnavailable(row.id,true);status(window.DKLocale?.pair("File moved or unavailable. Return to Library and choose Locate File.","Файл перемещён или недоступен. Вернитесь в медиатеку и найдите файл.")||"File moved or unavailable. Return to Library and choose Locate File.");return true;
       }

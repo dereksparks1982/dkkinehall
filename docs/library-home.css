@@ -430,3 +430,5 @@ html.dk-standalone body .dk-cinema-collapsed #dkCinemaSidebar :is(.dk-cinema-nav
 @media(max-width:620px){html.dk-standalone body #dkCinemaSidebar :is(.dk-cinema-nav-button,#dkSidebarServer){padding-inline:0!important}}
 
 .dk-boxset-tools{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:10px 0}.dk-boxset-tools[hidden]{display:none!important}.dk-boxset-tools p{flex-basis:100%;margin:0}.dk-boxset-card .library-poster{aspect-ratio:2/3}.dk-boxset-card .library-poster img{object-fit:contain}.dk-boxset-card .library-card-title{white-space:normal}
+
+.dk-meta-edit-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:end}.dk-meta-edit-row>label:first-child{min-width:0}.dk-meta-edit-row .dk-meta-lock{display:flex;align-items:center;gap:6px;flex-direction:row;white-space:nowrap;padding:8px 0}.dk-meta-edit-row .dk-meta-lock input{width:auto;min-width:0}

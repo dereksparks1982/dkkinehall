@@ -2504,7 +2504,7 @@ async function jellyfinIndex(cfg,force=false){
   entry.work=(async()=>{
     const result=new Map();
     for(let start=0;start<50000;start+=200){
-      const page=await jellyfinGet(cfg,"/Items",{Recursive:true,IncludeItemTypes:"Movie,Episode",Fields:"Path,ProviderIds,Overview,Genres,People",EnableUserData:false,EnableImages:true,StartIndex:start,Limit:200,...(cfg.userId?{UserId:cfg.userId}:{})});
+      const page=await jellyfinGet(cfg,"/Items",{Recursive:true,IncludeItemTypes:"Movie,Episode",Fields:"Path,ProviderIds,Overview,Genres,People,OriginalTitle,Studios,ProductionLocations",EnableUserData:false,EnableImages:true,StartIndex:start,Limit:200,...(cfg.userId?{UserId:cfg.userId}:{})});
       if(!Array.isArray(page?.Items))throw Error("Jellyfin catalog unavailable");
       for(const item of page.Items){
         if(!jellyfinId(item?.Id)||typeof item.Path!=="string"||!path.isAbsolute(item.Path)||!["Movie","Episode"].includes(item.Type))continue;
@@ -2836,7 +2836,7 @@ async function jellyfinMetadata(raw,kind){
     }
     let info=item;
     if(scope!=="item"){
-      const query={Ids:target,Fields:"Overview,Genres,People,ProviderIds",EnableUserData:false,EnableImages:true,...(cfg.userId?{UserId:cfg.userId}:{})};
+      const query={Ids:target,Fields:"Overview,Genres,People,ProviderIds,OriginalTitle,Studios,ProductionLocations",EnableUserData:false,EnableImages:true,...(cfg.userId?{UserId:cfg.userId}:{})};
       const response=await jellyfinGet(cfg,"/Items",query);
       info=Array.isArray(response?.Items)?response.Items.find(x=>x.Id===target&&x.Type===(scope==="series"?"Series":"Season")):null;
       if(!info)return missing;
@@ -2851,7 +2851,11 @@ async function jellyfinMetadata(raw,kind){
       directors:people.filter(x=>x?.Type==="Director").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,15),
       cast:people.filter(x=>x?.Type==="Actor").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,30),
       runtime:Number.isFinite(Number(info.RunTimeTicks))?Math.round(Number(info.RunTimeTicks)/600000000):null,
-      rating:Number.isFinite(Number(info.CommunityRating))?String(info.CommunityRating):""}};
+      rating:info.CommunityRating!=null&&Number.isFinite(Number(info.CommunityRating))?String(info.CommunityRating):"",
+      originalTitle:clip(info.OriginalTitle,180),alternativeTitles:Array.isArray(info.AlternateTitles)?info.AlternateTitles.map(x=>clip(x,180)).filter(Boolean).slice(0,30):[],
+      studios:Array.isArray(info.Studios)?info.Studios.map(x=>clip(x?.Name,180)).filter(Boolean).slice(0,30):[],
+      countries:Array.isArray(info.ProductionLocations)?info.ProductionLocations.map(x=>clip(x,180)).filter(Boolean).slice(0,30):[],
+      releaseDate:clip(info.PremiereDate,32).slice(0,10),officialRating:clip(info.OfficialRating,80)}};
     return {ok:true,status:200,text:JSON.stringify(result)};
   }catch(_){return missing;}
 }

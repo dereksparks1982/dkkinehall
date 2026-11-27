@@ -790,6 +790,25 @@ async function updateProgress(id,position,duration,completed=false,playedDelta=0
   if(saved)changed({progress:true,id});
   return saved;
 }
+const editableDetailKeys=["description","originalTitle","alternativeTitles","studios","countries","releaseDate","officialRating","rating","genres"];
+const editableListKeys=new Set(["alternativeTitles","studios","countries","genres"]);
+function cleanEditableDetails(input={}){
+ const out={};
+ for(const key of editableDetailKeys){if(!Object.hasOwn(input,key))continue;
+  if(editableListKeys.has(key)){out[key]=(Array.isArray(input[key])?input[key]:String(input[key]||"").split(",")).map(x=>String(x).trim().slice(0,180)).filter(Boolean).slice(0,30);}
+  else out[key]=String(input[key]??"").trim().slice(0,key==="description"?6000:180);
+ }
+ return out;
+}
+function normalizeMetadataLocks(value,keys){
+ const result={};for(const k of keys)if(value?.[k]===true)result[k]=true;
+ return Object.keys(result).length?result:null;
+}
+function mergeLockedDetails(previous,incoming,locks){
+ const result={...previous,...incoming};
+ for(const key of editableDetailKeys)if(locks?.[key])result[key]=previous?.[key]??(editableListKeys.has(key)?[]:"");
+ return result;
+}
 async function updateMetadata(id,{episodeTitle,episodeDetails,movieTitle,movieYear,movieDetails,movieProvider,jellyfinIdentity,manualMatch}={}){
   // Only verified metadata (from an actual provider result) is written.
   // Use a read/write transaction so a simultaneous playback-position save
@@ -814,7 +833,7 @@ async function updateMetadata(id,{episodeTitle,episodeDetails,movieTitle,movieYe
       if(!title&&!film&&identityChanged){s.put({...row,jellyfinIdentity:identity,manualMatch:lockedMatch});changedRow=true;return;}
       if(row.kind==="tv"&&title){
         const episode=locks.title?row.episodeTitle:title;
-        const details=episodeDetails&&typeof episodeDetails==="object"?episodeDetails:row.episodeDetails;
+        const details=episodeDetails&&typeof episodeDetails==="object"?mergeLockedDetails({...row.episodeDetails,description:row.episodeDescription??row.episodeDetails?.description},episodeDetails,locks):row.episodeDetails;
         const description=locks.description?row.episodeDescription:(details?.description||row.episodeDescription||"");
         if(row.episodeTitle===episode&&row.metadataVerified&&!identityChanged&&JSON.stringify(details)===JSON.stringify(row.episodeDetails)&&description===row.episodeDescription)return;
         s.put({...row,episodeTitle:episode,episodeDescription:description,episodeDetails:details,metadataVerified:true,jellyfinIdentity:identity,manualMatch:lockedMatch});
@@ -822,8 +841,7 @@ async function updateMetadata(id,{episodeTitle,episodeDetails,movieTitle,movieYe
         // Reject a stale provider result which would reintroduce the bad title.
         if(!locks.title&&!lockedMatch&&goldenGunIdentity(row)&&(film.toLowerCase()!=="the man with the golden gun"||(year&&year!==1974)))return;
         const nextTitle=locks.title?row.title:film,nextYear=locks.year?row.year:(year||row.year);
-        let details=movieDetails&&typeof movieDetails==="object"?{...movieDetails}:row.movieDetails;
-        if(locks.description)details={...details,description:row.movieDetails?.description||""};
+        let details=movieDetails&&typeof movieDetails==="object"?mergeLockedDetails(row.movieDetails,movieDetails,locks):row.movieDetails;
         const provider=typeof movieProvider==="string"?movieProvider:row.movieProvider;
         if(row.title===nextTitle&&row.movieMetadataVerified&&row.year===nextYear&&
            JSON.stringify(row.movieDetails)===JSON.stringify(details)&&row.movieProvider===provider&&!identityChanged)return;
@@ -893,8 +911,10 @@ async function editLocalMetadata(id,fields,unlock=false){
       if(!title)return;
       const description=String(fields.description||"").slice(0,6000),year=Number(fields.year)||null;
       if(row.kind==="movie"&&year&&(!Number.isInteger(year)||year<1800||year>2100))return;
-      if(row.kind==="movie")s.put({...row,title,year,movieDetails:{...row.movieDetails,description},movieMetadataVerified:true,manualFields:{title:true,year:true,description:true}});
-      else if(row.kind==="tv")s.put({...row,episodeTitle:title,episodeDescription:description,metadataVerified:true,manualFields:{title:true,description:true}});
+      const detailPatch=cleanEditableDetails({...fields.details,description});
+      const locks=normalizeMetadataLocks(fields.locks??{title:true,year:row.kind==="movie",description:true},["title",...(row.kind==="movie"?["year"]:[]),...editableDetailKeys]);
+      if(row.kind==="movie")s.put({...row,title,year,movieDetails:{...row.movieDetails,...detailPatch},movieMetadataVerified:true,manualFields:locks});
+      else if(row.kind==="tv")s.put({...row,episodeTitle:title,episodeDescription:description,episodeDetails:{...row.episodeDetails,...detailPatch},metadataVerified:true,manualFields:locks});
       else return;
       saved=true;
     };
@@ -913,10 +933,17 @@ async function saveHierarchyMetadata(key,record,manual=false,unlock=false){
     const tx=db.transaction("art","readwrite"),s=tx.objectStore("art"),id="meta:"+key,req=s.get(id);
     req.onsuccess=()=>{
       const old=req.result;
-      if(unlock){if(old){s.put({...old,manual:false});saved=true;}return;}
-      if(old?.manual&&!manual)return;
+      if(unlock){if(old){s.put({...old,manual:false,manualFields:null});saved=true;}return;}
       if(!record||typeof record.title!=="string"||!record.title.trim())return;
-      s.put({id,record,manual:!!manual,updatedAt:Date.now()});saved=true;
+      let locks=old?.manualFields??(old?.manual?{title:true,year:true,description:true}:null);
+      let next=record;
+      if(manual){
+       locks=normalizeMetadataLocks(typeof manual==="object"?manual:{title:true,year:true,description:true},["title","year",...editableDetailKeys]);
+       next={...record,details:{...old?.record?.details,...record.details,...cleanEditableDetails(record.details)}};
+      }else if(old?.record&&locks){
+       next={...record,title:locks.title?old.record.title:record.title,year:locks.year?old.record.year:record.year,details:mergeLockedDetails(old.record.details,record.details,locks)};
+      }
+      s.put({id,record:next,manual:false,manualFields:locks,updatedAt:Date.now()});saved=true;
     };
     tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error||Error("Hierarchy metadata save failed"));
   });

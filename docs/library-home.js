@@ -687,6 +687,13 @@ function displayMovieDetails(row){
   addLinks(say("Director","Режиссёр"),"director",data.directors);
   addLinks(say("Cast","В ролях"),"actor",data.cast);
   add(say("Rating","Рейтинг"),data.rating);
+  add(say("Original title","Оригинальное название"),data.originalTitle);
+  add(say("Alternative titles","Другие названия"),data.alternativeTitles?.join(", "));
+  add(say("Studios","Студии"),data.studios?.join(", "));
+  add(say("Countries","Страны"),data.countries?.join(", "));
+  add(say("Release date","Дата выпуска"),data.releaseDate);
+  add(say("Age rating","Возрастной рейтинг"),data.officialRating);
+
   add(say("Source","Источник"),row.movieProvider==="Cinemeta"?say("Cinemeta","Синемета"):row.movieProvider==="Apple"?say("Apple","Эпл"):row.movieProvider||null);
   $("movieDetailsClose").title=say("Close","Закрыть");
   $("movieDetailsClose").setAttribute("aria-label",say("Close","Закрыть"));
@@ -1501,23 +1508,54 @@ async function reclassifyDialog(){
  }catch(_){message.textContent=say("Could not change the category.","Не удалось изменить категорию.");save.disabled=false;}});
  dialog.showModal();
 }
+const advancedMetadataFields=[
+ ["description","Description","Описание","textarea"],
+ ["originalTitle","Original title","Оригинальное название","text"],
+ ["alternativeTitles","Alternative titles (comma-separated)","Другие названия (через запятую)","text"],
+ ["studios","Studios (comma-separated)","Студии (через запятую)","text"],
+ ["countries","Countries (comma-separated)","Страны (через запятую)","text"],
+ ["releaseDate","Release date","Дата выпуска","date"],
+ ["officialRating","Age rating","Возрастной рейтинг","text"],
+ ["rating","Audience rating (0–10)","Оценка зрителей (0–10)","rating"],
+ ["genres","Genres (comma-separated)","Жанры (через запятую)","text"]
+];
+function metadataEditor(form,record,initialLocks,includeYear){
+ const fields={},locks={};
+ function add(key,en,ru,value,type){
+  const row=create("div","dk-meta-edit-row"),label=create("label",null,say(en,ru)),node=create(type==="textarea"?"textarea":"input");
+  if(type!=="textarea")node.type=type==="rating"?"number":type;
+  if(type==="rating"){node.min="0";node.max="10";node.step="0.1";}
+  if(type==="number"){node.min="1800";node.max="2100";}
+  if(type==="textarea"){node.maxLength=6000;node.rows=5;}else if(type==="text")node.maxLength=key==="title"?180:5000;
+  node.value=Array.isArray(value)?value.join(", "):value??"";
+  if(key==="title")node.required=true;
+  label.append(node);
+  const lockLabel=create("label","dk-meta-lock"),lock=create("input");lock.type="checkbox";lock.checked=!!initialLocks?.[key];lockLabel.append(lock,create("span",null,say("Lock","Защитить")));
+  lock.setAttribute("aria-label",say("Lock "+en,"Защитить: "+ru));
+  node.addEventListener("input",()=>{lock.checked=true;});
+  row.append(label,lockLabel);form.append(row);fields[key]=node;locks[key]=lock;
+ }
+ form.append(create("p","helper",say("Editing a field locks it automatically. Uncheck Lock to allow future provider refreshes. Only checked fields are protected.","При изменении поля защита включается автоматически. Снимите отметку, чтобы разрешить обновление из источника. Защищены только отмеченные поля.")));
+ add("title","Title","Название",record.title,"text");
+ if(includeYear)add("year","Year","Год",record.year,"number");
+ for(const [key,en,ru,type] of advancedMetadataFields)add(key,en,ru,record.details?.[key],type);
+ return ()=>{const detailValues={};for(const [key] of advancedMetadataFields)detailValues[key]=fields[key].value;
+  return {title:fields.title.value.trim(),year:fields.year?.value||null,description:detailValues.description,details:detailValues,locks:Object.fromEntries(Object.entries(locks).map(([key,n])=>[key,n.checked]))};
+ };
+}
 async function editMetadataDialog(){
-  const row=contextRow,series=contextSeries;hideContextMenu();if(!row)return;
-  if(series){await editHierarchyDialog(row,"series");return;}
-  const latest=await store.item(row.id)||row;
-  const {dialog,message,close}=localEditDialog(say("Edit Metadata","Редактировать метаданные"));
-  const form=document.createElement("form");
-  const field=(label,tag,value)=>{const wrapper=create("label",null,label),node=document.createElement(tag);node.value=value??"";wrapper.append(node);form.append(wrapper);return node;};
-  const title=field(say("Title","Название"),"input",latest.kind==="movie"?latest.title:latest.episodeTitle);
-  title.required=true;title.maxLength=180;
-  let year=null;if(latest.kind==="movie"){year=field(say("Year","Год"),"input",latest.year);year.type="number";year.min="1800";year.max="2100";}
-  const description=field(say("Description","Описание"),"textarea",latest.kind==="movie"?latest.movieDetails?.description:latest.episodeDescription);description.maxLength=6000;description.rows=5;
-  const save=create("button","btn",say("Save and lock fields","Сохранить и защитить поля"));save.type="submit";
-  const unlock=create("button","btn",say("Unlock fields","Разблокировать поля"));unlock.type="button";unlock.disabled=!latest.manualFields;
-  form.append(save,unlock,close);dialog.append(form,message);
-  form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{if(!await store.editLocalMetadata(latest.id,{title:title.value,year:year?.value,description:description.value}))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
-  unlock.addEventListener("click",async()=>{try{await store.editLocalMetadata(latest.id,{},true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
-  dialog.showModal();
+ const row=contextRow,series=contextSeries;hideContextMenu();if(!row)return;
+ if(series){await editHierarchyDialog(row,"series");return;}
+ const latest=await store.item(row.id)||row;
+ const {dialog,message,close}=localEditDialog(say("Edit Metadata","Редактировать метаданные"));
+ const form=document.createElement("form");
+ const values=metadataEditor(form,{title:latest.kind==="movie"?latest.title:latest.episodeTitle,year:latest.year,details:latest.kind==="movie"?latest.movieDetails:{...latest.episodeDetails,description:latest.episodeDescription}},latest.manualFields,latest.kind==="movie");
+ const save=create("button","btn",say("Save Metadata","Сохранить метаданные"));save.type="submit";
+ const unlock=create("button","btn",say("Unlock All","Снять всю защиту"));unlock.type="button";unlock.disabled=!latest.manualFields;
+ form.append(save,unlock,close);dialog.append(form,message);
+ form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{if(!await store.editLocalMetadata(latest.id,values()))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
+ unlock.addEventListener("click",async()=>{try{await store.editLocalMetadata(latest.id,{},true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
+ dialog.showModal();
 }
 function attachOnlineArtworkGallery(dialog,row,scope,select,isBusy,backdropOnly=false){
   const panel=create("section","dk-online-art");
@@ -1618,7 +1656,7 @@ async function tvRecord(row,scope,force=false){
   const latest=await store.item(row.id)||row;
   const key=scope==="item"?null:hierarchyKey(row,scope);
   const cached=key?await store.hierarchyMetadata(key):null;
-  if(cached?.manual||cached?.record&&!force)return cached.record;
+  if(cached?.record&&!force)return cached.record;
   const local=scope==="item"?{title:latest.episodeTitle||formatCode(latest),details:{...latest.episodeDetails,description:latest.episodeDescription||latest.episodeDetails?.description||""}}:cached?.record||{title:scope==="series"?row.series:say("Season "+row.season,"Сезон "+row.season),details:{}};
   if(!nativeBridge?.metadataRequest)return local;
   try{
@@ -1627,7 +1665,7 @@ async function tvRecord(row,scope,force=false){
     if(key){await store.saveHierarchyMetadata(key,response);return (await store.hierarchyMetadata(key))?.record||response;}
     await store.updateMetadata(row.id,{episodeTitle:response.title,episodeDetails:response.details,jellyfinIdentity:response.identity});
     const saved=await store.item(row.id);
-    return {...response,title:saved?.episodeTitle||response.title,details:{...response.details,description:saved?.manualFields?.description?saved.episodeDescription:response.details?.description}};
+    return {...response,title:saved?.episodeTitle||response.title,details:{...response.details,...saved?.episodeDetails,description:saved?.episodeDescription??response.details?.description}};
   }catch(_){return local;}
 }
 async function showTVDetails(row,scope){
@@ -1653,25 +1691,28 @@ async function showTVDetails(row,scope){
   add(say("Cast","В ролях"),data.details?.cast?.join(", "));
   add(say("Director","Режиссёр"),data.details?.directors?.join(", "));
   add(say("Rating","Рейтинг"),data.details?.rating);
+  add(say("Original title","Оригинальное название"),data.details?.originalTitle);
+  add(say("Alternative titles","Другие названия"),data.details?.alternativeTitles?.join(", "));
+  add(say("Studios","Студии"),data.details?.studios?.join(", "));
+  add(say("Countries","Страны"),data.details?.countries?.join(", "));
+  add(say("Release date","Дата выпуска"),data.details?.releaseDate);
+  add(say("Age rating","Возрастной рейтинг"),data.details?.officialRating);
+
   if(scope==="item")add(say("Episode","Серия"),formatCode(row));
   fields.after(personCreditsPanel(dialog,row,scope,data.details?.people));
   message.textContent="";
 }
 async function editHierarchyDialog(row,scope){
-  const key=hierarchyKey(row,scope);
-  const data=await tvRecord(row,scope),prior=await store.hierarchyMetadata(key);
-  const {dialog,message,close}=localEditDialog(scope==="season"?say("Edit Season Metadata","Редактировать сведения о сезоне"):say("Edit Series Metadata","Редактировать сведения о сериале"));
-  const form=document.createElement("form");
-  const field=(label,tag,value)=>{const l=create("label",null,label),n=document.createElement(tag);n.value=value??"";l.append(n);form.append(l);return n;};
-  const title=field(say("Title","Название"),"input",data.title);title.required=true;title.maxLength=180;
-  const year=field(say("Year","Год"),"input",data.year);year.type="number";year.min="1800";year.max="2100";
-  const description=field(say("Description","Описание"),"textarea",data.details?.description);description.rows=5;description.maxLength=6000;
-  const save=create("button","btn",say("Save and lock fields","Сохранить и защитить поля"));save.type="submit";
-  const unlock=create("button","btn",say("Unlock fields","Разблокировать поля"));unlock.type="button";unlock.disabled=!prior?.manual;
-  form.append(save,unlock,close);dialog.append(form,message);
-  form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{if(!await store.saveHierarchyMetadata(key,{...data,title:title.value.trim(),year:Number(year.value)||null,details:{...data.details,description:description.value}},true))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
-  unlock.addEventListener("click",async()=>{await store.saveHierarchyMetadata(key,null,false,true);dialog.close();await render();});
-  dialog.showModal();
+ const key=hierarchyKey(row,scope),data=await tvRecord(row,scope),prior=await store.hierarchyMetadata(key);
+ const {dialog,message,close}=localEditDialog(scope==="season"?say("Edit Season Metadata","Редактировать сведения о сезоне"):say("Edit Series Metadata","Редактировать сведения о сериале"));
+ const form=document.createElement("form");
+ const values=metadataEditor(form,data,prior?.manualFields??(prior?.manual?{title:true,year:true,description:true}:{}),true);
+ const save=create("button","btn",say("Save Metadata","Сохранить метаданные"));save.type="submit";
+ const unlock=create("button","btn",say("Unlock All","Снять всю защиту"));unlock.type="button";unlock.disabled=!prior?.manual&&!prior?.manualFields;
+ form.append(save,unlock,close);dialog.append(form,message);
+ form.addEventListener("submit",async event=>{event.preventDefault();save.disabled=true;try{const v=values();if(!await store.saveHierarchyMetadata(key,{...data,title:v.title,year:Number(v.year)||null,details:{...data.details,...v.details}},v.locks))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save metadata.","Не удалось сохранить метаданные.");save.disabled=false;}});
+ unlock.addEventListener("click",async()=>{try{await store.saveHierarchyMetadata(key,null,false,true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
+ dialog.showModal();
 }
 let hierarchyRender=0;
 async function displayHierarchy(){
@@ -1709,7 +1750,7 @@ async function readSeriesMetadata(epoch){
 }
 function matchesCinema(r){
  const f=homeFilters,q=seriesKey(f.query),d=cinemaDetails(r);
- return (!q||[cinemaTitle(r),r.episodeTitle,...cinemaGenres(r),...(Array.isArray(d.cast)?d.cast:[])].some(x=>seriesKey(x).includes(q)))&&
+ return (!q||[cinemaTitle(r),r.episodeTitle,d.originalTitle,...(Array.isArray(d.alternativeTitles)?d.alternativeTitles:[]),...cinemaGenres(r),...(Array.isArray(d.cast)?d.cast:[])].some(x=>seriesKey(x).includes(q)))&&
  (!f.genre||cinemaGenres(r).some(g=>seriesKey(g)===seriesKey(f.genre)))&&(!f.year||cinemaYear(r)===Number(f.year))&&(!f.rating||cinemaRating(r)>=Number(f.rating))&&(!f.watched||historyBucket(r)===f.watched);
 }
 function sortCinema(rows){

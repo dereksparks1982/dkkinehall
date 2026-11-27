@@ -646,6 +646,7 @@ async function serveNetwork(req,res){
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
   if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
   if(entry.rtsp||entry.rtmp)return fail();
+  if(entry.srt){if(!root)return fail();return serveSRT(req,res,entry);}
   if(entry.datagram){if(!root)return fail();return serveDatagram(req,res,entry);}
   if(entry.snapshot){const data=entry.snapshot.manifest;res.writeHead(200,{"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(data),"Access-Control-Allow-Origin":"null","Cache-Control":"no-store"});return res.end(req.method==="HEAD"?undefined:data);}
   const range=req.headers.range;
@@ -901,6 +902,102 @@ async function grantRTMP(value,language){
  networkGrants.set(token,{rtmp:url.href,clients:new Set()});
  return {token,src:"",transport:"rtmp"};
 }
+// SRT input stays alive between FFprobe and the playback decoder. Only
+// bounded MPEG-TS bytes cross the private HTTP proxy; no public HTTP server.
+function srtAddress(value){
+ if(typeof value!=="string"||value.length>4096||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid SRT address");
+ const url=new URL(value);
+ if(url.protocol!=="srt:"||!url.hostname||!url.port||url.username||url.password||url.hash||!["","/"].includes(url.pathname))throw Error("Invalid SRT address");
+ const normalized=new URL("https://"+url.host);url.hostname=normalized.hostname;
+ const options=new Map();
+ for(const [key,val] of url.searchParams){
+  if(options.has(key)||!["mode","latency","rcvlatency","peerlatency","passphrase","pbkeylen","streamid","srt_streamid","connect_timeout","timeout","listen_timeout","localip","localport","transtype"].includes(key))throw Error("Unsupported SRT option");
+  if(/[\x00-\x1f\x7f]/.test(val))throw Error("Invalid SRT option");
+  options.set(key,val);
+ }
+ const mode=options.get("mode")||"caller";
+ if(!["caller","listener","rendezvous"].includes(mode))throw Error("Invalid SRT mode");
+ const bounded=(key,min,max)=>{if(options.has(key)&&(!/^\d+$/.test(options.get(key))||Number(options.get(key))<min||Number(options.get(key))>max))throw Error("Invalid SRT option");};
+ for(const k of ["latency","rcvlatency","peerlatency"])bounded(k,0,60000000);
+ bounded("connect_timeout",100,30000);bounded("timeout",100000,30000000);bounded("listen_timeout",100000,30000000);bounded("localport",1,65535);
+ if(options.has("localip")&&!require("node:net").isIP(options.get("localip")))throw Error("Invalid SRT local IP");
+ if(options.has("transtype")&&options.get("transtype")!=="live")throw Error("Only SRT live mode is supported");
+ if(options.has("passphrase")&&(Buffer.byteLength(options.get("passphrase"))<10||Buffer.byteLength(options.get("passphrase"))>79))throw Error("Invalid SRT passphrase");
+ if(options.has("pbkeylen")&&!["0","16","24","32"].includes(options.get("pbkeylen")))throw Error("Invalid SRT key length");
+ if(options.has("passphrase")&&options.get("pbkeylen")==="0")throw Error("Invalid SRT encryption settings");
+ if(options.has("streamid")&&options.has("srt_streamid"))throw Error("Duplicate SRT stream ID");
+ for(const k of ["streamid","srt_streamid"])if(options.has(k)&&Buffer.byteLength(options.get(k))>512)throw Error("Invalid SRT stream ID");
+ url.searchParams.set("mode",mode);url.searchParams.set("enforced_encryption","1");url.searchParams.set("transtype","live");
+ // FFmpeg reads SRT query values itself. Preserve percent escapes; reject
+ // ambiguous encoded delimiters in non-secret option names above.
+ return {address:url.href,mode,display:url.host,encrypted:options.has("passphrase")};
+}
+async function grantSRT(value,language){
+ const spec=srtAddress(value),ru=language==="ru";
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
+  message:ru?"Открыть поток SRT?":"Open SRT stream?",
+  detail:spec.display+" · "+spec.mode+"\n"+(spec.mode==="listener"?(ru?"Приложение откроет порт для входящего подключения.":"The player will bind a port for an incoming connection."):(ru?"Подключайтесь только к доверенному источнику.":"Connect only to a source you trust.")),
+  buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
+ if(answer.response!==1)throw Error("Connection cancelled");
+ const port=await startNetworkProxy();
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const token=randomBytes(24).toString("hex");
+ networkGrants.set(token,{srt:spec.address,clients:new Set()});
+ return {token,src:"http://127.0.0.1:"+port+"/media/"+token,transport:"srt"};
+}
+const SRT_BUFFER=8*1024*1024;
+function serveSRT(req,res,entry){
+ if(req.method==="HEAD"){res.writeHead(200,{"Content-Type":"video/mp2t","Cache-Control":"no-store"});return res.end();}
+ if(req.headers.range&&!/^bytes=0-$/.test(req.headers.range)){res.writeHead(416);return res.end();}
+ if(entry.clients.size>=2||networkClients.size>=12){res.writeHead(503);return res.end();}
+ let receiver=entry.srtReceiver;
+ if(!receiver){
+  let child;
+  try{child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-protocol_whitelist","srt,udp","-format_whitelist","mpegts","-rw_timeout","25000000","-probesize","2097152","-analyzeduration","2000000","-f","mpegts","-i",entry.srt,"-map","0:v:0?","-map","0:a:0?","-c","copy","-mpegts_flags","+resend_headers","-f","mpegts","pipe:1"],{env:tvCodecEnv(),stdio:["ignore","pipe","ignore"],shell:false});}
+  catch(_){entry.failure="srt";res.writeHead(502);return res.end();}
+  receiver={child,chunks:[],bytes:0,next:0,subscribers:new Set(),last:Date.now(),idle:Date.now(),closed:false};entry.srtReceiver=receiver;
+  receiver.stop=()=>{
+   if(receiver.closed)return;receiver.closed=true;clearInterval(receiver.timer);
+   if(entry.srtReceiver===receiver)entry.srtReceiver=null;
+   try{child.kill("SIGKILL");}catch(_){}
+   for(const client of [...receiver.subscribers])client.destroy();
+   receiver.chunks.length=0;receiver.bytes=0;
+  };
+  child.stdout.on("data",data=>{
+   if(receiver.closed)return;receiver.last=Date.now();entry.failure=null;
+   receiver.chunks.push({seq:receiver.next++,data});receiver.bytes+=data.length;
+   while(receiver.bytes>SRT_BUFFER&&receiver.chunks.length){receiver.bytes-=receiver.chunks.shift().data.length;}
+   for(const client of [...receiver.subscribers])client.pump();
+  });
+  child.once("error",()=>{entry.failure="srt";receiver.stop();});
+  child.once("close",()=>{if(!receiver.closed){entry.failure="srt";receiver.stop();}});
+  receiver.timer=setInterval(()=>{
+   const now=Date.now();
+   if(now-receiver.last>45000||(!receiver.subscribers.size&&now-receiver.idle>45000))receiver.stop();
+  },1000);
+ }
+ let cursor=receiver.chunks[0]?.seq??receiver.next,blocked=false,closed=false;
+ const client={
+  pump(){
+   if(closed||blocked||res.destroyed)return;
+   const first=receiver.chunks[0]?.seq??receiver.next;
+   if(cursor<first){client.destroy();return;}
+   while(cursor<receiver.next&&!blocked){
+    const chunk=receiver.chunks[cursor-first];if(!chunk){client.destroy();return;}
+    if(!res.headersSent)res.writeHead(200,{"Content-Type":"video/mp2t","Cache-Control":"no-store","Access-Control-Allow-Origin":"null","X-Content-Type-Options":"nosniff"});
+    cursor++;blocked=!res.write(chunk.data);
+   }
+  },
+  destroy(){
+   if(closed)return;closed=true;receiver.subscribers.delete(client);entry.clients.delete(client);networkClients.delete(client);
+   receiver.idle=Date.now();
+   if(!res.destroyed&&!res.writableEnded){if(!res.headersSent)res.writeHead(502);res.end();}
+  }
+ };
+ receiver.subscribers.add(client);entry.clients.add(client);networkClients.add(client);
+ res.on("drain",()=>{blocked=false;client.pump();});res.once("close",()=>client.destroy());res.once("error",()=>client.destroy());client.pump();
+}
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
   const entry=networkGrants.get(token);
@@ -912,6 +1009,7 @@ async function resolveNetworkMedia(token){
 }
 function closeNetwork(){
   stopTVJobs();
+  for(const entry of networkGrants.values())entry.srtReceiver?.stop();
   for(const req of networkClients)req.destroy();
   networkClients.clear();networkGrants.clear();networkServers.clear();tvSegments.clear();tvSegmentBytes=0;
   networkProxy?.close();networkProxy=null;
@@ -2520,6 +2618,9 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
+  ipcMain.handle("dk-network:srt-grant",(event,url,language)=>{
+    if(!onlyPlayer(event))throw Error("SRT request rejected");return grantSRT(url,language);
+  });
   ipcMain.handle("dk-network:rtmp-grant",(event,url,language)=>{
     if(!onlyPlayer(event))throw Error("RTMP request rejected");return grantRTMP(url,language);
   });
@@ -2546,7 +2647,7 @@ function install(originalWindow,originalPlayer){
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
-    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.switching)return false;
+    const entry=networkGrants.get(token);if(!entry||entry.lan||entry.datagram||entry.rtsp||entry.rtmp||entry.srt||entry.switching)return false;
     entry.switching=true;
     try{
       while(entry.alternates?.length){
@@ -2567,7 +2668,7 @@ function install(originalWindow,originalPlayer){
     const entry=networkGrants.get(token);
     if(!entry)return false;
     if(bufferJob?.source===token)stopBuffer();
-    clearTVSegments(token);networkGrants.delete(token);
+    entry.srtReceiver?.stop();clearTVSegments(token);networkGrants.delete(token);
     for(const client of entry.clients)client.destroy();
     return true;
   });
@@ -2909,4 +3010,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?"rtmp":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.rtmp?"rtmp":networkGrants.get(token)?.srt?"srt":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

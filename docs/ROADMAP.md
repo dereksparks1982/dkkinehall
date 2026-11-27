@@ -646,7 +646,7 @@ Work sequentially on main, no local installation updates until explicitly reques
 | Build | Scope | State |
 |---|---|---|
 | 1 | Dedicated movie/series backdrop artwork, independent cache and selection; server control same dimensions as Live TV, far right, light only with accessible status | Source implemented; installed verification pending |
-| 2 | Automatic verified franchise/box-set collections, artwork, release ordering and manual overrides | Next |
+| 2 | Automatic verified franchise/box-set collections, artwork, release ordering and manual overrides | Source pass; provider gaps and installed validation pending |
 | 3 | Per-field metadata locks, alternative titles, studios, countries, release dates and ratings | Planned |
 | 4 | English/Russian metadata language, original titles, localized descriptions/artwork | Planned |
 | 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Planned |
@@ -682,3 +682,5 @@ Server shortcut correction: add live sidebar status lamp and direct navigation t
 Player and Library polish: remove duplicate Playlist toggle; enlarge navigation buttons; improve Up Next card text contrast; exempt chapter marker buttons from gold action styling. Local acceptance pending.
 
 Sidebar size correction: replace the previous 16px/20px/48px targets with zoom-compensated 22px/26px/60px targets, preserving library poster zoom. Installed acceptance pending.
+
+Build 2 source pass: dedicated Collections browser, private Jellyfin verified box-set import and collection primary art, descriptions, counts and release-order details, cached groups and manual membership exclusions. Automatic grouping depends on available server BoxSet records and matched local movie identities. Pending provider-only collection discovery when no BoxSet exists, full collection rename/delete controls, external-server support and installed validation. Version unchanged.

@@ -2760,6 +2760,38 @@ async function jfClassification(url,kind){
  return fail;
 }
 
+// Box-set membership is read-only, and only movie IDs from assigned local
+// movie/TV roots may leave the private server. No arbitrary collection paths.
+let jfBoxSetCache=null;
+async function jfBoxSets(cfg,force=false){
+ const key=cfg.port+":"+cfg.userId;
+ if(jfBoxSetCache?.key===key&&(jfBoxSetCache.pending||Date.now()-jfBoxSetCache.at<(force?2000:300000)))return jfBoxSetCache.work;
+ const entry={key,at:Date.now(),pending:true,work:null};jfBoxSetCache=entry;
+ entry.work=(async()=>{
+  const catalog=await jellyfinIndex(cfg),roots=getLibrarySources();
+  const allowed=new Set([...catalog.values()].filter(x=>x?.Type==="Movie"&&jellyfinId(x.Id)&&roots.some(root=>inSource(root.path,x.Path))).map(x=>x.Id));
+  const output=[];
+  const user=cfg.userId?{UserId:cfg.userId}:{};
+  for(let start=0;start<500;start+=100){
+   const page=await jellyfinGet(cfg,"/Items",{Recursive:true,IncludeItemTypes:"BoxSet",Fields:"Overview",EnableUserData:false,StartIndex:start,Limit:100,...user});
+   if(!Array.isArray(page?.Items))throw Error("Collection query unavailable");
+   for(const box of page.Items){
+    if(box.Type!=="BoxSet"||!jellyfinId(box.Id)||typeof box.Name!=="string"||!box.Name.trim())continue;
+    const ids=new Set();
+    for(let offset=0;offset<5000;offset+=200){
+     const children=await jellyfinGet(cfg,"/Items",{ParentId:box.Id,Recursive:true,IncludeItemTypes:"Movie",EnableUserData:false,StartIndex:offset,Limit:200,...user});
+     if(!Array.isArray(children?.Items))throw Error("Collection membership unavailable");
+     for(const child of children.Items)if(child.Type==="Movie"&&allowed.has(child.Id))ids.add(child.Id);
+     if(children.Items.length<200||Number.isFinite(children.TotalRecordCount)&&offset+children.Items.length>=children.TotalRecordCount)break;
+    }
+    if(ids.size)output.push({id:box.Id,name:box.Name.slice(0,180),description:typeof box.Overview==="string"?box.Overview.slice(0,3000):"",members:[...ids]});
+   }
+   if(page.Items.length<100||Number.isFinite(page.TotalRecordCount)&&start+page.Items.length>=page.TotalRecordCount)break;
+  }
+  return output;
+ })().catch(error=>{if(jfBoxSetCache===entry)jfBoxSetCache=null;throw error;}).finally(()=>{entry.pending=false;entry.at=Date.now();});
+ return entry.work;
+}
 async function jellyfinMetadata(raw,kind){
   const missing={ok:false,status:404};
   try{
@@ -2774,6 +2806,12 @@ async function jellyfinMetadata(raw,kind){
       return jfJSON({state:status.state,enabled:status.enabled===true,controllable:status.controllable===true,
         runtimeExecutable,runningProcess:!!jfAlive(jfState),folderCount:getLibrarySources().length,
         port:jfState?.port||null,progress:status.progress??null,completed:status.completed??null});
+    }
+    if(url.pathname==="/collections"&&kind==="json"&&jfConfig&&!jellyfinConfig())return jfJSON(await jfBoxSets(jfConfig,url.searchParams.get("force")==="1"));
+    if(url.pathname==="/collection-image"&&kind==="image"&&jfConfig&&!jellyfinConfig()){
+      const id=url.searchParams.get("id");if(!jellyfinId(id))return missing;
+      if(!(await jfBoxSets(jfConfig)).some(g=>g.id===id))return missing;
+      return await jellyfinGet(jfConfig,"/Items/"+id+"/Images/Primary",{maxWidth:480,quality:85},true)||missing;
     }
     if(url.pathname==="/classification")return await jfClassification(url,kind);
     if(["/search","/apply"].includes(url.pathname))return await jfMatch(url,kind);

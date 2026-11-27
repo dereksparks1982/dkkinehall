@@ -18,11 +18,37 @@ const customKey="dk-kinehall.library.collections.v1";
 let custom={groups:[],editions:{}};
 try{const x=JSON.parse(localStorage.getItem(customKey)||"null");if(x&&Array.isArray(x.groups)&&x.editions&&typeof x.editions==="object")custom={groups:x.groups.filter(g=>g&&typeof g.name==="string"&&Array.isArray(g.members)).slice(0,200),editions:x.editions};}catch(_){}
 const persist=next=>{try{localStorage.setItem(customKey,JSON.stringify(next));custom=next;return true;}catch(_){return false;}};
-const groups=()=>custom.groups.map(g=>({name:g.name,members:[...g.members]}));
-const groupNames=row=>custom.groups.filter(g=>g.members.includes(row.id)).map(g=>g.name);
+const autoKey="dk-kinehall.library.verified-boxsets.v1",excludedKey="dk-kinehall.library.collection-exclusions.v1";
+let automatic=[],excluded={};
+try{const data=JSON.parse(localStorage.getItem(autoKey)||"[]");if(Array.isArray(data))automatic=data.slice(0,500);}catch(_){}
+try{const data=JSON.parse(localStorage.getItem(excludedKey)||"{}");if(data&&typeof data==="object"&&!Array.isArray(data))excluded=data;}catch(_){}
+const manualGroups=()=>custom.groups.map(g=>({name:g.name,members:[...g.members]}));
+function setAutomatic(data){
+ if(!Array.isArray(data))return false;
+ const next=data.filter(g=>g&&typeof g.name==="string"&&typeof g.id==="string"&&/^[a-f0-9]{32}$/i.test(g.id)&&Array.isArray(g.members)).slice(0,500).map(g=>({id:g.id,name:g.name.slice(0,180),description:String(g.description||"").slice(0,3000),members:g.members.filter(x=>typeof x==="string"&&x.length<=160).slice(0,5000)}));
+ try{localStorage.setItem(autoKey,JSON.stringify(next));}catch(_){}
+ automatic=next;return true;
+}
+function groups(){
+ const result=new Map();
+ for(const g of automatic){if(!g||typeof g.name!=="string"||!Array.isArray(g.members))continue;const key=norm(g.name),blocked=Array.isArray(excluded[key])?excluded[key]:[];const prev=result.get(key);
+  if(prev){prev.members=[...new Set([...prev.members,...g.members.filter(id=>!blocked.includes(id))])];continue;}
+  result.set(key,{...g,members:g.members.filter(id=>!blocked.includes(id)),automatic:true});
+ }
+ for(const g of manualGroups()){const key=norm(g.name),prev=result.get(key);if(prev)prev.members=[...new Set([...prev.members,...g.members])];else result.set(key,g);}
+ return [...result.values()].filter(g=>g.members.length);
+}
+const groupNames=row=>groups().filter(g=>g.members.includes(row.id)).map(g=>g.name);
 function setMembership(row,name,enabled){
  const title=String(name||"").trim().slice(0,100);if(!title||row.kind!=="movie"||typeof row.id!=="string")return false;
- const next=groups(),existing=next.find(g=>norm(g.name)===norm(title));
+ const key=norm(title),auto=automatic.some(g=>norm(g.name)===key&&g.members.includes(row.id));
+ const next=manualGroups(),existing=next.find(g=>norm(g.name)===key);
+ if(auto){
+  const previous=Array.isArray(excluded[key])?excluded[key]:[];
+  const blocked={...excluded,[key]:enabled?previous.filter(x=>x!==row.id):[...new Set([...previous,row.id])]};
+  try{localStorage.setItem(excludedKey,JSON.stringify(blocked));excluded=blocked;}catch(_){return false;}
+  if(!existing)return true;
+ }
  if(existing){existing.members=enabled?[...new Set([...existing.members,row.id])]:existing.members.filter(x=>x!==row.id);}
  else if(enabled&&next.length<200)next.push({name:title,members:[row.id]});else return false;
  if(next.some(g=>g.members.length>10000))return false;
@@ -76,5 +102,5 @@ function filter(rows,kind,value,query,onlySaved){
   return !q||[row.title,row.series,row.episodeTitle,row.filename,...words(row.movieDetails?.cast),...words(row.movieDetails?.directors),...words(row.movieDetails?.genres)].some(x=>norm(x).includes(q));
  });
 }
-window.DKCollections=Object.freeze({has,toggle,options,filter,edition,groups,groupNames,setMembership,setEdition,relatedEditions,movieIdentity});
+window.DKCollections=Object.freeze({has,toggle,options,filter,edition,groups,groupNames,setMembership,setEdition,relatedEditions,movieIdentity,setAutomatic});
 })();

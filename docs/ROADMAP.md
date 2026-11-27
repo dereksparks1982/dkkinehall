@@ -645,8 +645,8 @@ Work sequentially on main, no local installation updates until explicitly reques
 
 | Build | Scope | State |
 |---|---|---|
-| 1 | Dedicated movie/series backdrop artwork, independent cache and selection; server control same dimensions as Live TV, far right, light only with accessible status | Next |
-| 2 | Automatic verified franchise/box-set collections, artwork, release ordering and manual overrides | Planned |
+| 1 | Dedicated movie/series backdrop artwork, independent cache and selection; server control same dimensions as Live TV, far right, light only with accessible status | Source implemented; installed verification pending |
+| 2 | Automatic verified franchise/box-set collections, artwork, release ordering and manual overrides | Next |
 | 3 | Per-field metadata locks, alternative titles, studios, countries, release dates and ratings | Planned |
 | 4 | English/Russian metadata language, original titles, localized descriptions/artwork | Planned |
 | 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Planned |
@@ -658,3 +658,5 @@ Work sequentially on main, no local installation updates until explicitly reques
 
 ### Diagnostic Center source review and port plan
 Inspected DK Media Plus `src/diagnostics/diagnostic_engine.hpp`, `diagnostic_types.hpp`, `diagnostic_engine.cpp`, `modules-system.js`, `web-service-diagnostics.js`, and its roadmap. The earlier native engine models Passed, Needs Attention, Problem, Not Tested and Information, with subsystem, observed/expected evidence, action, timestamps, facts, totals, TXT/JSON exports, support bundle and retained history. Browser diagnostics provide endpoint health/catalog/capabilities, timing and HTTP result, retry, copy and exports. Adapt these concepts to Kinehall's Electron/Linux and private Jellyfin architecture, not its obsolete fixed port 8096 or VLC-specific probes. Nougat-Media-Player currently contains only README/CONTACT; the actual diagnostic code is present in dkmediaplus. Preserve privacy: allowlisted report data, no tokens/passwords, no raw unredacted logs or private media paths by default; user-initiated export only. Test server ownership, authenticated health, uptime, RSS/CPU samples, scan progress, catalog counts, available disk space, codec capability, network exposure and connected-session counts where available. Unperformed DB integrity, external reachability, playback and transcode checks remain Not Tested, not green. Add dedicated Server settings entry, export TXT/JSON, copy, optional redacted support bundle and bounded report history. Runtime tests remain required. Preserve loopback-only private metadata server until the separate network serving builds.
+
+Build 1 source pass: separate movie and series backdrop keys in existing artwork store, Jellyfin backdrop retrieval, local/server/online backdrop selection with manual lock and automatic reset, scoped details background with contrast overlay, URL cleanup and missing-art fallback. Matching navigation/server button sizing, no visible status wording, localized tooltip and accessible announcement. Existing artwork size limits apply; separate cache eviction, offline fan-art providers and installed visual/runtime acceptance remain outstanding. Global crimson background unchanged. No local update or version increment.

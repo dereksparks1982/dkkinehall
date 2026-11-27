@@ -532,6 +532,7 @@ function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   $("fixMatch").disabled=scanning||maintaining;
   $("editLocalMetadata").hidden=false; $("editLocalMetadata").disabled=scanning||maintaining;
   $("chooseArtwork").hidden=false; $("chooseArtwork").disabled=scanning||maintaining;
+  $("chooseBackground").hidden=row.kind!=="movie"&&!seriesOnly; $("chooseBackground").disabled=scanning||maintaining; $("chooseBackground").textContent=say("Choose Background","Выбрать фон");
   $("reclassifyMedia").hidden=seriesOnly; $("reclassifyMedia").disabled=scanning||maintaining;
   $("reclassifyMedia").textContent=row.kind==="tv"?say("Move to Movies","Перенести в фильмы"):say("Move to TV Shows","Перенести в сериалы");
   $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
@@ -631,6 +632,37 @@ function personCreditsPanel(dialog,row,scope,people=[]){
 }
 
 let detailMovieId=null;
+// Backdrops use separate cache keys and never overwrite card posters.
+const backdropKey=(row,scope)=>"backdrop:"+(scope==="series"?artId(row,true):row.id);
+const backdropAttempts=new Set(),backdropPending=new Map(),backdropViews=new WeakMap();
+function clearBackdrop(node){
+ const view=backdropViews.get(node);if(view?.url)URL.revokeObjectURL(view.url);
+ backdropViews.delete(node);node.style.removeProperty("--dk-detail-backdrop");node.classList.remove("dk-has-detail-backdrop");
+}
+async function paintBackdrop(node,row,scope){
+ if(!node||!row||!nativeBridge)return;
+ const id=backdropKey(row,scope),prior=backdropViews.get(node);
+ if(prior?.id===id)return;
+ clearBackdrop(node);const view={id,url:null};backdropViews.set(node,view);
+ try{
+  let art=await store.artwork(id);
+  if(!art?.blob&&!backdropAttempts.has(id)&&nativeBridge.metadataRequest){
+   backdropAttempts.add(id);
+   const pending=(async()=>{
+    try{const r=await nativeBridge.metadataRequest("dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",scope,image:"Backdrop"}),"image");
+     if(r.ok&&/^image\/(jpeg|png|webp)$/.test(r.mime)){const blob=new Blob([r.bytes],{type:r.mime});await store.saveArtwork(id,blob,"Jellyfin");}}
+    catch(_){}
+   })();backdropPending.set(id,pending);await pending;backdropPending.delete(id);
+  }else if(backdropPending.has(id))await backdropPending.get(id);
+  art=await store.artwork(id);
+  if(backdropViews.get(node)!==view||!node.isConnected||!art?.blob)return;
+  view.url=URL.createObjectURL(art.blob);node.style.setProperty("--dk-detail-backdrop",'url("'+view.url+'")');node.classList.add("dk-has-detail-backdrop");
+ }catch(_){}
+}
+function invalidateBackdrop(id){
+ backdropAttempts.delete(id);
+ for(const node of [$("movieDetailsDialog"),$("seriesDetail")])if(node&&backdropViews.get(node)?.id===id)clearBackdrop(node);
+}
 function displayMovieDetails(row){
   const d=$("movieDetailsDialog");
   const data=row.movieDetails||{};
@@ -652,6 +684,7 @@ function displayMovieDetails(row){
   $("movieDetailsClose").title=say("Close","Закрыть");
   $("movieDetailsClose").setAttribute("aria-label",say("Close","Закрыть"));
   if(!d.open)d.showModal();
+  void paintBackdrop(d,row,"item");
   const previous=d.querySelector(".dk-person-credits");
   const key=row.id+":"+JSON.stringify(data.people||[]);
   if(!previous||previous.dataset.creditKey!==key){
@@ -991,6 +1024,7 @@ async function render(){
   const list=$("libraryCollection");
   const detail=$("seriesDetail");
   detail.hidden=!selectedSeries||!tv;
+  if(detail.hidden)clearBackdrop(detail);
   let cards=[];
   if(tv&&selectedSeries){
     const rows=active.filter(row=>seriesKey(row.series)===seriesKey(selectedSeries));
@@ -1344,6 +1378,7 @@ function paintJellyfinState(data){
  if(!controls||!button||!light||!node)return;
  const messages={off:say("Server off","Сервер выключен"),starting:say("Starting server…","Запуск сервера…"),stopping:say("Stopping server…","Остановка сервера…"),scanning:say("Server running · Scanning library","Сервер работает · Сканирование медиатеки"),ready:say("Server running","Сервер работает"),external:say("External server configured (read only)","Настроен внешний сервер (только чтение)"),unavailable:say("Server unavailable · Fallback metadata","Сервер недоступен · Резервные метаданные"),unknown:say("Server status unknown","Состояние сервера неизвестно")};
  controls.hidden=false;light.dataset.state=data.state;node.textContent=(messages[data.state]||messages.unknown)+(data.state==="scanning"&&data.progress!=null?" "+Math.round(data.progress)+"%":"");
+ light.title=node.textContent;light.setAttribute("aria-label",node.textContent);
  button.textContent=data.enabled&&(data.state!=="unavailable"||data.runningProcess)?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
  button.disabled=jfPowerBusy||!data.controllable||!nativeBridge?.jellyfinPower;
 }
@@ -1362,7 +1397,7 @@ async function pollJellyfin(){
     const completed=data.state==="ready"&&jfLast&&(jfLast.state!=="ready"||data.completed!==jfLast.completed);
     jfLast=data;
     if(completed&&!scanning&&!maintaining){
-      jfRevision++;artAttempted.clear();titleAttempted.clear();networkArtworkCount=0;networkTitleCount=0;
+      jfRevision++;backdropAttempts.clear();artAttempted.clear();titleAttempted.clear();networkArtworkCount=0;networkTitleCount=0;
       void render();
     }
   }catch(_){paintJellyfinState({state:"unknown",enabled:false,controllable:false});}finally{jfPollBusy=false;}
@@ -1467,15 +1502,16 @@ async function editMetadataDialog(){
   unlock.addEventListener("click",async()=>{try{await store.editLocalMetadata(latest.id,{},true);dialog.close();await render();}catch(_){message.textContent=say("Could not unlock fields.","Не удалось разблокировать поля.");}});
   dialog.showModal();
 }
-function attachOnlineArtworkGallery(dialog,row,scope,select,isBusy){
+function attachOnlineArtworkGallery(dialog,row,scope,select,isBusy,backdropOnly=false){
   const panel=create("section","dk-online-art");
   const heading=create("h3",null,say("Online Artwork","Обложки из интернета"));
   const filter=document.createElement("select");
   filter.setAttribute("aria-label",say("Artwork type","Тип изображения"));
   for(const [value,en,ru] of [["Primary","Posters","Обложки"],["Backdrop","Backgrounds","Фоновые изображения"],["Thumb","Thumbnails","Миниатюры"]]){
+    if(backdropOnly&&value!=="Backdrop")continue;
     const opt=create("option",null,say(en,ru));opt.value=value;filter.append(opt);
   }
-  if(row.kind==="tv"&&scope==="item")filter.value="Thumb";
+  if(!backdropOnly&&row.kind==="tv"&&scope==="item")filter.value="Thumb";
   const load=create("button","btn",say("Browse online","Найти в интернете"));load.type="button";
   const prev=create("button","btn",say("Previous","Назад"));prev.type="button";prev.disabled=true;
   const next=create("button","btn",say("Next","Далее"));next.type="button";next.disabled=true;
@@ -1533,9 +1569,9 @@ function attachOnlineArtworkGallery(dialog,row,scope,select,isBusy){
   return panel;
 }
 
-async function chooseArtworkDialog(target=null,scope=null){
+async function chooseArtworkDialog(target=null,scope=null,backdropOnly=false){
   const row=target||contextRow,series=scope==="series"||(!target&&contextSeries);hideContextMenu();if(!row)return;
-  const id=scope==="season"?hierarchyKey(row,"season"):artId(row,series),{dialog,message,close}=localEditDialog(say("Choose Artwork","Выбрать обложку"));
+  const id=backdropOnly?backdropKey(row,series?"series":"item"):scope==="season"?hierarchyKey(row,"season"):artId(row,series),{dialog,message,close}=localEditDialog(backdropOnly?say("Choose Background","Выбрать фон"):say("Choose Artwork","Выбрать обложку"));
   const preview=create("img","dk-art-preview");preview.alt="";preview.hidden=true;
   let blob=null,objectURL=null,busy=false;
   const select=next=>{if(objectURL)URL.revokeObjectURL(objectURL);blob=next;objectURL=next?URL.createObjectURL(next):null;preview.hidden=!next;if(next)preview.src=objectURL;save.disabled=!next;};
@@ -1548,12 +1584,13 @@ async function chooseArtworkDialog(target=null,scope=null){
   dialog.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
   source.addEventListener("change",()=>{const file=source.files?.[0];if(!file)return;if(!/^image\/(jpeg|png|webp)$/.test(file.type)||file.size>3*1024*1024||!file.size){message.textContent=say("Choose a JPEG, PNG or WebP image up to 3 MB.","Выберите изображение до 3 МБ в поддерживаемом формате.");return;}select(file);message.textContent="";});
   for(const [kind,en,ru] of [["Primary","Poster / primary","Основная обложка"],["Backdrop","Background","Фоновое изображение"],["Thumb","Thumbnail","Миниатюра"]]){
+    if(backdropOnly&&kind!=="Backdrop")continue;
     const button=create("button","btn",say(en,ru));button.type="button";choices.append(button);
     button.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{const url="dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",series:series?"1":"0",scope:scope||(series?"series":"item"),image:kind});const result=await nativeBridge.metadataRequest(url,"image");if(!result.ok)throw Error();select(new Blob([result.bytes],{type:result.mime}));message.textContent="";}catch(_){message.textContent=say("This image is not available from the metadata engine.","Это изображение недоступно в службе метаданных.");}finally{setBusy(false);}});
   }
-  save.addEventListener("click",async()=>{if(!blob||busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));if(!await store.saveArtwork(id,blob,"Manual",true))throw Error();dialog.close();await render();}catch(_){message.textContent=say("Could not save artwork.","Не удалось сохранить обложку.");setBusy(false);}});
-  reset.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{while(activeArtwork.has(id))await new Promise(resolve=>setTimeout(resolve,80));await store.removeArtwork(id);artAttempted.delete(id);jfChecked.delete(id);dialog.close();await render();}catch(_){message.textContent=say("Could not restore automatic artwork.","Не удалось восстановить автоматический выбор.");setBusy(false);}});
-  const gallery=attachOnlineArtworkGallery(dialog,row,scope||(series?"series":"item"),select,()=>busy);
+  save.addEventListener("click",async()=>{if(!blob||busy)return;setBusy(true);try{while(activeArtwork.has(id)||backdropPending.has(id))await new Promise(resolve=>setTimeout(resolve,80));if(!await store.saveArtwork(id,blob,"Manual",true))throw Error();if(backdropOnly)invalidateBackdrop(id);dialog.close();await render();}catch(_){message.textContent=say("Could not save artwork.","Не удалось сохранить обложку.");setBusy(false);}});
+  reset.addEventListener("click",async()=>{if(busy)return;setBusy(true);try{while(activeArtwork.has(id)||backdropPending.has(id))await new Promise(resolve=>setTimeout(resolve,80));await store.removeArtwork(id);artAttempted.delete(id);jfChecked.delete(id);if(backdropOnly)invalidateBackdrop(id);dialog.close();await render();}catch(_){message.textContent=say("Could not restore automatic artwork.","Не удалось восстановить автоматический выбор.");setBusy(false);}});
+  const gallery=attachOnlineArtworkGallery(dialog,row,scope||(series?"series":"item"),select,()=>busy,backdropOnly);
   dialog.append(source,choices,preview,message,save,reset,close,gallery);dialog.showModal();
   const current=await store.artwork(id);if(dialog.open&&current?.blob&&!blob)select(current.blob);
 }
@@ -1626,6 +1663,7 @@ async function displayHierarchy(){
   summary.textContent="";seasonSummary.textContent="";
   const valid=()=>revision===hierarchyRender&&selectedSeries===seriesName&&selectedSeason===seasonNumber;
   if(!show||!nativeBridge)return;
+  void paintBackdrop($("seriesDetail"),show,"series");
   const seriesData=await tvRecord(show,"series");
   if(!valid())return;
   $("seriesTitle").textContent=seriesData.title||seriesName;
@@ -1646,10 +1684,13 @@ function connect(){
   $("fixMatch").addEventListener("click",()=>void showFixMatch());
   $("editLocalMetadata").addEventListener("click",()=>void editMetadataDialog());
   $("chooseArtwork").addEventListener("click",()=>void chooseArtworkDialog());
+  $("chooseBackground").addEventListener("click",()=>void chooseArtworkDialog(null,null,true));
+  $("seriesBackground").addEventListener("click",()=>{const row=tvRepresentative("series");if(row)void chooseArtworkDialog(row,"series",true);});
+  $("seriesBackground").textContent=say("Series Background","Фон сериала");
   $("reclassifyMedia").addEventListener("click",()=>void reclassifyDialog());
   if(nativeBridge?.metadataRequest){$("jellyfinPower")?.addEventListener("click",()=>void toggleJellyfinPower());paintJellyfinState({state:"unknown",enabled:false,controllable:false});void pollJellyfin();setInterval(pollJellyfin,2000);}
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());
-  $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;const p=$("movieDetailsDialog").querySelector(".dk-person-credits");p?.dispose?.();p?.remove();});
+  $("movieDetailsDialog").addEventListener("close",()=>{detailMovieId=null;clearBackdrop($("movieDetailsDialog"));const p=$("movieDetailsDialog").querySelector(".dk-person-credits");p?.dispose?.();p?.remove();});
   $("markWatched").addEventListener("click",()=>markContext(true));
   $("markUnwatched").addEventListener("click",()=>markContext(false));
   $("watchedFilter").addEventListener("change",event=>{watchedFilter=event.target.value;visibleCount=72;void render();});

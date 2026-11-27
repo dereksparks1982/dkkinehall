@@ -2473,7 +2473,7 @@ async function jfMatch(url,kind){
   const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
   if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Series"].includes(type))return fail;
   const grant=await checkPlayableSource(id,file);
-  if(!getLibrarySources().some(root=>root.kind===(type==="Movie"?"movie":"tv")&&inSource(root.path,grant.target)))return fail;
+  if(!getLibrarySources().some(root=>inSource(root.path,grant.target)))return fail;
   const catalog=await jellyfinIndex(cfg,true);
   const item=catalog.get(path.normalize(grant.target))||catalog.get(path.normalize(file));
   const target=type==="Movie"&&item?.Type==="Movie"?item.Id:type==="Series"&&item?.Type==="Episode"?item.SeriesId:null;
@@ -2641,19 +2641,69 @@ async function jfPerson(cfg,info,catalog,url,kind){
     credit,filmography:titles.slice(0,150),filmographyAvailable,limited:limited||titles.length>150});
 }
 
+// Read the actual indexed type independently of the assigned folder. For
+// private catalogs, remote search can corroborate a movie without mutating
+// a folder-derived Episode record. Never apply remote search results here.
+async function jfClassification(url,kind){
+ const fail={ok:false,status:404};
+ if(kind!=="json")return fail;
+ const external=jellyfinConfig(),cfg=external||jfConfig,state=jfState;
+ if(!cfg)return fail;
+ const id=url.searchParams.get("id"),file=url.searchParams.get("path"),title=(url.searchParams.get("title")||"").trim(),series=(url.searchParams.get("series")||"").trim();
+ const year=Number(url.searchParams.get("year"))||null,season=url.searchParams.get("season"),episode=url.searchParams.get("episode");
+ if(!id||!file||file.length>4096||!path.isAbsolute(file)||!title||title.length>180||series.length>180||year&&(!Number.isInteger(year)||year<1800||year>2100))return fail;
+ const grant=await checkPlayableSource(id,file);
+ if(!getLibrarySources().some(root=>inSource(root.path,grant.target)))return fail;
+ const catalog=await jellyfinIndex(cfg),item=catalog.get(path.normalize(grant.target))||catalog.get(path.normalize(file));
+ const norm=v=>String(v||"").normalize("NFKD").replace(/\p{M}/gu,"").replace(/&/g," and ").replace(/[^\p{L}\p{N}]+/gu," ").trim().toLowerCase();
+ const named=norm(title),hint=norm(series),hasIds=x=>Object.keys(jfProviderIds(x?.ProviderIds)).length>0;
+ const movieMatch=x=>x&&hasIds(x)&&norm(x.Name)===named&&(!year||Number(x.ProductionYear)===year);
+ const film=x=>({kind:"movie",title:String(x.Name).slice(0,180),year:Number(x.ProductionYear)||year,series:null,season:null,episode:null,episodeTitle:"",provider:"Jellyfin"});
+ const numbered=season!==null&&episode!==null&&/^\d{1,2}$/.test(season)&&/^\d{1,3}$/.test(episode)&&Number(episode)>0;
+ if(numbered){
+  if(item?.Type==="Episode"&&hasIds(item)&&norm(item.SeriesName)===hint&&Number.isInteger(item.ParentIndexNumber)&&Number.isInteger(item.IndexNumber)&&item.ParentIndexNumber===Number(season)&&item.IndexNumber===Number(episode)&&item.Name)
+   return jfJSON({kind:"tv",title:String(item.SeriesName).slice(0,180),series:String(item.SeriesName).slice(0,180),season:Number(season),episode:Number(episode),episodeTitle:String(item.Name).slice(0,180),year:null,provider:"Jellyfin"});
+  return fail;
+ }
+ const indexedMovie=item?.Type==="Movie"&&movieMatch(item)?item:null;
+ const short=hint&&named.startsWith(hint+" ")?named.slice(hint.length+1):named;
+ const indexedEpisode=item?.Type==="Episode"&&hasIds(item)&&hint&&norm(item.SeriesName)===hint&&norm(item.Name)===short&&Number.isInteger(item.ParentIndexNumber)&&item.ParentIndexNumber>=0&&item.ParentIndexNumber<=99&&Number.isInteger(item.IndexNumber)&&item.IndexNumber>=1&&item.IndexNumber<=999&&(!year||Number(item.ProductionYear)===year)?item:null;
+ // An external connection remains read-only. Only corroborated exact-path
+ // results are usable; private remote searches are query-only POSTs.
+ if(external||!state){
+  if(indexedMovie)return jfJSON(film(indexedMovie));
+  if(indexedEpisode)return jfJSON({kind:"tv",title:String(item.SeriesName).slice(0,180),series:String(item.SeriesName).slice(0,180),season:item.ParentIndexNumber,episode:item.IndexNumber,episodeTitle:String(item.Name).slice(0,180),year:null,provider:"Jellyfin"});
+  return fail;
+ }
+ const query={SearchInfo:{Name:title,...(year?{Year:year}:{})},IncludeDisabledProviders:false};
+ const [movies,shows]=await Promise.all([
+  jfAdmin(state,"POST","/Items/RemoteSearch/Movie",query,{},20000),
+  jfAdmin(state,"POST","/Items/RemoteSearch/Series",query,{},20000)
+ ]);
+ if(!Array.isArray(movies)||!Array.isArray(shows))return fail;
+ const exact=movies.filter(movieMatch),tv=shows.filter(movieMatch);
+ const distinct=new Map(exact.map(x=>[JSON.stringify(Object.entries(jfProviderIds(x.ProviderIds)).sort()),x]));
+ if(distinct.size>1||tv.length||indexedEpisode&&distinct.size)return jfJSON({ambiguous:true});
+ if(distinct.size===1)return jfJSON(film([...distinct.values()][0]));
+ if(indexedMovie)return jfJSON(film(indexedMovie));
+ if(indexedEpisode)return jfJSON({kind:"tv",title:String(item.SeriesName).slice(0,180),series:String(item.SeriesName).slice(0,180),season:item.ParentIndexNumber,episode:item.IndexNumber,episodeTitle:String(item.Name).slice(0,180),year:null,provider:"Jellyfin"});
+ return fail;
+}
+
 async function jellyfinMetadata(raw,kind){
   const missing={ok:false,status:404};
   try{
     const url=new URL(raw);
     if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.username||url.password||url.port||url.hash)return missing;
     if(url.pathname==="/status"&&kind==="json")return await jfStatus();
+    if(url.pathname==="/classification")return await jfClassification(url,kind);
     if(["/search","/apply"].includes(url.pathname))return await jfMatch(url,kind);
     const cfg=jellyfinConfig()||jfConfig;if(!cfg||!["/item","/gallery","/gallery-image","/person","/person-image"].includes(url.pathname))return missing;
     const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
     const series=url.searchParams.get("series")==="1";
     if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Episode"].includes(type)||series&&type!=="Episode")return missing;
     const grant=await checkPlayableSource(id,file);
-    if(!getLibrarySources().some(root=>root.kind===(type==="Movie"?"movie":"tv")&&inSource(root.path,grant.target)))return missing;
+    if(!getLibrarySources().some(root=>inSource(root.path,grant.target)))return missing;
     const catalog=await jellyfinIndex(cfg,url.searchParams.get("force")==="1");
     const item=catalog.get(path.normalize(grant.target))||catalog.get(path.normalize(file));
     if(!item||item.Type!==type||!jellyfinId(item.Id)||typeof item.Name!=="string"||!item.Name.trim())return missing;

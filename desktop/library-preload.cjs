@@ -93,6 +93,7 @@ const nativeLibrary=Object.freeze({
   exportTranslatedSRT:(content,language)=>libIpc.invoke("dk-library:export-translated-srt",String(content),language==="ru"?"ru":"en"),
   cancelTranslation:()=>libIpc.invoke("dk-library:cancel-translation"),
   onTranslationProgress:callback=>subscribe("dk-library:translation-progress",callback),
+  jellyfinPower:enabled=>libIpc.invoke("dk-library:jellyfin-power",enabled===true),
   metadataRequest:(url,kind)=>libIpc.invoke("dk-library:metadata-request",String(url),String(kind)),
   onLibrarySelection:callback=>subscribe("dk-library:selection",callback),
   requestScan:()=>libIpc.invoke("dk-library:request-scan"),

@@ -2655,7 +2655,13 @@
       {id:"saturation",label:"Saturation",min:0,max:200,step:1,neutral:100,unit:"%"},
       {id:"hue",label:"Hue",min:-180,max:180,step:1,neutral:0,unit:"°"},
       {id:"gamma",label:"Gamma",min:0.25,max:3,step:0.05,neutral:1,unit:""},
-      {id:"sharpness",label:"Sharpness",min:0,max:100,step:1,neutral:0,unit:"%"}
+      {id:"sharpness",label:"Sharpness",min:0,max:100,step:1,neutral:0,unit:"%"},
+      {id:"softening",label:"Spatial noise smoothing",min:0,max:100,step:1,neutral:0,unit:"%"},
+      {id:"warmth",label:"Color warmth",min:-100,max:100,step:1,neutral:0,unit:"%"},
+      {id:"blackPoint",label:"Black point",min:0,max:30,step:1,neutral:0,unit:"%"},
+      {id:"whitePoint",label:"White point",min:70,max:100,step:1,neutral:100,unit:"%"},
+      {id:"sepia",label:"Sepia",min:0,max:100,step:1,neutral:0,unit:"%"},
+      {id:"invert",label:"Color inversion",min:0,max:100,step:1,neutral:0,unit:"%"}
     ];
     const saved=read(key,{})||{},values={},controls=new Map();
     const presetKey="dk-kinehall.picture-presets.v1",perMediaKey="dk-kinehall.picture-per-media.v1";
@@ -2667,9 +2673,12 @@
       classic:[105,110,85,0,1.1,0],
       animation:[105,110,125,0,1.05,10],
       soft:[100,90,95,0,1,0],
-      monochrome:[100,110,0,0,1,0]
+      monochrome:[100,110,0,0,1,0],
+      warmCinema:[100,105,100,0,1,0,0,24,2,98,0,0],
+      noisyArchive:[100,100,95,0,1,5,30,0,0,100,0,0],
+      sepiaArchive:[100,105,85,0,1,0,0,0,0,100,85,0]
     };
-    const names={original:"Original",dark:"Dark cinema",veryDark:"Very dark scenes",bright:"Overexposed picture",classic:"Classic films",animation:"Vivid animation",soft:"Soft picture",monochrome:"Black and white"};
+    const names={original:"Original",dark:"Dark cinema",veryDark:"Very dark scenes",bright:"Overexposed picture",classic:"Classic films",animation:"Vivid animation",soft:"Soft picture",monochrome:"Black and white",warmCinema:"Warm cinema",noisyArchive:"Noisy archive",sepiaArchive:"Sepia archive"};
     let custom=read(presetKey,null);const perMedia=read(perMediaKey,{})||{};
     const validValues=source=>Object.fromEntries(specs.map((spec,i)=>{
       const value=Array.isArray(source)?source[i]:source?.[spec.id];
@@ -2708,7 +2717,18 @@
     transfer.append(...gammaChannels);gammaFilter.append(transfer);
     const sharpFilter=svgNode("filter",{id:"dk-picture-sharpness",x:0,y:0,width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
     const convolution=svgNode("feConvolveMatrix",{order:3,kernelMatrix:"0 0 0 0 1 0 0 0 0",divisor:1,bias:0,edgeMode:"duplicate",preserveAlpha:"true"});
-    sharpFilter.append(convolution);defs.append(gammaFilter,sharpFilter);svg.append(defs);
+    sharpFilter.append(convolution);
+    const smoothFilter=svgNode("filter",{id:"dk-picture-noise",x:0,y:0,width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
+    const smoothKernel=svgNode("feConvolveMatrix",{order:3,kernelMatrix:"0 0 0 0 1 0 0 0 0",divisor:1,edgeMode:"duplicate",preserveAlpha:"true"});
+    smoothFilter.append(smoothKernel);
+    const levelsFilter=svgNode("filter",{id:"dk-picture-levels",x:0,y:0,width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
+    const levelsTransfer=svgNode("feComponentTransfer");
+    const levelChannels=["R","G","B"].map(channel=>svgNode("feFunc"+channel,{type:"linear",slope:1,intercept:0}));
+    levelsTransfer.append(...levelChannels);levelsFilter.append(levelsTransfer);
+    const warmthFilter=svgNode("filter",{id:"dk-picture-warmth",x:0,y:0,width:"100%",height:"100%","color-interpolation-filters":"sRGB"});
+    const warmthMatrix=svgNode("feColorMatrix",{type:"matrix",values:"1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"});
+    warmthFilter.append(warmthMatrix);
+    defs.append(gammaFilter,sharpFilter,smoothFilter,levelsFilter,warmthFilter);svg.append(defs);
     document.body.append(svg);
     const section=document.createElement("section");
     section.id="pictureEnhancements";section.className="player-settings-section dk-picture-settings";
@@ -2722,8 +2742,8 @@
         preset.replaceChildren(...choices.map(([id,name])=>{const o=document.createElement("option");o.value=id;o.textContent=window.DKLocale?.t(name)||name;return o;}));
         preset.dataset.signature=signature;
       }
-      const match=Object.entries(builtins).find(([,entry])=>specs.every((spec,i)=>Math.abs(values[spec.id]-entry[i])<0.001));
-      const savedMatch=Array.isArray(custom)&&specs.every((spec,i)=>Math.abs(values[spec.id]-custom[i])<0.001);
+      const match=Object.entries(builtins).find(([,entry])=>specs.every((spec,i)=>Math.abs(values[spec.id]-(entry[i]??spec.neutral))<0.001));
+      const savedMatch=Array.isArray(custom)&&specs.every((spec,i)=>Math.abs(values[spec.id]-(custom[i]??spec.neutral))<0.001);
       preset.value=match?.[0]||(savedMatch?"saved":"custom");
     };
     const saveCustom=document.createElement("button");saveCustom.type="button";saveCustom.className="btn small";saveCustom.textContent="Save custom picture preset";
@@ -2750,6 +2770,23 @@
     section.append(profileActions,presetLabel,preset,saveCustom);
     const applyPicture=()=>{
       const filters=[];
+      // Blend a normalized 3x3 Gaussian-weighted kernel with the identity.
+      // This reduces fine spatial noise but is not temporal denoising.
+      if(values.softening!==0){
+        const amount=values.softening/100;
+        const k=[1,2,1,2,4,2,1,2,1].map((n,i)=>n*amount/16+(i===4?1-amount:0));
+        smoothKernel.setAttribute("kernelMatrix",k.join(" "));
+        filters.push("url(#dk-picture-noise)");
+      }
+      if(values.blackPoint!==0||values.whitePoint!==100){
+        const low=values.blackPoint/100,high=values.whitePoint/100;
+        const slope=1/(high-low);
+        for(const channel of levelChannels){
+          channel.setAttribute("slope",String(slope));
+          channel.setAttribute("intercept",String(-low*slope));
+        }
+        filters.push("url(#dk-picture-levels)");
+      }
       if(values.brightness!==100)filters.push("brightness("+values.brightness+"%)");
       if(values.contrast!==100)filters.push("contrast("+values.contrast+"%)");
       if(values.saturation!==100)filters.push("saturate("+values.saturation+"%)");
@@ -2758,6 +2795,14 @@
         for(const channel of gammaChannels)channel.setAttribute("exponent",String(1/values.gamma));
         filters.push("url(#dk-picture-gamma)");
       }
+      if(values.warmth!==0){
+        const w=values.warmth/100;
+        const red=1+.18*w,blue=1-.18*w,green=1-.04*Math.abs(w);
+        warmthMatrix.setAttribute("values",[red,0,0,0,0,0,green,0,0,0,0,0,blue,0,0,0,0,0,1,0].join(" "));
+        filters.push("url(#dk-picture-warmth)");
+      }
+      if(values.sepia!==0)filters.push("sepia("+values.sepia+"%)");
+      if(values.invert!==0)filters.push("invert("+values.invert+"%)");
       if(values.sharpness!==0){
         const amount=values.sharpness/200;
         convolution.setAttribute("kernelMatrix",[0,-amount,0,-amount,1+4*amount,-amount,0,-amount,0].join(" "));
@@ -2796,7 +2841,7 @@
       persistPicture();applyPicture();
     });
     const note=document.createElement("p");note.className="helper";
-    note.textContent="Picture adjustments affect playback only, not the original video or exported file.";
+    note.textContent="Picture adjustments affect playback only, not the original video or exported file. Spatial noise smoothing reduces fine noise but can soften detail. Black and white points can clip shadow and highlight detail. Color warmth is a display tint, not calibrated white balance.";
     preset.addEventListener("change",()=>{
       const next=preset.value==="saved"?custom:builtins[preset.value];if(!next)return;
       Object.assign(values,validValues(next));applyPicture();persistPicture();

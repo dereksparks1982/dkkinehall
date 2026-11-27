@@ -28,6 +28,8 @@ function attach({screen,button,theaterButton,onResize=()=>{}}){
     expanded=Boolean(value&&grid&&sidebar);
     grid?.classList.toggle("dk-player-expanded",expanded&&!floating);
     if(sidebar)sidebar.inert=expanded&&!floating;
+    const playlistButton=document.getElementById("dkPlaylistToggle");
+    if(playlistButton){playlistButton.setAttribute("aria-pressed",String(!expanded||floating));playlistButton.disabled=floating||screen.classList.contains("desktop-fullscreen")||Boolean(document.fullscreenElement);}
     if(theaterButton){
       theaterButton.setAttribute("aria-pressed",String(expanded&&!floating));
       const label=expanded?"Exit Theater Mode":"Theater Mode";

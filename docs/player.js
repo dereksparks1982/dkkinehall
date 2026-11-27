@@ -192,6 +192,10 @@
     loop.setAttribute("aria-label", loop.textContent);
     loop.title = "Repeat mode: " + labels[playbackOrder.loop];
     loop.classList.toggle("order-active", playbackOrder.loop !== "off");
+    const barShuffle=byId("dkShuffleToggle"),barRepeat=byId("dkRepeatToggle");
+    if(barShuffle)barShuffle.setAttribute("aria-pressed",String(playbackOrder.shuffle));
+    if(barRepeat){barRepeat.setAttribute("aria-pressed",String(playbackOrder.loop!=="off"));barRepeat.dataset.repeatMode=playbackOrder.loop;barRepeat.title=loop.title;barRepeat.setAttribute("aria-label",loop.title);}
+    window.DKLocale?.apply();
   };
   byId("shuffleQueue").addEventListener("click", () => {
     playbackOrder.shuffle = !playbackOrder.shuffle;
@@ -2946,7 +2950,7 @@
     // The playback bar is hidden when idle, so make DVD opening reachable
     // without first playing an unrelated file. Reuse the same controls.
     const closeDVD=document.createElement("button");closeDVD.type="button";closeDVD.className="btn";closeDVD.textContent="Cancel";
-    const openDVD=document.createElement("button");openDVD.type="button";openDVD.className="btn ghost";openDVD.textContent="Open DVD…";
+    const openDVD=document.createElement("button");openDVD.id="dkOpenDVD";openDVD.type="button";openDVD.className="btn ghost";openDVD.textContent="Open DVD…";
     dvdDialog.append(closeDVD);document.body.append(dvdDialog);
     byId("openEmpty").after(openDVD);
     window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="disc"){deferStartup=false;settingsDetails.open=false;openDVD.click();}});
@@ -3232,7 +3236,7 @@
     document.body.append(dlg);
     const open=()=>{if(!dlg.open){results.replaceChildren();say("");dlg.showModal();window.DKLocale?.apply();}};
     dlg.addEventListener("close",()=>{generation++;results.replaceChildren();});
-    byId("openEmpty").after(makeButton("Network media…",open));
+    const openNetworkButton=makeButton("Network media…",open);openNetworkButton.id="dkOpenNetwork";byId("openEmpty").after(openNetworkButton);
     const section=document.createElement("section");section.className="player-settings-section dk-picture-settings";
     section.id="networkSettings";
     section.append(makeButton("Network media…",open));
@@ -6015,6 +6019,165 @@
       }finally{sharedSettingsEditing=false;if(pictureChange)endDefaultPicture?.();}
       return snapshot();
     }});
+  }
+  // Standalone application menu and toolbar are aliases of the real controls.
+  // Keep one repeat/shuffle state and one dock layout.
+  if(window.DKLibraryBridge?.internalPages){
+    const menu=byId("dkApplicationMenu"),toolbarIds=["dkEffects","dkPlaylistToggle","dkRepeatToggle","dkShuffleToggle"];
+    for(const id of toolbarIds)byId(id).hidden=false;
+    const click=id=>{const node=byId(id);if(node&&!node.disabled)node.click();};
+    const categoryAvailable=id=>Boolean(settingsDetails?.querySelector('[data-category="'+id+'"]'));
+    const settings=category=>{
+      if(!settingsDetails)return;
+      settingsDetails.open=true;
+      const back=settingsDetails.querySelector(".dk-settings-category-nav > button:not([data-category])");
+      if(back&&!back.hidden)back.click();
+      if(category)settingsDetails.querySelector('[data-category="'+category+'"]')?.click();
+      keepControlsVisible();
+    };
+    byId("dkEffects").addEventListener("click",()=>settings(categoryAvailable("audio")?"audio":categoryAvailable("picture")?"picture":null));
+    byId("dkPlaylistToggle").addEventListener("click",()=>playerWindow?.toggleTheater());
+    byId("dkRepeatToggle").addEventListener("click",()=>click("loopQueue"));
+    byId("dkShuffleToggle").addEventListener("click",()=>click("shuffleQueue"));
+    updateOrderButtons();playerWindow?.layout();
+    const hasMedia=()=>Boolean(current()&&!state.stopped);
+    const enabled=id=>Boolean(byId(id)&&!byId(id).disabled);
+    const canLayout=()=>Boolean(playerWindow&&!byId("dkPlaylistToggle").disabled);
+    const setSpeed=value=>{const control=byId("rate");if(control){control.value=String(value);control.dispatchEvent(new Event("change",{bubbles:true}));}};
+    const help=about=>{
+      if(document.querySelector("dialog[open]"))return;
+      const dialog=document.createElement("dialog");dialog.className="dk-app-help";
+      const heading=document.createElement("strong");heading.textContent=about?"About DK Kinehall":"Keyboard shortcuts";
+      const lines=about?[
+        ["DK Kinehall · DK Softworks","ДК Кинехолл · ДК Софтворкс"],
+        ["Standalone local media player","Автономный проигрыватель локальных медиа"],
+        ["Manage your movies, television and playback without a server.","Управляйте фильмами, сериалами и воспроизведением без сервера."]
+      ]:[
+        ["Space / K: Play or pause","Пробел / К: воспроизведение или пауза"],
+        ["F: Fullscreen","Ф: на весь экран"],
+        ["T: Theater Mode","Т: режим кинотеатра"],
+        ["Ctrl+T: Jump to Time","Контрол+Т: перейти ко времени"],
+        ["Left / Right: Seek 10 seconds","Влево / вправо: перемотка на 10 секунд"],
+        ["Up / Down: Volume","Вверх / вниз: громкость"],
+        ["M: Mute","М: выключить звук"],
+        ["Escape: Reset player size","Эскейп: сброс размера проигрывателя"]
+      ];
+      dialog.append(heading);
+      for(const [en,ru] of lines){const line=document.createElement("p");line.textContent=streamSay(en,ru);dialog.append(line);}
+      const close=document.createElement("button");close.type="button";close.className="btn";close.textContent="Close";close.addEventListener("click",()=>dialog.close());dialog.append(close);
+      dialog.addEventListener("close",()=>dialog.remove(),{once:true});
+      document.body.append(dialog);dialog.showModal();window.DKLocale?.apply();
+    };
+    const entries=[
+      ["Media",[
+        ["Open files",()=>void openLocalFiles("open")],
+        ["Choose folder",()=>click("selectFolder"),()=>enabled("selectFolder")],
+        ["Import local playlist…",()=>click("addQueuePlaylist"),()=>enabled("addQueuePlaylist")],
+        ["Open DVD…",()=>click("dkOpenDVD"),()=>enabled("dkOpenDVD")],
+        ["Network media…",()=>click("dkOpenNetwork"),()=>enabled("dkOpenNetwork")],
+        ["Convert / export",()=>click("nativeExportVideo"),()=>enabled("nativeExportVideo")&&hasMedia()]
+      ]],
+      ["Playback",[
+        ["Play or pause",togglePlayback,()=>Boolean(current())],
+        ["Stop",()=>click("stop"),hasMedia],
+        ["Previous",()=>click("previous"),()=>enabled("previous")],
+        ["Next",()=>click("next"),()=>enabled("next")],
+        ["Back 10 seconds",()=>skipTen(-10),hasMedia],
+        ["Forward 10 seconds",()=>skipTen(10),hasMedia],
+        ["Jump to Time",openJumpToTime,canJumpToTime],
+        ["Slower (0.75×)",()=>setSpeed(.75),hasMedia],
+        ["Normal speed (1×)",()=>setSpeed(1),hasMedia],
+        ["Faster (1.5×)",()=>setSpeed(1.5),hasMedia],
+        ["Previous frame",()=>void stepFrame?.(-1),()=>hasMedia()&&!!stepFrame],
+        ["Next frame",()=>void stepFrame?.(1),()=>hasMedia()&&!!stepFrame],
+        ["Repeat",()=>click("loopQueue")],
+        ["Shuffle",()=>click("shuffleQueue")]
+      ]],
+      ["Audio",[
+        ["Audio settings",()=>settings("audio"),()=>categoryAvailable("audio")],
+        ["Mute",()=>click("mute"),()=>enabled("mute")],
+        ["Increase volume",()=>setVolume(volumePercent+5)],
+        ["Decrease volume",()=>setVolume(volumePercent-5)]
+      ]],
+      ["Video",[
+        ["Picture Settings",()=>settings("picture"),()=>categoryAvailable("picture")],
+        ["Fullscreen",()=>void toggleFullscreen()],
+        ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
+        ["Float player",()=>click("floatPlayer"),()=>enabled("floatPlayer")],
+        ["Picture in picture",()=>click("pip"),()=>enabled("pip")&&!byId("pip").hidden]
+      ]],
+      ["Subtitle",[
+        ["Subtitles",()=>settings("subtitles"),()=>categoryAvailable("subtitles")],
+        ["Toggle subtitles",()=>click("subtitleToggle"),()=>enabled("subtitleToggle")],
+        ["Load subtitle file",()=>click("addSubtitles"),()=>enabled("addSubtitles")],
+        ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
+      ]],
+      ["Tools",[
+        ["Effects and filters",()=>settings("audio"),()=>categoryAvailable("audio")],
+        ["Media information",openMediaInfo,hasMedia],
+        ["Settings",()=>settings(null)],
+        ["Network",()=>settings("network"),()=>categoryAvailable("network")],
+        ["Scan Library",()=>click("playerScanLibrary"),()=>enabled("playerScanLibrary")],
+        ["Refresh Metadata",()=>click("playerRefreshMetadata"),()=>enabled("playerRefreshMetadata")]
+      ]],
+      ["View",[
+        ["Library",()=>click("returnToLibrary"),()=>enabled("returnToLibrary")],
+        ["Show / hide playlist",()=>playerWindow?.toggleTheater(),canLayout],
+        ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
+        ["Reset player size",()=>playerWindow?.reset()]
+      ]],
+      ["Help",[["Keyboard shortcuts",()=>help(false)],["About DK Kinehall",()=>help(true)]]]
+    ];
+    let active=null;const groups=[];
+    const closeMenu=(focus=false)=>{
+      if(!active)return;
+      const previous=active;active=null;previous.panel.hidden=true;
+      previous.trigger.setAttribute("aria-expanded","false");
+      if(focus)previous.trigger.focus();
+    };
+    const openMenu=group=>{
+      if(active===group){closeMenu(true);return;}
+      closeMenu();active=group;
+      group.refresh();group.panel.hidden=false;
+      group.trigger.setAttribute("aria-expanded","true");
+    };
+    entries.forEach(([label,actions],index)=>{
+      const group=document.createElement("div");group.className="dk-app-menu-group";
+      const trigger=document.createElement("button"),panel=document.createElement("div");
+      trigger.type="button";trigger.className="dk-app-menu-trigger";trigger.textContent=label;
+      trigger.setAttribute("aria-expanded","false");trigger.setAttribute("aria-controls","dk-app-menu-"+index);
+      panel.id="dk-app-menu-"+index;panel.className="dk-app-menu-panel";panel.hidden=true;
+      const items=actions.map(([text,action,available])=>{
+        const item=document.createElement("button");item.type="button";item.textContent=text;
+        item.addEventListener("click",()=>{if(item.disabled)return;closeMenu();action();});
+        panel.append(item);return {item,available};
+      });
+      const row={trigger,panel,refresh:()=>items.forEach(({item,available})=>{item.disabled=available?!available():false;})};
+      groups.push(row);trigger.addEventListener("click",()=>openMenu(row));
+      trigger.addEventListener("mouseenter",()=>{if(active&&active!==row)openMenu(row);});
+      group.append(trigger,panel);menu.append(group);
+    });
+    document.addEventListener("pointerdown",event=>{if(active&&!menu.contains(event.target))closeMenu();},true);
+    document.addEventListener("focusin",event=>{if(active&&!menu.contains(event.target))closeMenu();});
+    document.addEventListener("keydown",event=>{
+      if(!active&&!menu.contains(event.target))return;
+      if(event.key==="Escape"&&active){event.preventDefault();event.stopImmediatePropagation();closeMenu(true);return;}
+      if(!["ArrowLeft","ArrowRight","ArrowDown","ArrowUp","Home","End"].includes(event.key))return;
+      const group=active||groups.find(row=>row.trigger===event.target);
+      if(!group)return;
+      event.preventDefault();event.stopImmediatePropagation();
+      if(event.key==="ArrowLeft"||event.key==="ArrowRight"){
+        const next=groups[(groups.indexOf(group)+(event.key==="ArrowRight"?1:groups.length-1))%groups.length];
+        if(active)openMenu(next);next.trigger.focus();return;
+      }
+      if(!active)openMenu(group);
+      const items=Array.from(group.panel.querySelectorAll("button:not(:disabled)"));
+      if(!items.length)return;
+      const index=items.indexOf(document.activeElement);
+      const target=event.key==="Home"?0:event.key==="End"?items.length-1:event.key==="ArrowDown"?(index+1)%items.length:(index<0?items.length-1:(index+items.length-1)%items.length);
+      items[target].focus();
+    },true);
+    menu.hidden=false;window.DKLocale?.apply();
   }
   let librarySelectionChain=Promise.resolve();
   window.DKLibraryBridge?.onLibrarySelection?.(id=>{

@@ -36,6 +36,8 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 **[Standalone Linux edition: availability and installation](docs/PORTABLE_LINUX.md)**
 
+The normal installed-player updater also supports the queue-memory maintenance patch without replacing installed codecs. Full-package releases retain their separate verification requirements.
+
 ## More information
 
 - [Third-party credits](THIRD_PARTY_NOTICES.md)

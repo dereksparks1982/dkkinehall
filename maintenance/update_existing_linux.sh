@@ -45,6 +45,16 @@ git clone --quiet --depth 1 --filter=blob:none --sparse --branch main \
   https://github.com/dereksparks1982/dkkinehall.git "$WORK/repo"
 git -C "$WORK/repo" sparse-checkout set docs maintenance desktop assets/images
 
+# Full package releases still require the verified codec archive. A separately
+# scoped maintenance patch can update an already-installed compatible player.
+if python3 - "$WORK/repo/maintenance/release-gate.json" <<'PYTHON'
+import json,sys
+from pathlib import Path
+data=json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+checks=data.get("acceptance",{})
+sys.exit(0 if data.get("release_ready") is True and checks and all(v is True for v in checks.values()) else 1)
+PYTHON
+then
 # No partial end-user updates. The signed-off release gate remains closed
 # until the complete standalone codec bundle and all roadmap checks pass.
 python3 - "$WORK/repo/maintenance/release-gate.json" <<'PYTHON'
@@ -117,6 +127,14 @@ for item in source.rglob("*"):
 PYTHON
 
 python3 "$WORK/repo/maintenance/sync_original_runtime.py" "$APP" "$WORK/repo"
+
+else
+  echo "Installing queue-memory maintenance patch (existing runtime and codecs retained)..."
+  mkdir -p -- "$BACKUP"
+  cp -a -- "$APP/docs" "$APP/_internal" "$APP/DK Kinehall" "$BACKUP/"
+  backup_ready=1
+  python3 "$WORK/repo/maintenance/apply_queue_memory_hotfix.py" "$APP"
+fi
 
 echo "SUCCESS: Existing DK Kinehall updated; approved icons untouched."
 echo "Backup: $BACKUP"

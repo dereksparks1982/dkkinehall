@@ -4689,6 +4689,73 @@
     dlg.addEventListener("close",()=>{dlg.remove();revealControls();},{once:true});
     screen.append(dlg);dlg.showModal();window.DKLocale?.apply();input.focus();input.select();revealControls();
   };
+  // Named source-clock bookmarks are separate from resume/watched history.
+  // Use a validated catalog identity and edition fingerprint, never a title.
+  const bookmarkKey=item=>{
+    const file=item?.file,id=item?.libraryId||file?.nativeId;
+    if(!file||file.dvdToken||item.kind!=="file"||!/^native:[a-f0-9]{64}$/.test(String(id||""))||
+       !Number.isFinite(file.size)||!Number.isFinite(file.lastModified))return null;
+    return "dk-kinehall.bookmarks.v1:"+id+":"+file.size+":"+Math.trunc(file.lastModified);
+  };
+  const canBookmark=()=>Boolean(window.DKLibraryBridge?.internalPages&&canJumpToTime()&&bookmarkKey(current()));
+  const readBookmarks=key=>{
+    const rows=read(key,[]);
+    return Array.isArray(rows)?rows.filter(row=>row&&typeof row.name==="string"&&row.name.length<=120&&Number.isFinite(row.at)&&row.at>=0).slice(0,100):[];
+  };
+  const openBookmarks=()=>{
+    if(!canBookmark()||document.querySelector("dialog[open]"))return;
+    const item=current(),key=bookmarkKey(item),epoch=item.playbackEpoch;
+    const valid=()=>current()===item&&item.playbackEpoch===epoch&&bookmarkKey(item)===key&&canBookmark();
+    const dialog=document.createElement("dialog");dialog.className="dk-jump-dialog dk-bookmark-dialog";
+    dialog.setAttribute("aria-labelledby","dkBookmarkHeading");
+    dialog.innerHTML='<form><strong id="dkBookmarkHeading">Scene bookmarks</strong><label for="dkBookmarkName">Bookmark name</label><input id="dkBookmarkName" type="text" maxlength="120" autocomplete="off" required><label for="dkBookmarkTime">Time (hours:minutes:seconds)</label><input id="dkBookmarkTime" type="text" maxlength="24" autocomplete="off" required><div class="inline-buttons"><button class="btn primary" type="submit">Save bookmark</button><button type="button" class="btn" data-bookmark-current>Use current time</button><button type="button" class="btn" data-bookmark-new>New bookmark</button></div><p class="helper" role="alert" data-bookmark-feedback></p><div class="dk-bookmark-list" data-bookmark-list></div><button type="button" class="btn" data-bookmark-close>Close</button></form>';
+    const name=dialog.querySelector("#dkBookmarkName"),at=dialog.querySelector("#dkBookmarkTime"),feedback=dialog.querySelector("[data-bookmark-feedback]"),list=dialog.querySelector("[data-bookmark-list]");
+    let rows=readBookmarks(key),editing=-1;
+    const position=()=>String(Math.max(0,Math.floor((Number(playbackSeconds())||0)*1000)/1000));
+    const report=label=>{feedback.textContent=label;window.DKLocale?.apply();};
+    const storeRows=next=>{
+      if(!valid()){dialog.close();return false;}
+      try{localStorage.setItem(key,JSON.stringify(next));rows=next;return true;}
+      catch(_){report("Could not save bookmarks.");return false;}
+    };
+    const reset=()=>{editing=-1;name.value="";at.value=position();};
+    const button=(label,action)=>{
+      const b=document.createElement("button");b.type="button";b.className="btn small";b.textContent=label;b.addEventListener("click",action);return b;
+    };
+    const draw=()=>{
+      list.replaceChildren();
+      const ordered=rows.map((row,index)=>({row,index})).sort((a,b)=>a.row.at-b.row.at);
+      if(!ordered.length){const empty=document.createElement("p");empty.className="helper";empty.textContent="No scene bookmarks yet.";list.append(empty);}
+      for(const {row,index} of ordered){
+        const entry=document.createElement("div");entry.className="dk-bookmark-entry";
+        const label=document.createElement("span");label.textContent=time(row.at)+" · "+row.name;
+        const actions=document.createElement("div");actions.className="inline-buttons";
+        const jump=button("Jump",()=>{if(!valid()){dialog.close();return;}if(row.at>=playbackDuration()){report("Enter a valid time before the end of the video.");return;}dialog.close();setPlaybackPosition(row.at);updateTime();});
+        jump.disabled=row.at>=playbackDuration();
+        actions.append(jump,button("Edit",()=>{editing=index;name.value=row.name;at.value=String(row.at);name.focus();}),button("Delete",()=>{
+          if(storeRows(rows.filter((_,i)=>i!==index))){reset();draw();report("Bookmark deleted.");}
+        }));
+        entry.append(label,actions);list.append(entry);
+      }
+      window.DKLocale?.apply();
+    };
+    dialog.querySelector("[data-bookmark-current]").addEventListener("click",()=>{at.value=position();});
+    dialog.querySelector("[data-bookmark-new]").addEventListener("click",()=>{reset();name.focus();});
+    dialog.querySelector("[data-bookmark-close]").addEventListener("click",()=>dialog.close());
+    dialog.querySelector("form").addEventListener("submit",event=>{
+      event.preventDefault();
+      if(!valid()){dialog.close();return;}
+      const title=name.value.trim(),seconds=parseJumpTime(at.value);
+      if(!title){report("Enter a bookmark name.");name.focus();return;}
+      if(!Number.isFinite(seconds)||seconds<0||seconds>=playbackDuration()){report("Enter a valid time before the end of the video.");at.focus();return;}
+      if(editing<0&&rows.length>=100){report("This file already has 100 bookmarks.");return;}
+      const next=rows.slice(),row={name:title.slice(0,120),at:seconds};
+      if(editing>=0)next[editing]=row;else next.push(row);
+      if(storeRows(next)){reset();draw();report("Bookmark saved.");}
+    });
+    dialog.addEventListener("close",()=>{dialog.remove();revealControls();},{once:true});
+    reset();draw();screen.append(dialog);dialog.showModal();window.DKLocale?.apply();name.focus();revealControls();
+  };
   const buildContextMenu = () => {
     contextMenu.replaceChildren();
     activeMenuSection = contextMenu;
@@ -4702,7 +4769,7 @@
     addMenuItem("↷  Forward 10 seconds", () => skipTen(10),
       {disabled: !current() || !Number.isFinite(media.duration) || state.stopped});
 
-    if(window.DKLibraryBridge?.internalPages)addMenuItem("Jump to Time",openJumpToTime,{disabled:!canJumpToTime()});
+    if(window.DKLibraryBridge?.internalPages){addMenuItem("Jump to Time",openJumpToTime,{disabled:!canJumpToTime()});addMenuItem("Scene bookmarks",openBookmarks,{disabled:!canBookmark()});}
     addMenuHeading("Playback format");
     for (const [value,label] of [["auto","Automatic"],["original","Original (no conversion)"],
       ["mp4","MP4 (H.264/AAC)"],["webm","WebM (VP9/Opus)"]]) {
@@ -6044,30 +6111,6 @@
     const enabled=id=>Boolean(byId(id)&&!byId(id).disabled);
     const canLayout=()=>Boolean(playerWindow&&!byId("dkPlaylistToggle").disabled);
     const setSpeed=value=>{const control=byId("rate");if(control){control.value=String(value);control.dispatchEvent(new Event("change",{bubbles:true}));}};
-    const help=about=>{
-      if(document.querySelector("dialog[open]"))return;
-      const dialog=document.createElement("dialog");dialog.className="dk-app-help";
-      const heading=document.createElement("strong");heading.textContent=about?"About DK Kinehall":"Keyboard shortcuts";
-      const lines=about?[
-        ["DK Kinehall · DK Softworks","ДК Кинехолл · ДК Софтворкс"],
-        ["Standalone local media player","Автономный проигрыватель локальных медиа"],
-        ["Manage your movies, television and playback without a server.","Управляйте фильмами, сериалами и воспроизведением без сервера."]
-      ]:[
-        ["Space / K: Play or pause","Пробел / К: воспроизведение или пауза"],
-        ["F: Fullscreen","Ф: на весь экран"],
-        ["T: Theater Mode","Т: режим кинотеатра"],
-        ["Ctrl+T: Jump to Time","Контрол+Т: перейти ко времени"],
-        ["Left / Right: Seek 10 seconds","Влево / вправо: перемотка на 10 секунд"],
-        ["Up / Down: Volume","Вверх / вниз: громкость"],
-        ["M: Mute","М: выключить звук"],
-        ["Escape: Reset player size","Эскейп: сброс размера проигрывателя"]
-      ];
-      dialog.append(heading);
-      for(const [en,ru] of lines){const line=document.createElement("p");line.textContent=streamSay(en,ru);dialog.append(line);}
-      const close=document.createElement("button");close.type="button";close.className="btn";close.textContent="Close";close.addEventListener("click",()=>dialog.close());dialog.append(close);
-      dialog.addEventListener("close",()=>dialog.remove(),{once:true});
-      document.body.append(dialog);dialog.showModal();window.DKLocale?.apply();
-    };
     const entries=[
       ["Media",[
         ["Open files",()=>void openLocalFiles("open")],
@@ -6085,6 +6128,7 @@
         ["Back 10 seconds",()=>skipTen(-10),hasMedia],
         ["Forward 10 seconds",()=>skipTen(10),hasMedia],
         ["Jump to Time",openJumpToTime,canJumpToTime],
+        ["Scene bookmarks",openBookmarks,canBookmark],
         ["Slower (0.75×)",()=>setSpeed(.75),hasMedia],
         ["Normal speed (1×)",()=>setSpeed(1),hasMedia],
         ["Faster (1.5×)",()=>setSpeed(1.5),hasMedia],
@@ -6125,8 +6169,7 @@
         ["Show / hide playlist",()=>playerWindow?.toggleTheater(),canLayout],
         ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
         ["Reset player size",()=>playerWindow?.reset()]
-      ]],
-      ["Help",[["Keyboard shortcuts",()=>help(false)],["About DK Kinehall",()=>help(true)]]]
+      ]]
     ];
     let active=null;const groups=[];
     const closeMenu=(focus=false)=>{
@@ -6139,12 +6182,16 @@
       if(active===group){closeMenu(true);return;}
       closeMenu();active=group;
       group.refresh();group.panel.hidden=false;
+      // Keep rightmost and wrapped header dropdowns inside the viewport.
+      group.panel.style.left="0px";
+      const bounds=group.panel.getBoundingClientRect();
+      group.panel.style.left=(Math.max(8,Math.min(bounds.left,innerWidth-bounds.width-8))-bounds.left)+"px";
       group.trigger.setAttribute("aria-expanded","true");
     };
     entries.forEach(([label,actions],index)=>{
       const group=document.createElement("div");group.className="dk-app-menu-group";
       const trigger=document.createElement("button"),panel=document.createElement("div");
-      trigger.type="button";trigger.className="dk-app-menu-trigger";trigger.textContent=label;
+      trigger.type="button";trigger.className="dk-app-menu-trigger";trigger.dataset.menu=label.toLowerCase();trigger.textContent=label;
       trigger.setAttribute("aria-expanded","false");trigger.setAttribute("aria-controls","dk-app-menu-"+index);
       panel.id="dk-app-menu-"+index;panel.className="dk-app-menu-panel";panel.hidden=true;
       const items=actions.map(([text,action,available])=>{
@@ -6157,6 +6204,7 @@
       trigger.addEventListener("mouseenter",()=>{if(active&&active!==row)openMenu(row);});
       group.append(trigger,panel);menu.append(group);
     });
+    window.addEventListener("resize",()=>closeMenu());
     document.addEventListener("pointerdown",event=>{if(active&&!menu.contains(event.target))closeMenu();},true);
     document.addEventListener("focusin",event=>{if(active&&!menu.contains(event.target))closeMenu();});
     document.addEventListener("keydown",event=>{

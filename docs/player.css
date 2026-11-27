@@ -1433,10 +1433,17 @@ html.dk-standalone .dk-jump-dialog .btn{background:#462a25;color:#e2b956;border-
 html.dk-standalone .dk-jump-dialog .btn.primary{background:#d52b1e;color:#fff;border-color:#d52b1e}
 
 /* Standalone application commands and approved VLC-style aliases. */
-html.dk-standalone .dk-application-menu{display:flex;flex-wrap:wrap;align-items:center;gap:2px;margin:-12px 0 14px;padding:4px 6px;border:1px solid #a58039;border-radius:8px;background:#24201d;color:#e2b956;position:relative;z-index:90}
+html.dk-standalone .topbar:has(>.dk-application-menu:not([hidden])){gap:10px;overflow:visible}
+html.dk-standalone .topbar>.dk-application-menu{display:flex;flex:1 1 auto;min-width:0;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;margin:0;padding:0;border:0;background:transparent;position:relative;z-index:90}
+html.dk-standalone .topbar:has(>.dk-application-menu:not([hidden]))>.header-tools{flex:0 0 auto;margin-left:auto;width:auto;gap:10px}
+@media(max-width:1050px){html.dk-standalone .topbar>.dk-application-menu{order:3;flex-basis:100%;justify-content:flex-start}}
 html.dk-standalone .dk-app-menu-group{position:relative}
-html.dk-standalone .dk-app-menu-trigger{background:transparent;border:0;border-radius:5px;color:#e2b956;padding:7px 10px;font-size:.85rem;font-weight:600;white-space:nowrap}
-html.dk-standalone .dk-app-menu-trigger:is(:hover,:focus-visible,[aria-expanded="true"]){outline:1px solid #e2b956;outline-offset:-1px;background:transparent}
+html.dk-standalone .dk-app-menu-trigger{background:var(--menu-bg,#462a25);border:1px solid #a58039;border-radius:10px;color:var(--menu-ink,#e2b956);padding:8px 10px;min-height:42px;font-size:.82rem;font-weight:650;white-space:nowrap;box-shadow:none}
+html.dk-standalone .dk-app-menu-trigger[data-menu="media"]{--menu-bg:#d52b1e;--menu-ink:#fff}
+html.dk-standalone .dk-app-menu-trigger:is([data-menu="playback"],[data-menu="subtitle"]){--menu-bg:#e2b956;--menu-ink:#462a25}
+html.dk-standalone .dk-app-menu-trigger[data-menu="audio"]{--menu-bg:#fff;--menu-ink:#462a25}
+html.dk-standalone .dk-app-menu-trigger[data-menu="tools"]{--menu-bg:#fff;--menu-ink:#d52b1e}
+html.dk-standalone .dk-app-menu-trigger:is(:hover,:focus-visible,[aria-expanded="true"]){outline:2px solid currentColor;outline-offset:-4px;background:var(--menu-bg,#462a25);color:var(--menu-ink,#e2b956)}
 html.dk-standalone .dk-app-menu-panel{position:absolute;top:100%;left:0;min-width:215px;max-width:calc(100vw - 24px);max-height:min(65vh,480px);overflow:auto;display:grid;gap:2px;padding:5px;background:#24201d;border:1px solid #a58039;border-radius:7px;box-shadow:0 5px 14px #0007;z-index:91}
 html.dk-standalone .dk-app-menu-panel button{background:transparent;color:#fff;border:0;border-radius:4px;text-align:left;padding:8px 10px;font-size:.82rem;white-space:normal}
 html.dk-standalone .dk-app-menu-panel button:not(:disabled):is(:hover,:focus-visible){outline:1px solid #e2b956;outline-offset:-1px;background:transparent}
@@ -1450,8 +1457,8 @@ html.dk-standalone .screen .controls .extras .dk-parity-button .player-tool-icon
 html.dk-standalone .screen .controls .extras .dk-parity-button[aria-pressed="true"]{box-shadow:inset 0 0 0 2px currentColor}
 html.dk-standalone .screen .controls .extras .dk-parity-button:is(:hover,:focus-visible){outline:2px solid currentColor;outline-offset:-4px}
 html.dk-standalone #dkRepeatToggle:not([data-repeat-mode="one"]) .dk-repeat-one{display:none}
-html.dk-standalone .dk-app-help{width:min(400px,calc(100vw - 32px));max-height:80vh;overflow:auto;box-sizing:border-box;padding:18px;border:1px solid #a58039;border-radius:10px;background:#24201d;color:#fff}
-html.dk-standalone .dk-app-help::backdrop{background:#0008}
-html.dk-standalone .dk-app-help strong{display:block;color:#e2b956;margin-bottom:12px}
-html.dk-standalone .dk-app-help p{font-size:.85rem;margin:0 0 8px}
-html.dk-standalone .dk-app-help .btn{background:#e2b956;color:#462a25;border-color:#a58039}
+
+html.dk-standalone .dk-bookmark-dialog{width:min(510px,calc(100vw - 32px));max-height:85vh;overflow:auto}
+html.dk-standalone .dk-bookmark-list{display:grid;gap:8px;max-height:32vh;overflow:auto}
+html.dk-standalone .dk-bookmark-entry{border:1px solid #a58039;border-radius:8px;padding:8px;display:grid;gap:6px;overflow-wrap:anywhere}
+html.dk-standalone .dk-bookmark-entry .inline-buttons{justify-content:flex-start}

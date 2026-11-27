@@ -673,3 +673,6 @@ Cinema Home reference correction: the previous visual arrangement was rejected. 
 
 
 Cinema Home correction after user review: full-height sidebar even with library zoom, single selected navigation state, portrait uncropped Continue Watching (mouse wheel horizontal only), independently collapsible and persistent Movies/TV wrapping grids. Source implementation complete; local acceptance pending.
+
+
+Server settings: moved existing power and status controls out of the Home sidebar; added local-only server information and exportable basic runtime/process/scan diagnostics. Pending: independent autostart/background preferences, remote access and full legacy diagnostics integration, installed validation.

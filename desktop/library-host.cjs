@@ -2766,6 +2766,15 @@ async function jellyfinMetadata(raw,kind){
     const url=new URL(raw);
     if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.username||url.password||url.port||url.hash)return missing;
     if(url.pathname==="/status"&&kind==="json")return await jfStatus();
+    if(url.pathname==="/diagnostics"&&kind==="json"){
+      const result=await jfStatus();
+      const status=JSON.parse(result.text);
+      let runtimeExecutable=false;
+      try{fs.accessSync(path.join(app.getPath("home"),".local","share","dk-kinehall","jellyfin","runtime","jellyfin"),fs.constants.X_OK);runtimeExecutable=true;}catch(_){}
+      return jfJSON({state:status.state,enabled:status.enabled===true,controllable:status.controllable===true,
+        runtimeExecutable,runningProcess:!!jfAlive(jfState),folderCount:getLibrarySources().length,
+        port:jfState?.port||null,progress:status.progress??null,completed:status.completed??null});
+    }
     if(url.pathname==="/classification")return await jfClassification(url,kind);
     if(["/search","/apply"].includes(url.pathname))return await jfMatch(url,kind);
     const cfg=jellyfinConfig()||jfConfig;if(!cfg||!["/item","/gallery","/gallery-image","/person","/person-image"].includes(url.pathname))return missing;

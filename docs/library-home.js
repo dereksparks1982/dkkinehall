@@ -1807,7 +1807,7 @@ function setupCinema(){
  nav.append(navButton("dkNavWatch","☆","Watchlist","Список просмотра",()=>navigateCinema("watch")),navButton("dkNavCollections","▥","Collections","Коллекции",()=>{switchMode("movie");collectionFilter={kind:"collection",value:"",query:"",saved:false};void render();}));
  const player=adopt($("showPlayer"),"▶","Player","Проигрыватель");if(player)nav.append(player);
  const settings=adopt($("librarySettings"),"⚙","Settings","Настройки");if(settings)bottom.append(settings);
- bottom.append($("jellyfinServerControls"));tabs.hidden=true;
+ tabs.hidden=true;
  // Keep the application-wide footer outside the sidebar.
  const footer=shell.querySelector(".dk-branded-footer");if(footer){footer.classList.add("dk-cinema-window-footer");shell.append(footer);}
  for(const id of ["addLibraryFolder","scanLibrary","libraryEmptyTrash","libraryRefreshMetadata"])$(id)?.classList.add("dk-management-only");
@@ -2025,17 +2025,71 @@ function connect(){
     const body=create("div","playback-settings-panel dk-library-settings-content");
     header.append(title,close);dlg.append(header,feedback,body);document.body.append(dlg);
     let epoch=0,busy=false,selectedCategory=null;
-    const categories=[["playback","Playback"],["picture","Picture Settings"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["general","General"]];
+    const categories=[["playback","Playback"],["picture","Picture Settings"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["server",say("Server","Сервер")],["general","General"]];
     const nav=create("div","dk-settings-category-nav");dlg.insertBefore(nav,body);
     const back=create("button","btn small","Back to settings");back.type="button";nav.append(back);
     const categoryButtons=new Map();
     const extra=create("div","dk-settings-extra");body.after(extra);
+    // Keep the original power button and status nodes connected at all times.
+    // Polling and existing event handlers continue to operate while settings close.
+    const serverPanel=create("section","dk-server-settings");
+    serverPanel.hidden=true;dlg.append(serverPanel);
+    const serverControls=$("jellyfinServerControls");
+    if(serverControls)serverPanel.append(serverControls);
+    const lifecycle=create("p","helper");
+    const networkInfo=create("p","helper");
+    const diagnosticsTitle=create("h3",null,say("Diagnostics","Диагностика"));
+    const diagnostics=create("pre","dk-server-diagnostics");
+    diagnostics.setAttribute("aria-live","polite");
+    const reportActions=create("div","dk-server-report-actions");
+    const refreshReport=create("button","btn",say("Refresh Diagnostics","Обновить диагностику"));refreshReport.type="button";
+    const exportReport=create("button","btn",say("Export Report","Сохранить отчёт"));exportReport.type="button";exportReport.disabled=true;
+    reportActions.append(refreshReport,exportReport);
+    serverPanel.append(lifecycle,networkInfo,diagnosticsTitle,diagnostics,reportActions);
+    let report=null,reportEpoch=0;
+    const updateServerLabels=()=>{
+      lifecycle.textContent=say("The power choice is remembered for automatic startup. The private server is designed to remain running after the app closes.","Выбранное состояние питания сохраняется для автоматического запуска. Частный сервер может продолжать работу после закрытия приложения.");
+      networkInfo.textContent=say("The integrated private server is local-only. Remote access is not enabled.","Встроенный частный сервер доступен только локально. Удалённый доступ не включён.");
+      diagnosticsTitle.textContent=say("Diagnostics","Диагностика");
+      refreshReport.textContent=say("Refresh Diagnostics","Обновить диагностику");
+      exportReport.textContent=say("Export Report","Сохранить отчёт");
+    };
+    async function updateReport(){
+      const ticket=++reportEpoch;report=null;exportReport.disabled=true;
+      diagnostics.textContent=say("Reading server status…","Получение состояния сервера…");
+      try{
+        const d=await jfCall("diagnostics");
+        if(ticket!==reportEpoch||serverPanel.hidden)return;
+        report={generatedAt:new Date().toISOString(),...d};
+        const words={off:["Off","Выключен"],starting:["Starting","Запускается"],stopping:["Stopping","Останавливается"],ready:["Running","Работает"],scanning:["Scanning","Сканирование"],external:["External server","Внешний сервер"],unavailable:["Unavailable","Недоступен"],unknown:["Unknown","Неизвестно"]};
+        const state=words[d.state]||words.unknown;
+        const yn=v=>v?say("Yes","Да"):say("No","Нет");
+        diagnostics.textContent=[
+          say("State: ","Состояние: ")+say(...state),
+          say("Runtime executable present: ","Исполняемый файл доступен: ")+yn(d.runtimeExecutable),
+          say("Enabled for startup: ","Автозапуск включён: ")+yn(d.enabled),
+          say("Managed process running: ","Управляемый процесс работает: ")+yn(d.runningProcess),
+          say("Assigned media folders: ","Назначенные папки: ")+d.folderCount,
+          say("Local port: ","Локальный порт: ")+(d.port??say("Not assigned","Не назначен")),
+          ...(typeof d.progress==="number"?[say("Scan progress: ","Ход сканирования: ")+Math.round(d.progress)+"%"]:[]),
+          say("Last successful scan: ","Последнее успешное сканирование: ")+(d.completed||say("Unknown","Неизвестно"))
+        ].join("\n");
+        exportReport.disabled=false;
+      }catch(_){if(ticket===reportEpoch)diagnostics.textContent=say("Server diagnostics unavailable.","Диагностика сервера недоступна.");}
+    }
+    refreshReport.addEventListener("click",()=>{void pollJellyfin();void updateReport();});
+    exportReport.addEventListener("click",()=>{
+      if(!report)return;
+      const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)+"\n"],{type:"application/json"}));
+      const a=create("a");a.href=url;a.download="DK-Kinehall-Server-Diagnostics.json";document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    });
     const chooseCategory=id=>{
       selectedCategory=id;
-      title.textContent=categories.find(([key])=>key===id)?.[1]||"Settings";
+      title.textContent=id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
       back.hidden=!id;for(const [key,btn] of categoryButtons)btn.hidden=!!id;
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
+      serverPanel.hidden=id!=="server";if(id==="server"){body.hidden=true;updateServerLabels();void updateReport();void pollJellyfin();}else{reportEpoch++;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
       if(id==="network"||id==="disc"){
         if(nativeBridge.openMediaTool)toolButton(id==="network"?"Network media…":"Open DVD…",async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool(id);dlg.close();}catch(_){setFeedback("Could not open media tool.");}finally{busy=false;}});
@@ -2106,7 +2160,7 @@ function connect(){
     });
     close.addEventListener("click",()=>{if(!busy)dlg.close();});
     dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
-    dlg.addEventListener("close",()=>{epoch++;body.replaceChildren();button.focus();});
+    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;body.replaceChildren();button.focus();});
     button.addEventListener("click",async()=>{
       if(dlg.open)return;const ticket=++epoch;
       chooseCategory(null);dlg.showModal();setFeedback("Loading settings…");body.inert=true;busy=true;

@@ -375,3 +375,13 @@ html.dk-standalone .dk-cinema>.dk-branded-footer.dk-cinema-window-footer{
  border:0;background:#15100ff5;color:#e2b956;font-size:.75rem;line-height:1.2;gap:12px
 }
 html.dk-standalone .dk-cinema>.dk-cinema-window-footer a{color:#e2b956;flex:none}
+
+/* Server controls live only in Settings, not the sidebar or Home header. */
+.dk-server-settings{display:grid;gap:12px;padding:8px 2px 12px;overflow:auto;min-height:0}
+.dk-server-settings[hidden]{display:none!important}
+.dk-server-settings .dk-jellyfin-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0}
+.dk-server-settings #jellyfinScanStatus{position:static!important;clip:auto!important;clip-path:none!important;width:auto!important;height:auto!important;margin:0!important;overflow:visible!important;white-space:normal!important;color:#e2b956}
+.dk-server-settings #jellyfinPower{min-height:40px;padding:8px 14px}
+.dk-server-settings h3,.dk-server-settings p{margin:0}
+.dk-server-diagnostics{white-space:pre-wrap;overflow-wrap:anywhere;color:#ead4b1;background:#171310;border:1px solid #a58039;border-radius:6px;padding:12px;margin:0;font-size:.85rem;line-height:1.6}
+.dk-server-report-actions{display:flex;flex-wrap:wrap;gap:8px}

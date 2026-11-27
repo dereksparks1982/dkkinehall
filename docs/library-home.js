@@ -642,8 +642,8 @@ function clearBackdrop(node){
 async function paintBackdrop(node,row,scope){
  if(!node||!row||!nativeBridge)return;
  const id=backdropKey(row,scope),prior=backdropViews.get(node);
- if(prior?.id===id)return;
- clearBackdrop(node);const view={id,url:null};backdropViews.set(node,view);
+ if(prior?.id===id&&(prior.url||prior.loading||backdropAttempts.has(id)))return;
+ clearBackdrop(node);const view={id,url:null,loading:true};backdropViews.set(node,view);
  try{
   let art=await store.artwork(id);
   if(!art?.blob&&!backdropAttempts.has(id)&&nativeBridge.metadataRequest){
@@ -657,7 +657,7 @@ async function paintBackdrop(node,row,scope){
   art=await store.artwork(id);
   if(backdropViews.get(node)!==view||!node.isConnected||!art?.blob)return;
   view.url=URL.createObjectURL(art.blob);node.style.setProperty("--dk-detail-backdrop",'url("'+view.url+'")');node.classList.add("dk-has-detail-backdrop");
- }catch(_){}
+ }catch(_){}finally{view.loading=false;}
 }
 function invalidateBackdrop(id){
  backdropAttempts.delete(id);
@@ -1042,6 +1042,7 @@ async function render(){
     }));
     $("seriesTitle").textContent=selectedSeries;
     $("tvMetadataActions").hidden=!nativeBridge;
+    $("seriesBackground").textContent=say("Series Background","Фон сериала");
     void displayHierarchy();
     $("seasonWatchedCount").hidden=!nativeBridge;
     $("markSeasonWatched").hidden=!nativeBridge;$("markSeasonUnwatched").hidden=!nativeBridge;

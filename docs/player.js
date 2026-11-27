@@ -2420,6 +2420,44 @@
     }
   });
   byId("addQueueFiles").addEventListener("click", () => { void openLocalFiles("queue"); });
+  // Local playlist controls are standalone-only; the web edition is unchanged.
+  if(window.DKLibraryBridge?.importLocalPlaylist){
+    const buttons=[];
+    let importing=false;
+    const importPlaylist=async mode=>{
+      if(importing)return;
+      importing=true;buttons.forEach(button=>button.disabled=true);
+      try{
+        const result=await window.DKLibraryBridge.importLocalPlaylist(document.documentElement.lang);
+        if(result?.cancelled)return;
+        const selected=[];
+        let skipped=Number(result?.skipped)||0;
+        for(const {row,opened} of result?.rows||[]){
+          try{selected.push(window.DKNativeFile.create(row,opened,window.DKLibraryBridge));}
+          catch(_){skipped++;}
+        }
+        if(!selected.length){
+          status(streamSay("No accessible local videos in this playlist.","В списке нет доступных местных видео."));return;
+        }
+        // Each native file has its own source URL; preserve the playlist order.
+        // Opening starts only the first item if idle; queue mode never interrupts.
+        selected.forEach((item,index)=>addFiles([item.file],[],index===0?mode:"queue",{nativeSrc:item.src}));
+        status(streamSay("Playlist imported. Added: "+selected.length+". Skipped: "+skipped+".",
+          "Список импортирован. Добавлено: "+selected.length+". Пропущено: "+skipped+"."),true);
+      }catch(_){
+        status(streamSay("Cannot import this local playlist. Use a UTF-8 M3U, M3U8 or PLS video list with up to 256 entries.",
+          "Не удалось импортировать список. Выберите список видео в кодировке ЮТФ-8 с числом записей не более 256."));
+      }finally{importing=false;buttons.forEach(button=>button.disabled=false);}
+    };
+    for(const [anchor,mode] of [["openEmpty","open"],["addQueueFiles","queue"]]){
+      const button=document.createElement("button");
+      button.type="button";button.className="btn ghost";
+      button.textContent="Import local playlist…";
+      button.addEventListener("click",()=>void importPlaylist(mode));
+      byId(anchor).after(button);buttons.push(button);
+    }
+    window.DKLocale?.apply();
+  }
   byId("filePicker").addEventListener("change", event => {
     const mode = state.pendingPickerMode;
     state.pendingPickerMode = "open";

@@ -94,6 +94,7 @@ const nativeLibrary=Object.freeze({
   setFullscreen:value=>libIpc.invoke("dk-library:player-fullscreen",Boolean(value)),
   onFullscreenChanged:callback=>subscribe("dk-library:fullscreen-state",callback),
   nativeLibrary:true,
+  importLocalPlaylist:language=>libIpc.invoke("dk-library:import-local-playlist",language==="ru"?"ru":"en"),
   externalSelection:()=>libIpc.invoke("dk-library:external-selection"),
   onExternalReady:callback=>{
     if(typeof callback!=="function")return ()=>{};

@@ -2057,6 +2057,98 @@ async function openPlayer(id,external=false,settingsOnly=false){
     return true;
   }finally{playerLoading=null;}
 }
+// Local playlist import is intentionally separate from the Live TV URL importer.
+// Only a native file chooser and a second, explicit approval can grant local entries.
+let localPlaylistBusy=false;
+const LOCAL_PLAYLIST_LIMIT=1024*1024;
+function localPlaylistPaths(raw,filename){
+  const source=raw.replace(/^\uFEFF/,"");
+  if(source.includes("\0")||/#EXT-X-/i.test(source))throw Error("Not a local media playlist");
+  let values=[];
+  const ext=path.extname(filename).toLowerCase();
+  if(ext===".pls"){
+    const lines=source.split(/\r?\n/);
+    if(!lines.some(line=>/^\s*\[playlist\]\s*$/i.test(line)))throw Error("Invalid PLS");
+    const numbered=new Map();
+    for(const line of lines){
+      const match=/^\s*File(\d{1,6})\s*=(.*)$/i.exec(line);
+      if(match&&Number(match[1])>0&&!numbered.has(Number(match[1])))numbered.set(Number(match[1]),match[2]);
+    }
+    values=[...numbered].sort((a,b)=>a[0]-b[0]).map(entry=>entry[1]);
+  }else if(ext===".m3u"||ext===".m3u8"){
+    values=source.split(/\r?\n/).filter(line=>line.trim()&&!line.trimStart().startsWith("#"));
+  }else throw Error("Unsupported playlist");
+  if(values.length>256)throw Error("Too many playlist entries");
+  const targets=[],seen=new Set();
+  let skipped=0;
+  for(const rawValue of values){
+    const value=rawValue.trim();
+    try{
+      if(!value||value.length>4096||/[\x00-\x1f\x7f]/.test(value)||value.startsWith("//")||value.startsWith("\\\\"))throw Error();
+      let target;
+      if(/^file:/i.test(value)){
+        const url=new URL(value);
+        if(url.host||url.search||url.hash||url.username||url.password)throw Error();
+        target=fileURLToPath(url);
+      }else{
+        if(/^[a-z][a-z0-9+.-]*:/i.test(value))throw Error();
+        target=path.resolve(path.dirname(filename),value);
+      }
+      if(seen.has(target)){skipped++;continue;}
+      seen.add(target);targets.push(target);
+    }catch(_){skipped++;}
+  }
+  return {targets,skipped};
+}
+async function importLocalPlaylist(language){
+  if(localPlaylistBusy)return {cancelled:true};
+  localPlaylistBusy=true;
+  const ru=language==="ru";
+  try{
+    const selected=await dialog.showOpenDialog(home,{
+      title:ru?"Открыть список воспроизведения":"Open local playlist",
+      properties:["openFile"],
+      filters:[{name:ru?"Списки воспроизведения":"Playlists",extensions:["m3u","m3u8","pls"]}]
+    });
+    if(selected.canceled||!selected.filePaths[0])return {cancelled:true};
+    const filename=selected.filePaths[0];
+    const handle=await fs.promises.open(filename,fs.constants.O_RDONLY|fs.constants.O_NONBLOCK);
+    let raw;
+    try{
+      const stat=await handle.stat();
+      if(!stat.isFile()||stat.size>LOCAL_PLAYLIST_LIMIT)throw Error("Invalid playlist size");
+      const buffer=Buffer.alloc(LOCAL_PLAYLIST_LIMIT+1);
+      let offset=0;
+      while(offset<buffer.length){
+        const {bytesRead}=await handle.read(buffer,offset,buffer.length-offset,offset);
+        if(!bytesRead)break;
+        offset+=bytesRead;
+      }
+      if(offset>LOCAL_PLAYLIST_LIMIT)throw Error("Playlist too large");
+      raw=new TextDecoder("utf-8",{fatal:true}).decode(buffer.subarray(0,offset));
+    }finally{await handle.close();}
+    const parsed=localPlaylistPaths(raw,filename);
+    const entries=[];let skipped=parsed.skipped;
+    for(const target of parsed.targets){
+      try{
+        const id=native.fileIdentity(target);
+        const opened=await native.openVideo(id,target);
+        entries.push({row:{id,nativePath:target,filename:opened.name,size:opened.size,modified:opened.modified},opened});
+      }catch(_){skipped++;}
+    }
+    if(!entries.length)return {rows:[],skipped};
+    // Show each resolved path before granting it; no network entries are fetched.
+    const preview=entries.map(e=>e.row.nativePath.replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g,"?")).join("\n");
+    const confirmation=await dialog.showMessageBox(home,{
+      type:"question",title:ru?"Импорт списка":"Import playlist",
+      message:ru?"Добавить выбранные видео в очередь?":"Add these local videos to the queue?",
+      detail:(ru?"Файлов: ":"Files: ")+entries.length+(ru?". Пропущено: ":". Skipped: ")+skipped+"\n\n"+preview,
+      buttons:ru?["Отмена","Добавить"]:["Cancel","Add"],defaultId:0,cancelId:0,noLink:true
+    });
+    return confirmation.response===1?{rows:entries,skipped}:{cancelled:true};
+  }finally{localPlaylistBusy=false;}
+}
+
 async function openExternal(argv,cwd){
   const entries=[],seen=new Set();
   for(const arg of argv.slice(1)){
@@ -2424,6 +2516,10 @@ function install(originalWindow,originalPlayer){
     if(!onlyPlayer(event))throw Error("Media restore request rejected");
     try{fs.unlinkSync(rememberedPath());}catch(error){if(error.code!=="ENOENT")throw error;}
     return true;
+  });
+  ipcMain.handle("dk-library:import-local-playlist",(event,language)=>{
+    if(!onlyPlayer(event)||activePage!=="player")throw Error("Playlist request rejected");
+    return importLocalPlaylist(language);
   });
   ipcMain.handle("dk-library:external-selection",event=>{
     if(!onlyPlayer(event))throw Error("External selection rejected");

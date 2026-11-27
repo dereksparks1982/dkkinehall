@@ -14,6 +14,7 @@ const nativeLibrary=Object.freeze({
   getInterfaceLanguage:fallback=>libIpc.invoke("dk-library:language-get",fallback==="ru"?"ru":"en"),
   setInterfaceLanguage:value=>libIpc.invoke("dk-library:language-set",value==="ru"?"ru":"en"),
   onInterfaceLanguage:callback=>subscribe("dk-library:language-changed",callback),
+  liveTvDiscover:()=>libIpc.invoke("dk-live-tv:discover"),
   liveTvLineup:host=>libIpc.invoke("dk-live-tv:lineup",String(host)),
   liveTvGrant:id=>libIpc.invoke("dk-live-tv:grant",String(id)),
   networkDiscover:()=>libIpc.invoke("dk-network:discover"),

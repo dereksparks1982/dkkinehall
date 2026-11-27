@@ -47,6 +47,35 @@ function networkRequest(url,options={},body=null,limit=2*1024*1024){
     req.end(body||undefined);
   });
 }
+// Adapted from the HDHomeRun lineup workflow in DK Media Plus.
+// Keep the actual channel URLs in the main process; no arbitrary renderer URLs.
+let liveLineup=new Map(),liveLineupBusy=false;
+async function loadLiveLineup(host){
+  if(typeof host!=="string"||!privateIPv4(host))throw Error("Private IPv4 tuner address required");
+  if(liveLineupBusy)throw Error("Tuner request busy");
+  liveLineupBusy=true;
+  try{
+    const raw=JSON.parse(await networkRequest(networkURL("http://"+host+"/lineup.json",host)));
+    if(!Array.isArray(raw)||raw.length>5000)throw Error("Invalid tuner lineup");
+    const next=new Map(),seen=new Set();
+    for(const row of raw){
+      if(!row||row.DRM===1||row.DRM===true)continue;
+      const number=String(row.GuideNumber??"");
+      if(!/^\d{1,6}(?:\.\d{1,6})?$/.test(number)||seen.has(number))continue;
+      let url;try{url=networkURL(row.URL,host);}catch(_){continue;}
+      if(url.protocol!=="http:"||!/^\/auto\/v\d+(?:\.\d+)?$/.test(url.pathname)||url.search)continue;
+      const id=randomBytes(16).toString("hex");
+      const name=typeof row.GuideName==="string"?row.GuideName.slice(0,200):number;
+      seen.add(number);next.set(id,{id,number,name,url:url.href});
+    }
+    liveLineup=next;
+    return Array.from(next.values(),({id,number,name})=>({id,number,name})).sort((a,b)=>a.number.localeCompare(b.number,undefined,{numeric:true}));
+  }finally{liveLineupBusy=false;}
+}
+async function grantLiveChannel(id){
+  const row=liveLineup.get(id);if(!row)throw Error("Channel selection expired");
+  return grantNetwork(null,row.url);
+}
 function discoverNetwork(){
   if(networkScan)return networkScan;
   networkScan=new Promise(resolve=>{
@@ -1400,6 +1429,14 @@ function install(originalWindow,originalPlayer){
     if((!allowed(event)&&!onlyPlayer(event))||!["en","ru"].includes(value))throw Error("Language request rejected");
     return writeInterfaceLanguage(value);
   });
+  ipcMain.handle("dk-live-tv:lineup",(event,host)=>{
+    if(!onlyPlayer(event))throw Error("Tuner request rejected");
+    return loadLiveLineup(host);
+  });
+  ipcMain.handle("dk-live-tv:grant",(event,id)=>{
+    if(!onlyPlayer(event)||typeof id!=="string")throw Error("Tuner request rejected");
+    return grantLiveChannel(id);
+  });
   ipcMain.handle("dk-network:discover",event=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return discoverNetwork();
   });
@@ -1603,7 +1640,7 @@ function install(originalWindow,originalPlayer){
   // Library requests are limited to its explicit shared settings API, never
   // renderer-provided JavaScript, selectors or localStorage keys.
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
-    if(!allowed(event)||activePage!=="library"||!["network","disc"].includes(kind))throw Error("Media tool request rejected");
+    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv"].includes(kind))throw Error("Media tool request rejected");
     await openPlayer(null,false,true);
     if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
     showPage("player");

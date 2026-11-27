@@ -20,6 +20,11 @@ for(const src of [homeCode,store,mainBridge,read(root,"desktop/library-preload.c
 assert.match(home,/href="\.\/player\.css\?/);
 assert.match(player,/href="\.\/player\.css\?/);
 assert.match(playerCSS,/soviet-poster\.png/);
+assert.match(playerCSS,/--dk-action-gold:#e2b956/);
+assert.match(playerCSS,/--dk-action-ink:#462a25/);
+assert.match(playerCSS,/button:not\(\.library-card\):not\(\.dk-library-open-card\)/);
+assert.match(playerCSS,/background:var\(--dk-action-gold\)!important/);
+assert.match(playerCSS,/--dk-action-active:#ffe39a/);
 assert.doesNotMatch(styling,/soviet-poster\.png|url\(["']?\.\/images/);
 assert.match(home,/id="tabMovies"/);
 assert.match(home,/id="tabTV"/);

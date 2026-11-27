@@ -28,7 +28,7 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 ## Library controls
 
-Movies (gold), TV Shows (white), and Live TV (brown) are the three standalone library navigation buttons. The standalone interface uses gold, brown, white and Russian red throughout its controls, menus, settings and dialogs.
+Movies, TV Shows and Live TV are the three standalone library navigation buttons. All action buttons use antique gold with dark brown text and icons throughout the Player, Library, Live TV, settings, menus and dialogs.
 
 - **Ctrl + mouse wheel:** Enlarge or shrink the library.
 - **Ctrl + middle-click:** Restore the default library size.
@@ -191,3 +191,6 @@ Standalone movie and TV series backgrounds: open Movie Details or a series to di
 
 
 Standalone appearance: the shared Player and Library background is now the approved Vintage Sepia Ruins Film Frame. It stays fixed while browsing and stretches to fill the entire application viewport, preserving the film sprocket edges without top or bottom gaps. Existing control colours and per-title backdrops remain unchanged. The hosted web player retains its existing background.
+
+
+Appearance update: antique gold is the uniform action-button palette, including active, disabled and hover/focus states. Media artwork and transparent playback hit targets are excluded; server and other operational status indicators retain meaningful colors. The vintage film background is unchanged.

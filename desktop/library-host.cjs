@@ -2250,7 +2250,98 @@ async function readPlayableRange(id,filePath,start,end){
   }finally{await handle.close();}
 }
 
+/* Jellyfin catalog bridge: separate authenticated local HTTP process, as in
+ * DK Media Plus. Never forwards arbitrary renderer URLs, credentials, writes,
+ * playback commands, or paths outside the selected Kinehall library folders.
+ * Only exact file-path and item-kind matches can supply metadata.
+ */
+let jellyfinCatalog=null;
+function jellyfinConfig(){
+  try{
+    const file=path.join(app.getPath("home"),".config","dk-kinehall","jellyfin.json");
+    const stat=fs.lstatSync(file);
+    if(!stat.isFile()||stat.size>4096||(stat.mode&0o077)!==0||
+       (typeof process.getuid==="function"&&stat.uid!==process.getuid()))return null;
+    const cfg=JSON.parse(fs.readFileSync(file,"utf8"));
+    if(!Number.isInteger(cfg.port)||cfg.port<1024||cfg.port>65535||
+       typeof cfg.token!=="string"||!/^[A-Za-z0-9_-]{16,256}$/.test(cfg.token))return null;
+    return {port:cfg.port,token:cfg.token,userId:/^[a-f0-9-]{32,36}$/i.test(cfg.userId||"")?cfg.userId:null};
+  }catch(_){return null;}
+}
+function jellyfinId(value){return typeof value==="string"&&/^[a-f0-9]{32}$|^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);}
+async function jellyfinGet(cfg,route,query={},image=false){
+  const address=new URL("http://127.0.0.1:"+cfg.port+route);
+  for(const [key,value] of Object.entries(query))address.searchParams.set(key,String(value));
+  const res=await fetch(address,{headers:{Authorization:'MediaBrowser Client="DK Kinehall", Device="Local", DeviceId="dk-kinehall-local", Version="0.9.3", Token="'+cfg.token+'"'},redirect:"error",signal:AbortSignal.timeout(8000)});
+  if(!res.ok){await res.body?.cancel();return null;}
+  const mime=(res.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+  if(image?!/^image\/(jpeg|png|webp)$/.test(mime):!/^application\/(?:json|[^;]+\+json)$/.test(mime)){await res.body?.cancel();return null;}
+  const limit=image?3*1024*1024:5*1024*1024;
+  if(Number(res.headers.get("content-length"))>limit){await res.body?.cancel();return null;}
+  const reader=res.body?.getReader();if(!reader)return null;
+  let size=0;const chunks=[];
+  for(;;){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>limit){await reader.cancel();return null;}chunks.push(Buffer.from(value));}
+  const bytes=Buffer.concat(chunks);
+  return image?{ok:true,status:200,mime,bytes:new Uint8Array(bytes)}:JSON.parse(bytes.toString("utf8"));
+}
+async function jellyfinIndex(cfg,force=false){
+  const now=Date.now();
+  const key=cfg.port+":"+cfg.token+":"+cfg.userId;
+  if(jellyfinCatalog?.key===key&&(jellyfinCatalog.pending||now-jellyfinCatalog.at<(force?2000:120000)))return jellyfinCatalog.work;
+  const entry={key,at:now,pending:true,work:null};
+  entry.work=(async()=>{
+    const result=new Map();
+    for(let start=0;start<50000;start+=200){
+      const page=await jellyfinGet(cfg,"/Items",{Recursive:true,IncludeItemTypes:"Movie,Episode",Fields:"Path,ProviderIds,Overview,Genres,People",EnableUserData:false,EnableImages:true,StartIndex:start,Limit:200,...(cfg.userId?{UserId:cfg.userId}:{})});
+      if(!Array.isArray(page?.Items))throw Error("Jellyfin catalog unavailable");
+      for(const item of page.Items){
+        if(!jellyfinId(item?.Id)||typeof item.Path!=="string"||!path.isAbsolute(item.Path)||!["Movie","Episode"].includes(item.Type))continue;
+        const name=path.normalize(item.Path);
+        if(result.has(name))result.set(name,null);else result.set(name,item);
+      }
+      if(page.Items.length<200||Number.isFinite(page.TotalRecordCount)&&start+page.Items.length>=page.TotalRecordCount)break;
+    }
+    return result;
+  })().catch(()=>new Map()).finally(()=>{entry.pending=false;entry.at=Date.now();});
+  jellyfinCatalog=entry;return entry.work;
+}
+async function jellyfinMetadata(raw,kind){
+  const missing={ok:false,status:404};
+  const cfg=jellyfinConfig();if(!cfg)return missing;
+  try{
+    const url=new URL(raw);
+    if(url.protocol!=="dk-jellyfin:"||url.hostname!=="catalog"||url.pathname!=="/item"||url.username||url.password||url.port||url.hash)return missing;
+    const id=url.searchParams.get("id"),file=url.searchParams.get("path"),type=url.searchParams.get("type");
+    const series=url.searchParams.get("series")==="1";
+    if(!id||!file||file.length>4096||!path.isAbsolute(file)||!["Movie","Episode"].includes(type)||series&&type!=="Episode")return missing;
+    const grant=await checkPlayableSource(id,file);
+    if(!getLibrarySources().some(root=>root.kind===(type==="Movie"?"movie":"tv")&&inSource(root.path,grant.target)))return missing;
+    const catalog=await jellyfinIndex(cfg,url.searchParams.get("force")==="1");
+    const item=catalog.get(path.normalize(grant.target))||catalog.get(path.normalize(file));
+    if(!item||item.Type!==type||!jellyfinId(item.Id)||typeof item.Name!=="string"||!item.Name.trim())return missing;
+    if(kind==="image"){
+      const target=series?item.SeriesId:item.Id;
+      if(!jellyfinId(target))return missing;
+      return await jellyfinGet(cfg,"/Items/"+target+"/Images/Primary",{maxWidth:series||type==="Movie"?480:640,quality:85},true)||missing;
+    }
+    const clip=(value,n)=>typeof value==="string"?value.slice(0,n):"";
+    const people=Array.isArray(item.People)?item.People:[];
+    const result={title:clip(item.Name,180),year:Number(item.ProductionYear)||null,
+      provider:"Jellyfin",details:{description:clip(item.Overview,6000),
+      genres:Array.isArray(item.Genres)?item.Genres.filter(x=>typeof x==="string").slice(0,20):[],
+      directors:people.filter(x=>x?.Type==="Director").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,15),
+      cast:people.filter(x=>x?.Type==="Actor").map(x=>clip(x.Name,120)).filter(Boolean).slice(0,30),
+      runtime:Number.isFinite(Number(item.RunTimeTicks))?Math.round(Number(item.RunTimeTicks)/600000000):null,
+      rating:Number.isFinite(Number(item.CommunityRating))?String(item.CommunityRating):""}};
+    return {ok:true,status:200,text:JSON.stringify(result)};
+  }catch(_){return missing;}
+}
+
 async function metadataRequest(raw,kind){
+  if(typeof raw==="string"&&raw.length<=16000&&raw.startsWith("dk-jellyfin://")&&["json","image"].includes(kind)){
+    if(metadataBusy>=4)return {ok:false,status:429};
+    metadataBusy++;try{return await jellyfinMetadata(raw,kind);}finally{metadataBusy--;}
+  }
   if(typeof raw!=="string"||raw.length>1500||!["json","image"].includes(kind))throw Error("Invalid metadata request");
   const url=new URL(raw);
   const h=url.hostname;

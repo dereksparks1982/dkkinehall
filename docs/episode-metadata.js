@@ -94,6 +94,13 @@
    if(info.year){
      const dated=candidate.filter(x=>String(x.show.premiered||"").slice(0,4)===String(info.year));
      if(dated.length===1)return dated[0].show;
+     return null;
+   }
+   // Owner-requested modern series default for the ambiguous exact title.
+   // Respect an explicitly named year above, and never accept a fuzzy match.
+   if(norm==="the americans"){
+     const modern=exact.find(x=>x.show.id===157&&String(x.show.premiered||"").startsWith("2013"));
+     if(modern)return modern.show;
    }
    return candidate.length===1?candidate[0].show:null;
  }
@@ -276,7 +283,7 @@
      return task;
    }
    async function tvEpisode(info){
-     const key=normalize(info.series);
+     const key=normalize(info.series)+":"+(info.year||"");
      if(!searchTV.has(key)){
        searchTV.set(key,request(TV+"/search/shows?q="+encodeURIComponent(info.series))
          .then(list=>findShow(info,list)));

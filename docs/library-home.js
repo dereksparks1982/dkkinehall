@@ -311,12 +311,33 @@ async function saveMovieResult(row,result){
     movieDetails:result.details,movieProvider:result.provider});
   return true;
 }
+async function jellyfinArtwork(row,id,series,force){
+  if(!nativeBridge?.metadataRequest||!row.nativePath||!row.id)return null;
+  const url="dk-jellyfin://catalog/item?"+new URLSearchParams({id:row.id,path:row.nativePath,type:row.kind==="movie"?"Movie":"Episode",series:series?"1":"0",force:force?"1":"0"});
+  try{
+    const response=await nativeBridge.metadataRequest(url,"json");
+    if(!response.ok)return null;
+    const result=JSON.parse(response.text);
+    if(!result?.title)return null;
+    if(row.kind==="movie")await saveMovieResult(row,result);
+    else if(!series)await store.updateMetadata(row.id,{episodeTitle:result.title});
+    const image=await nativeBridge.metadataRequest(url,"image");
+    if(!image.ok)return null;
+    const blob=new Blob([image.bytes],{type:image.mime});
+    if(!/^image\/(jpeg|png|webp)$/.test(blob.type)||blob.size>3*1024*1024)return null;
+    await store.saveArtwork(id,blob,"Jellyfin");return blob;
+  }catch(_){return null;}
+}
 async function findArtwork(row,id,series=false,force=false){
   const cache=await store.artwork(id);
   // A stored poster is usable immediately; missing details cannot invalidate it.
   if(cache?.blob&&!force&&nativeBridge)return cache.blob;
   if(nativeBridge&&!force&&artAttempted.has(id))return cache?.blob||null;
   if(nativeBridge&&!force)artAttempted.add(id);
+  // Local Jellyfin catalog is preferred when explicitly configured. Failure
+  // leaves the existing provider pipeline and cached art intact.
+  const jellyfin=await jellyfinArtwork(row,id,series,force);
+  if(jellyfin)return jellyfin;
   let movieResult=null;
   // Native movie metadata is fetched independently of local and cached art.
   if(nativeBridge&&row.kind==="movie"&&(force||!row.movieDetails)&&

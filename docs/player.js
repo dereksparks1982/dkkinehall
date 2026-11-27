@@ -3151,18 +3151,18 @@
     const statsLabel=document.createElement("label"),statsCheck=document.createElement("input"),statsText=document.createElement("span");statsCheck.type="checkbox";statsCheck.id="networkStreamStats";statsCheck.checked=streamPrefs.stats;statsLabel.append(statsCheck,statsText);
     const bufferOptions=[["auto","Automatic (adaptive)","Автоматически (адаптивно)"],["1","1 s · Low latency","1 с · Малая задержка"],["3","3 s","3 с"],["5","5 s · Balanced","5 с · Сбалансировано"],["10","10 s · Stable","10 с · Стабильно"],["20","20 s","20 с"],["30","30 s · Unstable connection","30 с · Нестабильное соединение"]];
     const qualityOptions=[["auto","Automatic (HLS)","Автоматически"],["source","Original quality","Исходное качество"],["360","Up to 360p","До 360"],["480","Up to 480p","До 480"],["720","Up to 720p","До 720"],["1080","Up to 1080p","До 1080"]];
-    const note=document.createElement("p");note.className="helper";
+    const bufferNote=document.createElement("p");bufferNote.className="helper";
     const translateStream=()=>{
       bufferText.textContent=streamSay("Network buffer","Сетевой буфер");qualityText.textContent=streamSay("Stream quality","Качество потока");statsText.textContent=streamSay("Show streaming statistics","Показывать статистику потока");
       const options=(node,rows,value)=>{node.replaceChildren(...rows.map(([key,en,ru])=>{const o=document.createElement("option");o.value=key;o.textContent=streamSay(en,ru);return o;}));node.value=value;};
       options(bufferSelect,bufferOptions,streamPrefs.buffer);options(qualitySelect,qualityOptions,streamPrefs.quality);
-      note.textContent=streamSay("Buffer targets depend on the source. Automatic quality can switch during compatible HLS playback; manual quality takes effect on reconnect.","Размер буфера зависит от источника. Автоматическое качество может меняться во время совместимого воспроизведения; ручной выбор применяется при повторном подключении.");
+      bufferNote.textContent=streamSay("Buffer targets depend on the source. Automatic quality can switch during compatible HLS playback; manual quality takes effect on reconnect.","Размер буфера зависит от источника. Автоматическое качество может меняться во время совместимого воспроизведения; ручной выбор применяется при повторном подключении.");
     };
     bufferSelect.addEventListener("change",()=>{streamPrefs.buffer=bufferSelect.value;write(streamPrefsKey,streamPrefs);if(bufferGate)bufferGate.target=bufferTarget(current());});
     qualitySelect.addEventListener("change",()=>{streamPrefs.quality=qualitySelect.value;write(streamPrefsKey,streamPrefs);});
     statsCheck.addEventListener("change",()=>{streamPrefs.stats=statsCheck.checked;write(streamPrefsKey,streamPrefs);if(statsNode&&!streamPrefs.stats)statsNode.hidden=true;});
     translateStream();new MutationObserver(translateStream).observe(document.documentElement,{attributes:true,attributeFilter:["lang"]});
-    section.append(bufferLabel,qualityLabel,statsLabel,note);byId("playerSettingsPanel").append(section);
+    section.append(bufferLabel,qualityLabel,statsLabel,bufferNote);byId("playerSettingsPanel").append(section);
     window.DKLibraryBridge.onOpenMediaTool?.(kind=>{if(kind==="network"){deferStartup=false;settingsDetails.open=false;open();}});
     if(bridge.liveTvLineup&&bridge.liveTvGrant){
       const tv=document.createElement("dialog");tv.className="dk-dvd-dialog dk-network-dialog dk-live-tv-dialog";

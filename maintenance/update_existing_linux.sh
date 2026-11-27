@@ -18,6 +18,60 @@ for tool in git python3; do
   fi
 done
 
+# Stop only the current user's installed Kinehall and private Jellyfin.
+# Do not update a running Electron runtime or a live Jellyfin database.
+python3 - "$APP" <<'PYTHON'
+import os, signal, sys, time
+from pathlib import Path
+app = Path(sys.argv[1]).resolve()
+private = Path.home() / ".local/share/dk-kinehall/jellyfin"
+def processes():
+    found = {}
+    for proc in Path("/proc").iterdir():
+        if not proc.name.isdigit():
+            continue
+        try:
+            if proc.stat().st_uid != os.getuid():
+                continue
+            exe = os.readlink(proc / "exe").removesuffix(" (deleted)")
+            args = (proc / "cmdline").read_bytes().split(b"\0")
+            command = b" ".join(args).decode(errors="replace").lower()
+            stat = (proc / "stat").read_text().rsplit(")", 1)[1].split()
+            if stat[0] == "Z":
+                continue
+            player = exe == str(app / "DK Kinehall") or (
+                Path(exe).name.lower() == "electron" and
+                ("dk-kinehall" in exe.lower() or "dk kinehall" in exe.lower()
+                 or "dk-kinehall" in command or "dk kinehall" in command))
+            server = exe.startswith(str(private) + "/") and Path(exe).name == "jellyfin"
+            if player or server:
+                found[int(proc.name)] = (stat[19], "player" if player else "server")
+        except (OSError, IndexError):
+            continue
+    return found
+for group in ("player", "server"):
+    deadline = time.monotonic() + 30
+    sent = set()
+    while True:
+        active = {pid: identity for pid, identity in processes().items() if identity[1] == group}
+        if not active:
+            break
+        for pid, identity in active.items():
+            if (pid, identity) in sent:
+                continue
+            if processes().get(pid) != identity:
+                continue
+            try:
+                os.kill(pid, signal.SIGTERM)
+                sent.add((pid, identity))
+            except ProcessLookupError:
+                pass
+        if time.monotonic() >= deadline:
+            sys.exit("ERROR: Kinehall " + group + " did not stop; update aborted without changing installed files.")
+        time.sleep(.25)
+print("DK Kinehall and private Jellyfin stopped.")
+PYTHON
+
 WORK="$(mktemp -d)"
 BACKUP="$APP/.dk-backup-$(date +%Y%m%d-%H%M%S)-$$"
 backup_ready=0

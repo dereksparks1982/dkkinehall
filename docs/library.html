@@ -42,7 +42,7 @@
       <button id="tabMovies" type="button" role="tab" aria-selected="true" aria-controls="libraryCollection">Movies</button>
       <button id="tabTV" type="button" role="tab" aria-selected="false" aria-controls="libraryCollection">TV Shows</button>
     </nav>
-    <div id="jellyfinServerControls" class="dk-jellyfin-controls" hidden><button type="button" id="jellyfinPower" class="btn" disabled>Start Server</button><span id="jellyfinStatusLight" class="dk-server-light" data-state="unknown" aria-hidden="true"></span><span id="jellyfinScanStatus" role="status" aria-live="polite"></span></div>
+    <div id="jellyfinServerControls" class="dk-jellyfin-controls" hidden><button type="button" id="jellyfinPower" class="btn" disabled>Start Server</button><span id="jellyfinStatusLight" class="dk-server-light" data-state="unknown" role="img" aria-label="Server status unknown"></span><span id="jellyfinScanStatus" class="visually-hidden" role="status" aria-live="polite"></span></div>
     </div>
     <div id="libraryStatus" class="library-status" role="status" aria-live="polite">Loading saved library…</div>
     <section id="continueSection" class="library-section" aria-label="Continue Watching">
@@ -58,7 +58,7 @@
         <button type="button" class="btn ghost" id="backToSeries">Back to TV Shows</button>
         <h2 id="seriesTitle"></h2>
         <p id="seriesMetadataSummary" class="dk-tv-summary"></p>
-        <div id="tvMetadataActions" class="dk-art-options" hidden><button type="button" class="btn ghost" id="seriesDetails">Series Details</button><button type="button" class="btn ghost" id="editSeriesDetails">Edit Series Metadata</button><button type="button" class="btn ghost" id="seasonDetails">Season Details</button><button type="button" class="btn ghost" id="editSeasonDetails">Edit Season Metadata</button><button type="button" class="btn ghost" id="seasonArtwork">Season Artwork</button></div>
+        <div id="tvMetadataActions" class="dk-art-options" hidden><button type="button" class="btn ghost" id="seriesDetails">Series Details</button><button type="button" class="btn ghost" id="editSeriesDetails">Edit Series Metadata</button><button type="button" class="btn ghost" id="seasonDetails">Season Details</button><button type="button" class="btn ghost" id="editSeasonDetails">Edit Season Metadata</button><button type="button" class="btn ghost" id="seasonArtwork">Season Artwork</button><button type="button" class="btn ghost" id="seriesBackground">Series Background</button></div>
         <div class="library-season-row"><label for="seasonSelect">Season</label><select id="seasonSelect" class="select"></select><span id="seasonWatchedCount" hidden></span><button type="button" id="markSeasonWatched" class="btn ghost" hidden>Mark Season as Watched</button><button type="button" id="markSeasonUnwatched" class="btn ghost" hidden>Mark Season as Unwatched</button></div>
         <p id="seasonMetadataSummary" class="dk-tv-summary"></p>
       </div>
@@ -84,6 +84,7 @@
     <button type="button" role="menuitem" id="fixMatch" hidden>Fix Match</button>
     <button type="button" role="menuitem" id="editLocalMetadata" hidden>Edit Metadata</button>
     <button type="button" role="menuitem" id="chooseArtwork" hidden>Choose Artwork</button>
+    <button type="button" role="menuitem" id="chooseBackground" hidden>Choose Background</button>
     <button type="button" role="menuitem" id="reclassifyMedia" hidden>Move to Movies</button>
     <button type="button" role="menuitem" id="removeContinueWatching" hidden>Remove from Continue Watching</button>
     <button type="button" role="menuitem" id="removeFromLibrary" hidden>Remove from Library</button>

@@ -66,3 +66,5 @@ Live TV cards use aligned, fixed-size artwork, programme and action areas. The g
 Network settings include Automatic or adjustable 1–30-second buffer targets, HLS quality preferences and optional streaming statistics. Small completed HLS segments are reused, automatic quality can select a lower bitrate on reconnection, and prolonged stalls trigger bounded recovery. Buffer targets are best effort and depend on the source and browser.
 
 Streaming recovery also retries transient HLS segment and playlist requests before restarting a channel. Native playback prebuffers before autoplay; compatible stereo AAC-LC streams may be passed through without re-encoding. Automatic buffering can reach 30 seconds and relaxes after sustained stable playback.
+
+The existing hardware acceleration preference also controls optional VA-API decoding for eligible internet video on Linux. Compatible streams still use passthrough first. If the bundled decoder or render device cannot support hardware decoding, Kinehall falls back to software; streaming statistics distinguish hardware initialization, confirmed decoder output and fallback.

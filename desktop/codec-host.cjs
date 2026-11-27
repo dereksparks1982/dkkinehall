@@ -224,6 +224,29 @@ function processOutput(command,args,timeout=15000,maxOutput=MAX_PROBE_OUTPUT) {
     });
   });
 }
+// Native VA-API is optional. Discover only real, accessible Linux render
+// nodes and a decoder capability listed by the bundled FFmpeg. A successful
+// initialization is not inferred from the capability list.
+let vaapiCapability=null;
+const failedHardware=new Set();
+async function vaapiDevice(){
+ if(process.platform!=="linux")return null;
+ if(!vaapiCapability)vaapiCapability=(async()=>{
+  const supported=await processOutput(binary("ffmpeg"),["-hide_banner","-hwaccels"],5000);
+  if(!supported.split(/\r?\n/).some(line=>line.trim()==="vaapi"))return null;
+  for(const name of fs.readdirSync("/dev/dri").filter(n=>/^renderD\d+$/.test(n)).sort()){
+   const device=path.join("/dev/dri",name);
+   try{if(!fs.statSync(device).isCharacterDevice())continue;fs.accessSync(device,fs.constants.R_OK|fs.constants.W_OK);return device;}catch(_){}
+  }
+  return null;
+ })().catch(()=>null);
+ return vaapiCapability;
+}
+async function hardwarePlan(info,enabled,copyVideo,network,frameStep){
+ if(!enabled||!network||copyVideo||frameStep||!info.hasVideo||!["h264","hevc","mpeg2video","vp8","vp9"].includes(info.videoCodec)||!["yuv420p","nv12"].includes(info.videoPixelFormat))return null;
+ const device=await vaapiDevice(),key=device+":"+info.videoCodec;
+ return device&&!failedHardware.has(key)?{device,key}:null;
+}
 async function status() {
   if(availability)return availability;
   const ffmpeg=binary("ffmpeg"),ffprobe=binary("ffprobe");
@@ -414,12 +437,15 @@ function serve(req,res) {
   if(active.process||active.response) {
     res.writeHead(409);res.end();return;
   }
+  function launch(hardware){
+  if(session!==active||res.destroyed||res.writableEnded)return;
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
+    ...(hardware?["-hwaccel","vaapi","-hwaccel_device",hardware.device,"-hwaccel_output_format","vaapi"]:[]),
     ...(active.network?[...networkInputArgs,...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
-  const filters=[];
+  const filters=hardware?["hwdownload","format=nv12","format=yuv420p"]:[];
   if(active.deinterlace)filters.push("bwdif=mode=send_frame:parity=auto:deint="+(active.deinterlace==="on"?"all":"interlaced"));
   // Motion-compensated interpolation generates intermediate frames; no
   // fps-only duplication. Deinterlace before interpolation when enabled.
@@ -453,38 +479,55 @@ function serve(req,res) {
       "-frag_duration","1000000","-f","mp4","pipe:1");
   }
   let child;
-  try {child=spawn(binary("ffmpeg"),args,{
-    stdio:["ignore","pipe","pipe"],windowsHide:true,
-    env:codecEnvironment()
-  });}
-  catch(_){res.writeHead(500);res.end();return;}
-  active.process=child;active.response=res;
-  res.writeHead(200,{"Content-Type":(active.hasVideo?"video/":"audio/")+(active.format==="webm"?"webm":"mp4"),
-    "Cache-Control":"no-store","Access-Control-Allow-Origin":"null",
-    "X-Content-Type-Options":"nosniff"});
-  child.stdout.pipe(res);
-  // Progress is encoded media time, not downloaded bytes.
-  let pending="";
+  try {child=spawn(binary("ffmpeg"),args,{stdio:["ignore","pipe","pipe"],windowsHide:true,env:codecEnvironment()});}
+  catch(_){if(hardware){failedHardware.add(hardware.key);active.hardwareFallback=true;launch(null);return;}if(!res.headersSent)res.writeHead(500);res.end();return;}
+  active.process=child;active.response=res;active.hardwareMode=hardware?"vaapi-pending":active.copyVideo?"copy":"software";active.decodeSpeed=null;
+  let pending="",stderrTail="",sent=0,lastOutput=Date.now(),finished=false,watchdog=false;
   const remaining=active.duration===null?null:active.duration-active.position;
-  if(windowRef&&!windowRef.isDestroyed())
-    windowRef.setProgressBar(remaining>0?0:2);
+  if(windowRef&&!windowRef.isDestroyed()&&!active.network)windowRef.setProgressBar(remaining>0?0:2);
+  const timer=active.network?setInterval(()=>{
+   if(session!==active||res.destroyed||res.writableEnded){clearInterval(timer);return;}
+   // Pipe backpressure is normal during a user's pause or prebuffer gate.
+   if(res.writableNeedDrain||child.stdout.isPaused()){lastOutput=Date.now();return;}
+   if(Date.now()-lastOutput>35000){watchdog=true;active.decoderStalled=true;child.kill("SIGKILL");}
+  },5000):null;
+  child.stdout.on("data",chunk=>{
+   sent+=chunk.length;lastOutput=Date.now();
+   if(!res.headersSent)res.writeHead(200,{"Content-Type":(active.hasVideo?"video/":"audio/")+(active.format==="webm"?"webm":"mp4"),"Cache-Control":"no-store","Access-Control-Allow-Origin":"null","X-Content-Type-Options":"nosniff"});
+  });
+  child.stdout.pipe(res,{end:false});
   child.stderr.setEncoding("utf8");
   child.stderr.on("data",chunk=>{
-    if(session!==active)return;
-    pending+=chunk;
-    const lines=pending.split(/\r?\n/);pending=lines.pop().slice(-4096);
-    for(const line of lines){
-      const match=/^out_time_us=(\d+)$/.exec(line);
-      if(match&&remaining>0&&windowRef&&!windowRef.isDestroyed())
-        windowRef.setProgressBar(Math.min(0.99,Number(match[1])/1e6/remaining));
-    }
+   if(session!==active)return;
+   stderrTail=(stderrTail+chunk).slice(-4096);pending+=chunk;
+   const lines=pending.split(/\r?\n/);pending=lines.pop().slice(-4096);
+   for(const line of lines){
+    const match=/^out_time_us=(\d+)$/.exec(line);
+    if(match&&remaining>0&&!active.network&&windowRef&&!windowRef.isDestroyed())windowRef.setProgressBar(Math.min(.99,Number(match[1])/1e6/remaining));
+    const frame=/^frame=\s*(\d+)$/.exec(line);
+    if(hardware&&frame&&+frame[1]>0&&sent>0)active.hardwareMode="vaapi";
+    const speed=/^speed=\s*([0-9.]+)x$/.exec(line);if(speed)active.decodeSpeed=Number(speed[1]);
+   }
   });
-  child.once("close",()=>{if(session===active)clearConversionProgress();});
-  child.on("error",()=>{try{res.end();}catch(_){}});
-  child.on("close",()=>{try{res.end();}catch(_){}});
-  res.on("close",()=>{
-    if(session===active){try{child.kill("SIGTERM");}catch(_){}}
-  });
+  const finish=code=>{
+   if(finished)return;finished=true;if(timer)clearInterval(timer);
+   if(session!==active||res.destroyed||res.writableEnded)return;
+   const hwError=hardware&&/vaapi|hwaccel|hardware device|hwdownload|surface|device setup|failed to transfer/i.test(stderrTail);
+   if(hardware&&(hwError||code!==0&&!sent&&!watchdog)){
+    failedHardware.add(hardware.key);active.hardwareFallback=true;
+    if(!sent){active.process=null;launch(null);return;}
+    // Bytes already delivered cannot be replaced within the same container.
+    // The next player reconnect will select software.
+    active.hardwareMode="failed";
+   }
+   clearConversionProgress();
+   if(!res.headersSent)res.writeHead(code===0?200:502,{"Cache-Control":"no-store","Access-Control-Allow-Origin":"null"});
+   res.end();
+  };
+  child.once("error",()=>finish(-1));child.once("close",finish);
+  }
+  res.on("close",()=>{try{active.process?.kill("SIGTERM");}catch(_){}});
+  active.response=res;launch(active.hardware);
 }
 async function loopback() {
   if(server)return server.address().port;
@@ -500,7 +543,7 @@ async function loopback() {
   }catch(error){server.close();server=null;throw error;}
   return server.address().port;
 }
-async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off",subtitleIndex=-1) {
+async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=false,deinterlace="off",smoothing="off",subtitleIndex=-1,hardwareEnabled=true) {
   const info=await probe(localPath);
   const available=await status();
   const dvd=isDVD(localPath)?localPath:null;
@@ -533,12 +576,13 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   }
   const copyVideo=!dvd&&!filterMode&&!smoothFps&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
+  const hardware=await hardwarePlan(info,hardwareEnabled,selectedFormat==="mp4"&&copyVideo,network,frameStep);
   const audioTrack=info.audioTracks[audioOrdinal];
   const copyAudio=network&&selectedFormat==="mp4"&&audioTrack?.codec==="aac"&&audioTrack.profile==="LC"&&audioTrack.channels===2&&[44100,48000].includes(audioTrack.sampleRate);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
-  session={token,path:target,dvd,network,position,duration:info.duration,format:selectedFormat,
+  session={token,path:target,dvd,network,networkToken:network?localPath.token:null,position,duration:info.duration,format:selectedFormat,hardware,hardwareMode:hardware?"vaapi-pending":selectedFormat==="mp4"&&copyVideo?"copy":"software",hardwareFallback:false,decoderStalled:false,decodeSpeed:null,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
     copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};
@@ -757,11 +801,15 @@ function install(win,contents=win?.webContents) {
     if(!onlyWindow(event))throw new Error("Rejected subtitle request");
     return subtitleVtt(await resolveSource(localPath,checkVideo),index);
   });
-  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing,subtitleIndex=-1)=>{
+  ipcMain.handle("dk-codec:stream-status",(event,token)=>{
+    if(!onlyWindow(event)||!session?.network||session.networkToken!==token)return null;
+    return {hardware:session.hardwareMode,hardwareFallback:session.hardwareFallback,decoderStalled:session.decoderStalled,speed:session.decodeSpeed};
+  });
+  ipcMain.handle("dk-codec:start",async(event,localPath,offset,format,audioIndex,frameStep,deinterlace,smoothing,subtitleIndex=-1,hardwareEnabled=true)=>{
     if(!onlyWindow(event))throw new Error("Rejected media request");
     return start(await resolvePlaybackSource(localPath),
       offset,format,audioIndex,frameStep===true,["auto","on"].includes(deinterlace)?deinterlace:"off",
-      ["auto","60","120"].includes(smoothing)?smoothing:"off",Number.isInteger(subtitleIndex)?subtitleIndex:-1);
+      ["auto","60","120"].includes(smoothing)?smoothing:"off",Number.isInteger(subtitleIndex)?subtitleIndex:-1,hardwareEnabled!==false);
   });
   ipcMain.handle("dk-codec:stop",async event=>{
     if(!onlyWindow(event))return;

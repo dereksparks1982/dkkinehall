@@ -362,6 +362,7 @@
     onChaptersChanged:()=>updateChapterMarkers(),
     onTracksChanged:()=>updateSubtitleStatus(),
     onBeforeAutoplay:item=>isStream(item)&&primeStream(item,"startup"),
+    hardwareEnabled:()=>playbackSettings.hardware,
     onOffsetChanged:(item,at)=>{
       const native=state.nativeSubtitle;
       if(native?.item===item)installSubtitleVTT(
@@ -1314,9 +1315,9 @@
       }
       if(!statsNode)return;statsNode.hidden=!streamPrefs.stats;
       if(!streamPrefs.stats)return;
-      if(!statsPending&&now-lastStatsAt>=2500&&streamBridge.networkStreamStats){lastStatsAt=now;statsPending=true;streamBridge.networkStreamStats(item.networkToken).then(value=>{if(current()===item)streamStats=value;}).catch(()=>{}).finally(()=>statsPending=false);}
+      if(!statsPending&&now-lastStatsAt>=2500&&streamBridge.networkStreamStats){lastStatsAt=now;statsPending=true;Promise.all([streamBridge.networkStreamStats(item.networkToken),rawCodecBridge?.streamStatus?.(item.networkToken).catch(()=>null)]).then(([value,decoder])=>{if(current()===item)streamStats={...value,decoder};}).catch(()=>{}).finally(()=>statsPending=false);}
       const quality=media.getVideoPlaybackQuality?.(),bps=Number(streamStats?.measuredBps)||0,selected=Number(streamStats?.selectedBitrate)||0;
-      statsNode.textContent=[streamSay("Buffer","Буфер")+": "+ahead.toFixed(1)+"/"+bufferTarget(item)+" "+streamSay("s","с"),media.videoWidth?media.videoWidth+"×"+media.videoHeight:"",bps?streamSay("Download","Загрузка")+": "+(bps/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",selected?streamSay("Stream bitrate","Битрейт потока")+": "+(selected/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",quality?streamSay("Dropped frames","Пропущено кадров")+": "+quality.droppedVideoFrames+"/"+quality.totalVideoFrames:"",streamSay("Stalls","Остановки")+": "+(item.streamStalls||0),streamStats?.segmentRetries?streamSay("Segment retries","Повторные запросы фрагментов")+": "+streamStats.segmentRetries:"",item.nativePassthrough?.video?streamSay("Video passthrough","Видео без перекодирования"):"",item.nativePassthrough?.audio?streamSay("Audio passthrough","Звук без перекодирования"):""].filter(Boolean).join("\n");
+      statsNode.textContent=[streamSay("Buffer","Буфер")+": "+ahead.toFixed(1)+"/"+bufferTarget(item)+" "+streamSay("s","с"),media.videoWidth?media.videoWidth+"×"+media.videoHeight:"",bps?streamSay("Download","Загрузка")+": "+(bps/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",selected?streamSay("Stream bitrate","Битрейт потока")+": "+(selected/1e6).toFixed(2)+" "+streamSay("Mbps","Мбит/с"):"",quality?streamSay("Dropped frames","Пропущено кадров")+": "+quality.droppedVideoFrames+"/"+quality.totalVideoFrames:"",streamSay("Stalls","Остановки")+": "+(item.streamStalls||0),streamStats?.segmentRetries?streamSay("Segment retries","Повторные запросы фрагментов")+": "+streamStats.segmentRetries:"",item.nativePassthrough?.video?streamSay("Video passthrough","Видео без перекодирования"):"",item.nativePassthrough?.audio?streamSay("Audio passthrough","Звук без перекодирования"):"",streamStats?.decoder?.hardware==="vaapi"?streamSay("Hardware decoding: VA-API","Аппаратное декодирование: VA-API"):streamStats?.decoder?.hardware==="vaapi-pending"?streamSay("Hardware initialization","Инициализация аппаратного декодера"):streamStats?.decoder?.hardwareFallback?streamSay("Software decoding (fallback)","Программное декодирование (резерв)"):streamStats?.decoder?.hardware==="software"?streamSay("Software decoding","Программное декодирование"):"",Number.isFinite(streamStats?.decoder?.speed)?streamSay("Decoder speed","Скорость декодирования")+": "+streamStats.decoder.speed.toFixed(2)+"×":""].filter(Boolean).join("\n");
     },250);
   }
   const idle = () => {
@@ -2463,7 +2464,7 @@
       if(bufferGate||networkRetryTimer!==null||(!media.paused&&!media.ended)||item.networkStarting){item.autoplayRequested=false;cancelNetworkRetry();item.streamBuffering=false;media.pause();updateButtons();status("");return;}
       item.autoplayRequested=true;item.streamPrimed=false;
       if(item.networkStarting)return;
-      if(media.error||!media.getAttribute("src")){item.networkRetries=0;item.codecAttempted=false;void startNetworkDecoder(item,0).then(ok=>{if(!ok&&current()===item&&!state.stopped&&!recoverNetwork(item,true))status(networkErrorText(item));});return;}
+      if(media.error||media.ended||item.networkRetries>=5||!media.getAttribute("src")){item.networkRetries=0;item.codecAttempted=false;if(item.requestedFormat!=="original"&&codecPlayback){void startNetworkDecoder(item,item.liveChannel?0:Math.max(0,Number(item.networkLastPosition)||0)).then(ok=>{if(!ok&&current()===item&&!state.stopped&&!recoverNetwork(item,true))status(networkErrorText(item));});}else recoverNetwork(item,false);return;}
     }
     if (media.paused || media.ended) playCurrent();
     else media.pause();

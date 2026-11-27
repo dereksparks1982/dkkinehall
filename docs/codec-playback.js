@@ -7,7 +7,7 @@
 "use strict";
 function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
                  onChaptersChanged=()=>{},onOffsetChanged=()=>{},
-                 onTracksChanged=()=>{},onBeforeAutoplay=()=>false}) {
+                 onTracksChanged=()=>{},onBeforeAutoplay=()=>false,hardwareEnabled=()=>true}) {
   if(!bridge||typeof bridge.start!=="function"||!media)return null;
   let generation=0,active=null,chain=Promise.resolve();
   // Only the browser's real playing event proves the native output is
@@ -50,7 +50,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         if(token!==generation||current()!==item)return false;
         onStatus("Preparing video with included codecs…");
         const result=await bridge.start(source,Math.max(0,Number(offset)||0),
-          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off",item.file?.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)?item.dvdSubtitleIndex:-1);
+          format,audioIndex,frameStep,item.deinterlaceMode||"off",item.smoothingMode||"off",item.file?.dvdToken&&Number.isInteger(item.dvdSubtitleIndex)?item.dvdSubtitleIndex:-1,hardwareEnabled()!==false);
         if(token!==generation||current()!==item||!result?.url)return false;
         item.historyReady=false;
         active={item,url:result.url,offset:Number(result.position)||0,

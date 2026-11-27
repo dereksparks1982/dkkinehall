@@ -194,3 +194,10 @@ Standalone appearance: the shared Player and Library background is now the appro
 
 
 Appearance update: antique gold is the uniform action-button palette, including active, disabled and hover/focus states. Media artwork and transparent playback hit targets are excluded; server and other operational status indicators retain meaningful colors. The vintage film background is unchanged.
+
+
+### Cinema Home (standalone)
+
+The new default Home replaces the old horizontal library navigation with a collapsible sidebar, featured movie, widescreen Continue Watching, Your Movies and Your TV Shows. Movies and TV pages retain their full catalog and context actions; episode cards are widescreen. Filter by genre, year, numeric rating, viewing status or search and sort by title, year, rating or last watched. Settings → Library retains maintenance and assigned-folder controls. Gold buttons and the full-window vintage film frame are unchanged.
+
+The featured area alternates between a random available local movie and metadata-only discovery of titles outside the local library. After at least three distinct watched titles or series with genre metadata, the local recommendation ranking favors familiar genres and unwatched titles. Viewing history stays local; only the top-catalog or public genre request is sent to the existing metadata provider. No external playback or acquisition links. Missing or failed online results fall back to local movies. TV filters use cached series/episode metadata when available. Installed visual and online-provider acceptance pending.

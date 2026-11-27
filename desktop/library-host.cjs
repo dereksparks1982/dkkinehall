@@ -2818,7 +2818,7 @@ async function metadataRequest(raw,kind){
   const url=new URL(raw);
   const h=url.hostname;
   const json=kind==="json"&&(
-    (h==="v3-cinemeta.strem.io"&&(url.pathname.startsWith("/catalog/movie/top/search=")||/^\/meta\/movie\/tt\d{6,11}\.json$/.test(url.pathname)))||
+    (h==="v3-cinemeta.strem.io"&&(url.pathname.startsWith("/catalog/movie/top/search=")||(!url.search&&/^\/catalog\/movie\/top(?:\/genre=(?:Action|Adventure|Animation|Biography|Comedy|Crime|Documentary|Drama|Family|Fantasy|History|Horror|Music|Mystery|Romance|Sci-Fi|Sport|Thriller|War|Western))?\.json$/.test(url.pathname))||/^\/meta\/movie\/tt\d{6,11}\.json$/.test(url.pathname)))||
     (h==="itunes.apple.com"&&url.pathname==="/search")||
     (h==="api.tvmaze.com"&&(/^\/search\/shows$/.test(url.pathname)||/^\/shows\/\d+\/episodes$/.test(url.pathname))));
   const image=kind==="image"&&(["images.metahub.space","static.tvmaze.com","images.tvmaze.com","image.tmdb.org"].includes(h)||/^(?:is\d+-ssl|a\d+|is\d+)\.mzstatic\.com$/.test(h));

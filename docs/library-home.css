@@ -239,3 +239,63 @@ html.dk-standalone .dk-library-nav-row #jellyfinScanStatus{position:absolute;wid
 @media(max-width:480px){html.dk-standalone .dk-library-nav-row{--dk-nav-width:clamp(62px,20vw,88px);--dk-nav-font:.65rem;--dk-nav-height:38px}}
 #movieDetailsDialog.dk-has-detail-backdrop,#seriesDetail.dk-has-detail-backdrop{background-image:linear-gradient(90deg,rgba(28,17,25,.96),rgba(28,17,25,.78)),var(--dk-detail-backdrop);background-size:cover;background-position:center top;background-repeat:no-repeat}
 #seriesDetail.dk-has-detail-backdrop{border-radius:12px;padding:16px;border:1px solid #a58039}
+
+/* Standalone cinema layout. Shared gold palette and film frame stay intact. */
+html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:216px;display:grid;grid-template-columns:var(--dk-sidebar-width) minmax(0,1fr);grid-template-rows:auto 1fr auto;width:100%;max-width:none;min-height:100vh;margin:0;padding:0;gap:0}
+html.dk-standalone .library-shell.dk-cinema.dk-cinema-collapsed{--dk-sidebar-width:68px}
+.dk-cinema [hidden]{display:none!important}
+.dk-cinema-sidebar{grid-column:1;grid-row:1/4;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:10px;padding:16px 12px;box-sizing:border-box;overflow:auto;background:#18130fe8;border-right:1px solid #a5803966;z-index:10}
+.dk-cinema-sidebar .brand{display:flex;align-items:center;gap:8px;color:#e2b956;text-decoration:none;min-width:0}
+.dk-cinema-sidebar .brandmark{width:38px;height:38px;flex:none}
+.dk-cinema-sidebar .brandname{font-size:.9rem;white-space:normal}
+.dk-cinema-collapse{align-self:flex-end;min-width:32px;min-height:32px}
+.dk-cinema-nav,.dk-cinema-bottom{display:flex;flex-direction:column;gap:6px}
+.dk-cinema-bottom{margin-top:auto;padding-top:12px;border-top:1px solid #a5803955}
+html.dk-standalone .dk-cinema .dk-cinema-nav-button{width:100%;min-width:0;min-height:41px;text-align:left;padding:8px 10px;font-size:.88rem;white-space:normal;display:flex;align-items:center;gap:9px;line-height:1.15}
+.dk-cinema-nav-button::before{content:attr(data-icon);font-size:1.15rem;width:20px;text-align:center;flex:none}
+.dk-cinema-collapsed .dk-cinema-sidebar{padding:12px 8px}
+.dk-cinema-collapsed .brandname{display:none}
+html.dk-standalone .dk-cinema-collapsed .dk-cinema-nav-button{font-size:0;justify-content:center;padding-inline:0}
+.dk-cinema-collapsed .dk-cinema-sidebar .brand{justify-content:center}
+.dk-cinema .dk-jellyfin-controls{margin:5px 0 0;flex-wrap:nowrap;gap:6px}
+.dk-cinema #jellyfinPower{flex:1;min-width:0;min-height:41px;white-space:normal}
+.dk-cinema #jellyfinScanStatus{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.dk-cinema-collapsed #jellyfinPower{font-size:0;padding:0;min-height:30px}
+.dk-cinema-collapsed #jellyfinPower::before{content:"⏻";font-size:16px}
+html.dk-standalone .library-shell.dk-cinema>.topbar{grid-column:2;grid-row:1;padding:14px 25px;margin:0;border:0;border-radius:0;background:#18130fc9;box-shadow:none;min-width:0}
+.dk-cinema-heading{font-size:1.15rem;color:#e2b956;margin:0}
+html.dk-standalone .dk-cinema .dk-management-only{display:none!important}
+html.dk-standalone .dk-cinema>main{grid-column:2;grid-row:2;min-width:0;width:100%;max-width:none;padding:18px 25px 12px;margin:0}
+.dk-cinema>.dk-branded-footer{grid-column:2;grid-row:3;margin:0;padding:12px 25px}
+.dk-cinema .dk-library-nav-row{display:none}
+.dk-cinema .library-status{font-size:.72rem;min-height:0;margin:6px 0 10px}
+.dk-cinema-hero{position:relative;overflow:hidden;min-height:250px;padding:26px 30px 44px;border:1px solid #a5803977;border-radius:12px;background:linear-gradient(105deg,#1b130ff5,#462a25ad);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:9px;margin-bottom:19px;box-shadow:0 8px 24px #0005}
+.dk-cinema-hero.dk-has-detail-backdrop{background-image:linear-gradient(90deg,#170f0cf7,#170f0cda 38%,#170f0c33),var(--dk-detail-backdrop);background-position:center 35%;background-size:cover}
+.dk-cinema-hero h1{color:#fff;font-size:clamp(1.8rem,3.8vw,3.2rem);line-height:1.1;max-width:80%;overflow-wrap:anywhere;margin:5px 0}
+.dk-hero-kicker{color:#e2b956;font-size:.72rem;font-weight:800;letter-spacing:.12em}
+.dk-hero-meta{color:#ead4b1;font-size:.86rem;margin:0}
+.dk-hero-description{color:#fff;font-size:.92rem;line-height:1.45;max-width:min(60ch,80%);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin:0}
+.dk-hero-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.dk-hero-next{position:absolute;bottom:9px;right:12px;font-size:.75rem}
+.dk-discovery{animation:dk-feature-slide .35s ease-out}
+@keyframes dk-feature-slide{from{transform:translateX(16px);opacity:.65}to{transform:translateX(0);opacity:1}}
+@media(prefers-reduced-motion:reduce){.dk-discovery{animation:none}}
+.dk-cinema-filters{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-bottom:12px}
+.dk-cinema-filters input{flex:1 1 160px;min-width:120px}
+.dk-cinema-filters select{max-width:190px;min-width:0}
+.dk-cinema .library-section{margin-bottom:22px}
+.dk-cinema .section-heading{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:9px}
+.dk-cinema .section-heading h2{color:#e2b956;font-size:1.18rem}
+html.dk-standalone .dk-cinema .library-continue{grid-auto-columns:clamp(190px,24vw,310px);gap:12px}
+html.dk-standalone .dk-cinema .library-continue .library-poster,html.dk-standalone .dk-cinema .dk-cinema-episodes .library-poster{aspect-ratio:16/9}
+html.dk-standalone .dk-cinema .library-continue .library-poster img,html.dk-standalone .dk-cinema .dk-cinema-episodes .library-poster img{object-fit:cover}
+.dk-cinema .dk-cinema-episodes{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.dk-cinema-home .dk-cinema-shelf{display:grid;grid-auto-flow:column;grid-auto-columns:clamp(115px,13vw,172px);grid-template-columns:none;overflow-x:auto;gap:12px;padding:3px 0 10px}
+.dk-cinema-watch .dk-cinema-shelf{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
+.dk-cinema-home .dk-cinema-shelf>.helper{min-width:200px}
+.dk-cinema .library-card-title{color:white}
+.dk-cinema .library-card-detail{color:#ead4b1}
+.dk-cinema .dk-collection-tools input[type=search],.dk-cinema .dk-collection-tools .dk-watchlist-filter,.dk-cinema #watchedFilter{display:none}
+html.dk-standalone .dk-cinema main.dk-live-active>:is(#dkCinemaHero,#dkCinemaFilters,#dkCinemaShelves){display:none!important}
+@media(max-width:900px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:178px}html.dk-standalone .dk-cinema>main,html.dk-standalone .library-shell.dk-cinema>.topbar{padding-inline:14px}.dk-cinema-hero{padding:20px 18px 42px;min-height:220px}}
+@media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:68px}.dk-cinema-sidebar{padding:12px 8px}.dk-cinema .brandname{display:none}html.dk-standalone .dk-cinema .dk-cinema-nav-button{font-size:0;justify-content:center;padding-inline:0}.dk-cinema .dk-cinema-sidebar .brand{justify-content:center}.dk-cinema #jellyfinPower{font-size:0;padding:0}.dk-cinema #jellyfinPower::before{content:"⏻";font-size:16px}.dk-cinema-hero h1,.dk-hero-description{max-width:100%}}

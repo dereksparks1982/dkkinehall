@@ -116,6 +116,29 @@ function discoverLiveTuners(){
   }).finally(()=>{liveDiscovery=null;});
   return liveDiscovery;
 }
+// Read-only Linux DVB frontend inventory. No tuner is opened or retuned.
+async function listLocalTVTuners(){
+  if(process.platform!=="linux")return [];
+  const fsp=fs.promises,root="/dev/dvb",out=[];
+  let adapters;try{adapters=await fsp.readdir(root);}catch(error){if(error.code==="ENOENT")return [];throw error;}
+  for(const adapter of adapters.filter(v=>/^adapter\d{1,4}$/.test(v)).slice(0,64)){
+    let nodes;try{nodes=await fsp.readdir(path.join(root,adapter));}catch(_){continue;}
+    for(const frontend of nodes.filter(v=>/^frontend\d{1,4}$/.test(v)).slice(0,16)){
+      if(out.length>=128)return out;
+      const dev=path.join(root,adapter,frontend);
+      try{if(!(await fsp.lstat(dev)).isCharacterDevice())continue;}catch(_){continue;}
+      let accessible=true;try{await fsp.access(dev,fs.constants.R_OK|fs.constants.W_OK);}catch(_){accessible=false;}
+      let name="";
+      try{
+        const sys="/sys/class/dvb/dvb"+adapter.slice(7)+"."+frontend;
+        const text=await fsp.readFile(path.join(sys,"name"),"utf8");
+        name=text.trim().slice(0,200);
+      }catch(_){}
+      out.push({adapter:Number(adapter.slice(7)),frontend:Number(frontend.slice(8)),name,accessible});
+    }
+  }
+  return out;
+}
 async function loadLiveLineup(host){
   if(typeof host!=="string"||!privateIPv4(host))throw Error("Private IPv4 tuner address required");
   if(liveLineupBusy)throw Error("Tuner request busy");
@@ -1494,6 +1517,10 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:language-set",(event,value)=>{
     if((!allowed(event)&&!onlyPlayer(event))||!["en","ru"].includes(value))throw Error("Language request rejected");
     return writeInterfaceLanguage(value);
+  });
+  ipcMain.handle("dk-live-tv:local-tuners",event=>{
+    if(!onlyPlayer(event))throw Error("Tuner request rejected");
+    return listLocalTVTuners();
   });
   ipcMain.handle("dk-live-tv:discover",event=>{
     if(!onlyPlayer(event))throw Error("Tuner request rejected");

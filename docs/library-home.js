@@ -14,6 +14,7 @@ const storedMode=()=>{
   catch(_){return "movie";}
 };
 let mode=storedMode(),selectedSeries=null,selectedSeason=null;
+let collectionFilter={kind:"",value:"",query:"",saved:false},collectionTools=null;
 let all=[],folders=[],visibleCount=72,renderEpoch=0;
 let scanning=false,controller=null,repaintTimer=null;
 let maintaining=false,refreshCancelled=false;
@@ -150,6 +151,7 @@ function createCard(row,{landscape=false,series=false}={}){
   const detail=create("span","library-card-detail",
     series?"":row.kind==="tv"?(row.episodeTitle||""):row.year||"");
   card.append(box,title,detail);
+  if(window.DKCollections?.has(row))box.append(create("span","dk-watchlist-mark","★"));
   if(landscape){
     const bar=create("span","library-progress");
     const fill=create("span");
@@ -163,6 +165,9 @@ function createCard(row,{landscape=false,series=false}={}){
   card.addEventListener("contextmenu",event=>{
     if(!nativeBridge)return;
     event.preventDefault();
+    if(series&&window.DKCollections){
+      showContextMenu(row,event.clientX,event.clientY,false,true);return;
+    }
     if(series){
       status("Open the TV show to delete an individual episode.",
         "Откройте сериал и выберите серию для удаления.");
@@ -393,15 +398,18 @@ function hideContextMenu(){
   const menu=$("libraryContextMenu");
   if(menu)menu.hidden=true;
 }
-function showContextMenu(row,x,y,fromContinue=false){
+function showContextMenu(row,x,y,fromContinue=false,seriesOnly=false){
   const menu=$("libraryContextMenu");
   if(!menu||!nativeBridge||!row?.nativePath)return;
   contextRow=row;
-  $("movieDetailsAction").hidden=row.kind!=="movie";
-  $("refreshMovieMetadata").hidden=row.kind!=="movie";
-  $("removeContinueWatching").hidden=!fromContinue;
-  $("removeFromLibrary").hidden=false;
-  $("showInFolder").hidden=!nativeBridge.showInFolder;
+  const watch=$("watchlistAction");
+  if(watch){watch.hidden=!window.DKCollections;watch.textContent=window.DKCollections?.has(row)?say("Remove from Watchlist","Убрать из списка просмотра"):say("Add to Watchlist","Добавить в список просмотра");}
+  $("deleteFromDisk").hidden=seriesOnly;
+  $("movieDetailsAction").hidden=seriesOnly||row.kind!=="movie";
+  $("refreshMovieMetadata").hidden=seriesOnly||row.kind!=="movie";
+  $("removeContinueWatching").hidden=seriesOnly||!fromContinue;
+  $("removeFromLibrary").hidden=seriesOnly;
+  $("showInFolder").hidden=seriesOnly||!nativeBridge.showInFolder;
   $("showInFolder").disabled=!!row.missing;
   menu.hidden=false;
   const scale=nativeBridge?.internalPages?libraryZoom/100:1;
@@ -409,7 +417,7 @@ function showContextMenu(row,x,y,fromContinue=false){
     window.innerWidth/scale-menu.offsetWidth-8))+"px";
   menu.style.top=Math.max(4,Math.min(y/scale,
     window.innerHeight/scale-menu.offsetHeight-8))+"px";
-  (row.kind==="movie"?$("movieDetailsAction"):!$("showInFolder").hidden&&!$("showInFolder").disabled?$("showInFolder"):$("deleteFromDisk")).focus();
+  (seriesOnly?watch:row.kind==="movie"?$("movieDetailsAction"):!$("showInFolder").hidden&&!$("showInFolder").disabled?$("showInFolder"):$("deleteFromDisk")).focus();
 }
 let detailMovieId=null;
 function displayMovieDetails(row){
@@ -420,10 +428,14 @@ function displayMovieDetails(row){
   $("movieDetailsDescription").textContent=data.description||say("No description available.","Описание недоступно.");
   const list=$("movieDetailsFields");list.replaceChildren();
   const add=(label,value)=>{if(value){list.append(create("dt",null,label),create("dd",null,value));}};
-  add(say("Genre","Жанр"),data.genres?.join(", "));
+  const addLinks=(label,kind,values)=>{
+    if(!window.DKCollections||!Array.isArray(values)||!values.length){add(label,values?.join(", "));return;}
+    const dd=create("dd","dk-facet-links");for(const value of values){const b=create("button","btn small",value);b.type="button";b.addEventListener("click",()=>{d.close();window.DKLiveTV?.close();mode="movie";selectedSeries=null;selectedSeason=null;collectionFilter={kind,value,query:"",saved:false};visibleCount=72;void render();});dd.append(b);}list.append(create("dt",null,label),dd);
+  };
+  addLinks(say("Genre","Жанр"),"genre",data.genres);
   add(say("Runtime","Продолжительность"),data.runtime?data.runtime+say(" min"," мин"):null);
-  add(say("Director","Режиссёр"),data.directors?.join(", "));
-  add(say("Cast","В ролях"),data.cast?.join(", "));
+  addLinks(say("Director","Режиссёр"),"director",data.directors);
+  addLinks(say("Cast","В ролях"),"actor",data.cast);
   add(say("Rating","Рейтинг"),data.rating);
   add(say("Source","Источник"),row.movieProvider==="Cinemeta"?say("Cinemeta","Синемета"):row.movieProvider==="Apple"?say("Apple","Эпл"):row.movieProvider||null);
   $("movieDetailsClose").title=say("Close","Закрыть");
@@ -567,6 +579,7 @@ async function openVideo(row){
 }
 function switchMode(value){
   window.DKLiveTV?.close();
+  if(mode!==(value==="tv"?"tv":"movie"))collectionFilter={kind:"",value:"",query:"",saved:false};
   mode=value==="tv"?"tv":"movie";
   selectedSeries=null;selectedSeason=null;visibleCount=72;
   try{localStorage.setItem("dk-kinehall.library.category.v1",mode);}catch(_){}
@@ -618,6 +631,46 @@ function scheduleHistoryRefresh(){
     }catch(_){}
   },180);
 }
+function setupCollectionTools(){
+ if(!window.DKCollections||collectionTools)return;
+ const bar=create("div","dk-collection-tools");bar.id="collectionTools";
+ const select=create("select","select"),value=create("select","select"),search=create("input","select");
+ search.type="search";
+ const label=create("label","dk-watchlist-filter"),check=create("input");check.type="checkbox";
+ const checkText=create("span");label.append(check,checkText);
+ const clear=create("button","btn");clear.type="button";
+ bar.append(search,select,value,label,clear);
+ $("collectionTitle").closest(".section-heading").after(bar);
+ const apply=()=>{visibleCount=72;void render();};
+ select.addEventListener("change",()=>{collectionFilter.kind=select.value;collectionFilter.value="";apply();});
+ value.addEventListener("change",()=>{collectionFilter.value=value.value;apply();});
+ search.addEventListener("change",()=>{collectionFilter.query=search.value;apply();});
+ search.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();search.blur();}});
+ check.addEventListener("change",()=>{collectionFilter.saved=check.checked;apply();});
+ clear.addEventListener("click",()=>{collectionFilter={kind:"",value:"",query:"",saved:false};apply();});
+ collectionTools={bar,select,value,search,check,checkText,clear};
+}
+function syncCollectionTools(rows,tv){
+ if(!collectionTools)return;
+ const {bar,select,value,search,check,checkText,clear}=collectionTools;
+ const facets=tv?[["","All categories","Все категории"]]:[["","All categories","Все категории"],["genre","Genre","Жанр"],["decade","Decade","Десятилетие"],["actor","Actor","Актёр"],["director","Director","Режиссёр"],["edition","Edition","Версия фильма"]];
+ if(!facets.some(x=>x[0]===collectionFilter.kind)){collectionFilter.kind="";collectionFilter.value="";}
+ const opt=(v,t)=>{const o=create("option",null,t);o.value=v;return o;};
+ select.replaceChildren(...facets.map(([v,en,ru])=>opt(v,say(en,ru))));
+ select.value=collectionFilter.kind;select.hidden=tv;
+ const editionLabels={director:["Director's cut","Режиссёрская версия"],extended:["Extended edition","Расширенная версия"],theatrical:["Theatrical cut","Прокатная версия"],unrated:["Unrated cut","Версия без рейтинга"]};
+ const opts=collectionFilter.kind?window.DKCollections.options(rows,collectionFilter.kind):[];
+ if(collectionFilter.value&&!opts.includes(collectionFilter.value))opts.unshift(collectionFilter.value);
+ value.replaceChildren(opt("",say("All","Все")),...opts.map(v=>opt(v,collectionFilter.kind==="edition"&&editionLabels[v]?say(...editionLabels[v]):collectionFilter.kind==="decade"?say(v+"s",v+"-е"):v)));
+ value.hidden=!collectionFilter.kind||tv;value.value=collectionFilter.value;
+ search.placeholder=say("Search library (Enter)","Поиск в медиатеке (Ввод)");
+ search.setAttribute("aria-label",search.placeholder);
+ if(document.activeElement!==search)search.value=collectionFilter.query;
+ select.setAttribute("aria-label",say("Collection category","Категория коллекции"));
+ value.setAttribute("aria-label",say("Collection filter","Фильтр коллекции"));
+ check.checked=collectionFilter.saved;checkText.textContent=say("Watchlist","Список просмотра");
+ clear.textContent=say("Clear Filters","Сбросить фильтры");
+}
 async function render(){
   const epoch=++renderEpoch;
   if(bottomObserver)bottomObserver.disconnect();
@@ -633,8 +686,10 @@ async function render(){
   $("tabMovies").setAttribute("aria-selected",String(!tv));
   $("tabTV").setAttribute("aria-selected",String(tv));
   window.DKLiveTV?.syncTabs();
-  const active=all.filter(x=>x.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(x.filename)));
-  const resume=active.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed)
+  const unfiltered=all.filter(x=>x.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(x.filename)));
+  syncCollectionTools(unfiltered,tv);
+  const active=window.DKCollections?window.DKCollections.filter(unfiltered,collectionFilter.kind,collectionFilter.value,collectionFilter.query,collectionFilter.saved):unfiltered;
+  const resume=unfiltered.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed)
     .slice(0,30);
   const continueList=$("continueWatching");
   continueList.replaceChildren(...resume.map(row=>createCard(row,{landscape:true})));
@@ -676,6 +731,7 @@ async function render(){
     $("collectionTitle").textContent=
       say("Your Entire Movie Collection","Вся коллекция фильмов");
   }
+  if(collectionFilter.saved)$("collectionTitle").textContent=say("Watchlist","Список просмотра");
   $("collectionCount").textContent=say(cards.length+" "+(cards.length===1?"title":"titles"),cards.length+" наименований");
   $("emptyLibrary").hidden=all.length>0;
   if(nativeBridge){
@@ -915,6 +971,8 @@ async function libraryMaintenance(action){
   }finally{maintaining=false;await send(result);}
 }
 function connect(){
+  setupCollectionTools();
+  $("watchlistAction")?.addEventListener("click",()=>{const row=contextRow;hideContextMenu();if(!row||!window.DKCollections)return;if(!window.DKCollections.toggle(row)){status("Could not save watchlist.","Не удалось сохранить список просмотра.",true);return;}void render();});
   $("movieDetailsAction").addEventListener("click",()=>void showMovieDetails());
   $("refreshMovieMetadata").addEventListener("click",()=>void refreshMovie());
   $("movieDetailsClose").addEventListener("click",()=>$("movieDetailsDialog").close());

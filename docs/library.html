@@ -16,7 +16,8 @@
 <script defer src="./library-store.js?v=20261126-trash-info1"></script>
 <link rel="stylesheet" href="./live-tv.css?v=20261127-library-live">
 <script defer src="./live-tv.js?v=20261127-library-live"></script>
-<script defer src="./library-home.js?v=20261127-library-live"></script>
+<script defer src="./library-collections.js?v=20261127-collections"></script>
+<script defer src="./library-home.js?v=20261127-collections"></script>
 <script defer src="./i18n.js?v=20261126-live-tv3"></script>
 </head>
 <body>
@@ -65,6 +66,7 @@
     <div class="library-footer-status" id="folderSummary" aria-live="polite"></div>
   </main>
   <div id="libraryContextMenu" class="library-context-menu" role="menu" hidden>
+    <button type="button" role="menuitem" id="watchlistAction" hidden>Add to Watchlist</button>
     <button type="button" role="menuitem" id="movieDetailsAction" hidden>Movie Details</button>
     <button type="button" role="menuitem" id="refreshMovieMetadata" hidden>Refresh Metadata</button>
     <button type="button" role="menuitem" id="removeContinueWatching" hidden>Remove from Continue Watching</button>

@@ -6,7 +6,7 @@ Updated 2026-11-27. This is the authoritative running backlog. Keep every unfini
 
 - **Workflow:** one owner-authorized build on main, then one standard installed-player update; no separate preview/development installation in the routine workflow. The updater synchronizes Player, Library, native bridge and resources together, preserves installed codecs unless a verified replacement is available, backs up the installation, and reopens it. Full-package acceptance is independent; it has not been granted.
 - **Large queue memory:** source fix committed in b9a66a3. Deferred MKV track/chapter inspection until selection, one active inspection pipeline with latest-selection replacement, release converted video blobs on item switch. Simulated 338-item scheduling check passed. Actual memory consumption on the installed device, queue-card virtualization, lazy source URLs and bounded artwork cache remain outstanding.
-- **Live TV:** source added; button alongside Movies and TV Shows, opens tuner picker. HDHomeRun discovery/lineup and local tuner inventory available in source; USB channel scan/playback and dedicated channel library remain outstanding.
+- **Live TV:** dedicated Library panel, six controls, HDHomeRun, M3U, XMLTV import, saved channels and pinned 101-logo installer added in 477fd62. ATSC 1.0 native scan/PSIP guide port added in 486a768. All pending installed validation; local tuner playback, helper bundling, HLS and DVR outstanding.
 - **Approved palette:** Russian red #D52B1E, gold #E2B956, white #FFFFFF, brown #462A25. Movies gold, TV Shows white, Live TV brown. Shared standalone command, input, menu, settings and dialog styles updated to remove burgundy; retain approved Crimson Flow artwork and individual control assignments. No new UI accent colours without owner approval. Source changes committed through 2dcbe84; visual acceptance pending.
 - **Completion discipline:** update README, roadmap and any affected installation/user documentation in the same build. Do not claim runtime verification or update screenshots without actual evidence.
 
@@ -228,6 +228,32 @@ Owner-approved 2026-11-26. Planned, not implemented. Standalone Linux first; hos
 8. **HDR tone mapping and intelligent upscaling:** Capability-gated HDR-to-SDR conversion with correct color metadata and opt-in scaling/sharpening for older videos. Evaluate GPU-assisted methods and CPU fallback, retain Original mode, avoid claiming native HDR output or AI enhancement until actually verified, and monitor performance on the Surface Pro.
 
 Acceptance: test each feature on the installed standalone player, including persistence, resource use, English/Russian UI, direct/native playback compatibility and regressions. Keep additions opt-in where appropriate and document development only under docs.
+
+## Plex-inspired local media center (owner-approved 2026-11-26)
+
+All features remain free and standalone-first. No mandatory account, cloud, separate server process or server installation. The computer running Kinehall is the optional local-network host; sharing and casting must be explicit, off by default, access-controlled and confined to the local network unless the owner separately approves remote access. Existing roadmap entries remain authoritative for overlapping implementation and acceptance requirements.
+
+| Capability | State and scope |
+| --- | --- |
+| Skip Intro / Skip Credits | Planned; extend existing automatic intro and credits entry with opt-in local detection and manual correction. |
+| Commercial skipping | Planned; local analysis of DVR recordings, confidence and editable skip markers; never modify original recordings. |
+| Smart Collections | Partial source: genre, decade, actor, director and edition filters; franchise metadata, manual collections, order and art remain planned. |
+| Cast and crew browsing | Source added: clickable verified movie genre, cast and director links filter the existing local collection. Expanded person details and TV metadata planned. |
+| Cinema Mode | Planned; extend existing cinema mode with optional local trailers before films. |
+| Movie extras | Planned; recognize local extras (deleted scenes, interviews, behind-the-scenes), separate from main titles. |
+| Seek preview thumbnails | Planned; lazy, bounded frame extraction with cache and cancellation. |
+| Watchlist | Source added: persistent local movie and series watchlist via right-click, badges and filter. Profiles and backup migration planned. |
+| Multiple profiles | Planned; separate local history, preferences, watchlists and optional profile PIN. |
+| Movie editions | Partial source: filename-based theatrical, extended, director's cut and unrated filters. Verified edition grouping, labels and manual correction planned. |
+| HDR tone mapping | Planned; extend existing HDR/SDR entry. |
+| Scheduled DVR | Planned; local recording with guide scheduling, explicit destination and disk-space checks. |
+| Series recording | Planned; recurring guide-based recording, deduplication and conflict handling. |
+| Live TV timeshifting | Planned; bounded disk buffer, pause, rewind and live edge; respect tuner lifecycle. |
+| Library optimization | Planned; user-initiated compatible/smaller copy, verified output and original preservation. |
+| Device casting | Planned; extend wireless casting entry with renderer discovery and explicit device selection. |
+| Watch statistics | Planned; local viewing time, completed titles and favourites; per-profile once profiles exist. |
+
+Current source pass adds local watchlists, metadata facets, clickable movie credits, title search and filename edition filters; it makes no external metadata requests beyond the existing library behavior. All are pending installed acceptance. No additional 1.0 gate unless explicitly approved.
 
 ## Planned media intelligence and maintenance enhancements
 

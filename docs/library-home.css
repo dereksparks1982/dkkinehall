@@ -158,3 +158,13 @@ html.dk-standalone .library-context-menu button:is(:hover,:focus-visible):not(:d
 html.dk-standalone .dk-movie-details-close {background:var(--dk-brown);color:var(--dk-russian-red)}
 html.dk-standalone .dk-movie-details-close:is(:hover,:focus-visible) {background:var(--dk-russian-red);color:#fff}
 html.dk-standalone .library-poster-placeholder {color:var(--dk-gold)}
+
+/* Standalone local collections. Existing card dimensions and icons unchanged. */
+.dk-collection-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.dk-collection-tools [hidden]{display:none!important}
+.dk-collection-tools input[type=search]{min-width:170px;flex:1 1 210px}
+.dk-collection-tools select{max-width:240px;min-width:120px}
+.dk-watchlist-filter{display:flex;align-items:center;gap:6px;color:#fff}
+.dk-watchlist-filter input{accent-color:#d52b1e}
+.dk-watchlist-mark{position:absolute;top:7px;right:7px;background:#432822;color:#e2b956;padding:3px 7px;border-radius:5px;font-size:1.1rem;z-index:2}
+.dk-facet-links{display:flex;flex-wrap:wrap;gap:6px}

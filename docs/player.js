@@ -2948,10 +2948,14 @@
     };
     const heading=document.createElement("strong");heading.textContent="Network media";
     const note=document.createElement("p");note.className="helper";
-    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP or trusted local RTSP media address.";
+    note.textContent="Browse DLNA servers or enter an HTTP, UDP, RTP, RTSP or RTSPS media address.";
     const message=document.createElement("p");message.className="helper";message.setAttribute("role","status");
     const results=document.createElement("div");results.className="dk-network-results";
     const url=document.createElement("input");url.type="text";url.placeholder="http://192.168.1.10/video.mp4";url.setAttribute("aria-label","Network media URL");
+    const rtspLabel=document.createElement("label"),rtspText=document.createElement("span"),rtspMode=document.createElement("select");
+    rtspText.textContent="RTSP transport";rtspLabel.append(rtspText,rtspMode);
+    for(const [value,label] of [["auto","Automatic (TCP preferred)"],["tcp","TCP"],["udp","UDP"]]){const option=document.createElement("option");option.value=value;option.textContent=label;rtspMode.append(option);}
+    rtspLabel.hidden=!bridge.networkRTSPGrant;
     const serverURL=document.createElement("input");serverURL.type="url";serverURL.placeholder="http://192.168.1.10:8200/rootDesc.xml";serverURL.setAttribute("aria-label","Media server description URL");
     const queueLabel=document.createElement("label"),queueOnly=document.createElement("input");
     const queueText=document.createElement("span");queueText.textContent="Add to queue only";
@@ -3007,7 +3011,7 @@
       if(opening)return;opening=true;const epoch=generation;
       try{
         say("Opening network media…");
-        const grant=datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
+        const grant=datagram==="rtsp"?await bridge.networkRTSPGrant(address,document.documentElement.lang,rtspMode.value):datagram?await bridge.networkDatagramGrant(address):await bridge.networkGrant(serverId,address);
         if(!dlg.open||epoch!==generation){void bridge.networkRelease(grant.token).catch(()=>{});return;}
         const item=makeNetworkItem(grant,name,audio);if(datagram)item.liveChannel=true;
         if(queueOnly.checked){
@@ -3115,10 +3119,11 @@
     const direct=makeButton("Open network URL",()=>{
       try{
         const value=url.value.trim();
-        if(/^rtsp:\/\//i.test(value)){
+        if(/^rtsps?:\/\//i.test(value)){
           if(!bridge.networkRTSPGrant)throw Error("RTSP unavailable");
           const address=new URL(value);
-          void addNetwork(null,address.href,address.hostname+" · RTSP",false,"rtsp");return;
+          url.value="";
+          void addNetwork(null,address.href,address.hostname+" · "+address.protocol.slice(0,-1).toUpperCase(),false,"rtsp");return;
         }
         if(/^(udp|rtp):\/\//i.test(value)){
           if(!bridge.networkDatagramGrant)throw Error("Receiver unavailable");
@@ -3159,7 +3164,7 @@
       dlg.append(sapButton);
     }
     if(bridge.networkRegister)dlg.append(serverURL,manual);
-    dlg.append(url,direct,queueLabel,message,results,close);
+    dlg.append(url,rtspLabel,direct,queueLabel,message,results,close);
     document.body.append(dlg);
     const open=()=>{if(!dlg.open){results.replaceChildren();say("");dlg.showModal();window.DKLocale?.apply();}};
     dlg.addEventListener("close",()=>{generation++;results.replaceChildren();});

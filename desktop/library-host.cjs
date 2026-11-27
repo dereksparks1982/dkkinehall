@@ -848,24 +848,32 @@ async function matchTvCatalog(rows){
 function rtspAddress(value){
  if(typeof value!=="string"||value.length>2048||/[\x00-\x20\x7f\\]/.test(value))throw Error("Invalid RTSP address");
  const url=new URL(value);
- if(url.protocol!=="rtsp:"||!privateIPv4(url.hostname)||url.username||url.password||url.hash||
-    (url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Use a private IPv4 RTSP address without credentials");
- return url.href;
+ if(!["rtsp:","rtsps:"].includes(url.protocol)||!url.hostname||url.hash||
+    (url.port&&(Number(url.port)<1||Number(url.port)>65535)))throw Error("Invalid RTSP address");
+ const normalized=new URL("https://"+url.host);
+ url.hostname=normalized.hostname;
+ if(!url.hostname||url.hostname.includes("%"))throw Error("Invalid RTSP host");
+ return url;
 }
-async function grantRTSP(value,language){
- const address=rtspAddress(value);
+async function grantRTSP(value,language,mode){
+ const url=rtspAddress(value),secure=url.protocol==="rtsps:";
+ const transport=secure?"tcp":(["auto","tcp","udp"].includes(mode)?mode:"auto");
  if(networkGrants.size>=256)throw Error("Network media queue is full");
- const ru=language==="ru";
+ const ru=language==="ru",safeAddress=url.protocol+"//"+url.host;
  const answer=await dialog.showMessageBox(home,{type:"question",title:ru?"Сетевое видео":"Network video",
-  message:ru?"Подключиться к доверенному серверу RTSP?":"Connect to a trusted RTSP server?",
-  detail:address+"\n"+(ru?"Сервер может перенаправить подключение. Продолжайте только для доверенного источника.":"The server may redirect the connection. Continue only for a trusted source."),
+  message:ru?"Подключиться к серверу RTSP?":"Connect to this RTSP server?",
+  detail:safeAddress+"\n"+(ru?"Подключайтесь только к источникам, которым доверяете. Сервер может перенаправить подключение.":"Use a source you trust. The server may redirect the connection."),
   buttons:ru?["Отмена","Подключиться"]:["Cancel","Connect"],defaultId:0,cancelId:0,noLink:true});
  if(answer.response!==1)throw Error("Connection cancelled");
  if(networkGrants.size>=256)throw Error("Network media queue is full");
  const token=randomBytes(24).toString("hex");
- networkGrants.set(token,{rtsp:address,clients:new Set()});
- // No browser URL: this source is opened solely by the native decoder.
+ networkGrants.set(token,{rtsp:url.href,rtspMode:transport,rtspSecure:secure,rtspHost:url.hostname.replace(/^\[|\]$/g,""),clients:new Set()});
  return {token,src:"",transport:"rtsp"};
+}
+function rtspOptions(token){
+ const entry=networkGrants.get(token);
+ if(!entry?.rtsp)throw Error("RTSP selection expired");
+ return {mode:entry.rtspMode,secure:entry.rtspSecure,host:entry.rtspHost};
 }
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
@@ -2485,8 +2493,8 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:grant",(event,id,url)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");return id===null?grantExplicitLiveStream(url):grantNetwork(id,url);
   });
-  ipcMain.handle("dk-network:rtsp-grant",(event,url,language)=>{
-    if(!onlyPlayer(event))throw Error("RTSP request rejected");return grantRTSP(url,language);
+  ipcMain.handle("dk-network:rtsp-grant",(event,url,language,mode)=>{
+    if(!onlyPlayer(event))throw Error("RTSP request rejected");return grantRTSP(url,language,mode);
   });
   ipcMain.handle("dk-network:sap-discover",event=>{
     if(!onlyPlayer(event))throw Error("SAP discovery rejected");return discoverSAP();
@@ -2871,4 +2879,4 @@ function install(originalWindow,originalPlayer){
     player=null;home=null;
   });
 }
-module.exports={install,checkPlayableSource,resolveNetworkMedia,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};
+module.exports={install,checkPlayableSource,resolveNetworkMedia,rtspOptions,networkTransport:token=>networkGrants.get(token)?.rtsp?"rtsp":networkGrants.get(token)?.datagram?.protocol||"http",networkFailure:token=>networkGrants.get(token)?.failure||null};

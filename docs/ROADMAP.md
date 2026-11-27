@@ -380,7 +380,10 @@ Before independently rebuilding competitor features, inventory existing DK Softw
 
 Maintain a source-level inventory with exact repository/path/revision, implementation evidence, dependency/license provenance, tests, integration target, compatibility/adaptation cost and status (verified donor / candidate / reference-only / planned / excluded). Prefer reuse of DK-owned source with demonstrable rights; third-party licenses remain in force, no GPL-incompatible transfer. Keep projects separate, avoid regressions and preserve current Kinehall architecture, original files, single shared Settings and Tools, English/Russian UI, one main branch, no public README development notes. Live TV/World TV reuse is a scoped candidate for authorized receiver inputs; any expansion of internet streaming or server scope needs explicit owner approval. Source audit is authorized now; no application code changes, build, release or installation without explicit build instruction. Family Cut stays last.
 
-## DK Live TV donor integration (approved preparation)
+## DK Live TV donor integration (active source development)
+
+**First implementation pass:** Library Home Live TV button launches an in-player HDHomeRun channel picker; manual private IPv4 tuner address, bounded native HTTP lineup fetch, same-host auto-channel URL validation, DRM-marked channels excluded, opaque channel IDs and existing loopback media grant/playback. English/Russian labels added. Adapted donor workflow rather than copying C++ or importing shell dependencies. Automatic discovery, USB scanning, live-specific queue/seek/tuner-release behavior, guide, IPTV, recording and timeshift remain outstanding. No compilation, runtime testing or hardware validation; playback through existing network decoder is experimental.
+
 
 Owner direction 2026-11-26: begin adapting DK Media Plus (formerly Nougat Media Plus) television technology into standalone Kinehall. Reuse proven original components where authorized rather than recreate them; do not import the media center, server, radio, games, or replace Kinehall's approved interface. This records a source-level integration audit and ordered implementation plan, not a shipped feature.
 

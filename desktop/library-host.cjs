@@ -377,6 +377,26 @@ function rewriteHLS(text,base,entry,token,port){
     return line;
   }).join("\n");
 }
+// Retry an idempotent segment/playlist request only before sending bytes
+// downstream. Do not retry denied, missing or rate-limited sources, or
+// attempt to replay an already partially delivered response.
+async function openTVResource(entry,resource,options){
+ const url=(resource?.url||entry.url).href,deadline=Date.now()+16000;
+ const retryable=options.method==="GET"&&["playlist","segment","init"].includes(resource?.kind);
+ for(let attempt=0;attempt<2;attempt++){
+  if(options.signal?.aborted)throw Error("Stream aborted");
+  let result;
+  try{
+   result=await followStream(url,entry.lan||null,{...options,timeout:retryable?Math.min(7000,Math.max(1000,deadline-Date.now())):25000});
+  }catch(error){
+   if(!retryable||attempt||options.signal?.aborted||Date.now()+1000>=deadline||!/timed out|ECONNRESET|EPIPE|ETIMEDOUT|EAI_AGAIN|socket hang up/i.test(String(error?.message||"")+" "+String(error?.code||"")))throw error;
+  }
+  if(result&&(!retryable||attempt||Date.now()+1000>=deadline||![408,500,502,503,504].includes(result.reply.statusCode)))return result;
+  result?.reply.destroy();entry.segmentRetries=(entry.segmentRetries||0)+1;
+  await new Promise(resolve=>setTimeout(resolve,350));
+ }
+ throw Error("Stream connection failed");
+}
 async function serveNetwork(req,res){
   if((req.url||"").startsWith("/voiceover/"))return serveVoiceover(req,res);
   if(serveBuffer(req,res))return;
@@ -400,11 +420,12 @@ async function serveNetwork(req,res){
   const timer=setTimeout(()=>controller.abort(),20000);
   try{
     const openedAt=Date.now();
-    const {reply,url}=await followStream((resource?.url||entry.url).href,entry.lan||null,{method:req.method,range,track,signal:controller.signal,timeout:25000});
+    const {reply,url}=await openTVResource(entry,resource,{method:req.method,range,track,signal:controller.signal});
     clearTimeout(timer);
     if(!networkGrants.has(token)||res.destroyed){reply.destroy();return;}
     if(![200,206,416].includes(reply.statusCode)){entry.failure=[401,403,451].includes(reply.statusCode)?"denied":reply.statusCode===404||reply.statusCode===410?"offline":"upstream";reply.destroy();return fail(502);}
     if(root)entry.failure=null;
+    if(resource)entry.lastResourceAt=Date.now();
     const suppliedMime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
     const mime=suppliedMime||(/\.m3u8?$/i.test(url.pathname)?"application/vnd.apple.mpegurl":/\.ts$/i.test(url.pathname)?"video/mp2t":resource?"application/octet-stream":"");
     const manifest=hlsMime(mime)||resource?.kind==="playlist"||/\.m3u8?$/i.test(url.pathname)||(!resource&&mime==="text/plain");
@@ -2017,7 +2038,7 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-network:stream-stats",(event,token)=>{
     if(!onlyPlayer(event))throw Error("Network statistics rejected");
     const e=networkGrants.get(token);if(!e)return null;
-    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes};
+    return {measuredBps:Math.round(e.measuredBps||0),selectedBitrate:e.selectedBitrate||0,selectedHeight:e.selectedHeight||0,cacheBytes:tvSegmentBytes,segmentRetries:e.segmentRetries||0};
   });
   ipcMain.handle("dk-live-tv:alternate",async(event,token)=>{
     if(!onlyPlayer(event))return false;
@@ -2030,7 +2051,7 @@ function install(originalWindow,originalPlayer){
           const target=await streamTarget(next);
           if(networkGrants.get(token)!==entry)return false;
           for(const client of entry.clients)client.destroy();
-          clearTVSegments(token);entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;entry.measuredBps=0;entry.selectedBitrate=0;entry.selectedHeight=0;entry.variantLock=null;
+          clearTVSegments(token);entry.url=target.url;entry.parts?.clear();entry.partKeys?.clear();entry.failure=null;entry.measuredBps=0;entry.selectedBitrate=0;entry.selectedHeight=0;entry.variantLock=null;entry.segmentRetries=0;
           return true;
         }catch(_){}
       }

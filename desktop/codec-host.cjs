@@ -260,7 +260,7 @@ async function probe(localPath) {
   let stdout;
   try{stdout=await processOutput(binary("ffprobe"),[
     "-v","error","-show_entries",
-    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
+    "format=duration,format_name,start_time:stream=index,codec_type,codec_name,profile,pix_fmt,width,height,field_order,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic:stream_tags=language,title:chapter=start_time:chapter_tags=title",
     "-show_chapters","-of","json",...(network?networkInputArgs:dvd?dvdArgs(dvd):[]),"-i",file
   ],dvd&&!dvd.drive?90000:30000);}catch(error){
     if(!network)throw error;
@@ -295,7 +295,7 @@ async function probe(localPath) {
     width:Number(video?.width)||null,height:Number(video?.height)||null,
     audioCodec:String(streams.find(s=>s.codec_type==="audio")?.codec_name||""),
     audioTracks:streams.filter(s=>s.codec_type==="audio").map((s,index)=>({
-      index,codec:String(s.codec_name||""),
+      index,codec:String(s.codec_name||""),profile:String(s.profile||"").slice(0,40),
       channels:Number(s.channels)||null,sampleRate:Number(s.sample_rate)||null,
       language:String(s.tags?.language||"").slice(0,20),
       title:String(s.tags?.title||"").slice(0,100)
@@ -447,7 +447,7 @@ function serve(req,res) {
       args.push("-c:v","libx264","-preset","veryfast","-crf","23");
     if(!active.copyVideo)args.push("-pix_fmt","yuv420p","-g","48");
     }
-    if(active.hasAudio)args.push("-c:a","aac","-ac","2","-b:a","160k");
+    if(active.hasAudio){if(active.copyAudio)args.push("-c:a","copy");else args.push("-c:a","aac","-ac","2","-b:a","160k");}
     args.push(
       "-movflags","+frag_keyframe+empty_moov+default_base_moof",
       "-frag_duration","1000000","-f","mp4","pipe:1");
@@ -533,14 +533,17 @@ async function start(localPath,offset=0,format="auto",audioIndex=0,frameStep=fal
   }
   const copyVideo=!dvd&&!filterMode&&!smoothFps&&info.videoCodec==="h264"&&/^(yuv420p|yuvj420p)$/.test(info.videoPixelFormat)&&position===0;
   const selectedFormat=chooseOutput(available,format,copyVideo,!info.hasVideo);
+  const audioTrack=info.audioTracks[audioOrdinal];
+  const copyAudio=network&&selectedFormat==="mp4"&&audioTrack?.codec==="aac"&&audioTrack.profile==="LC"&&audioTrack.channels===2&&[44100,48000].includes(audioTrack.sampleRate);
   const port=await loopback();
   cancelStream();
   const token=crypto.randomBytes(24).toString("hex");
   session={token,path:target,dvd,network,position,duration:info.duration,format:selectedFormat,
     encoder:available.h264Encoder,audioOrdinal,hasVideo:info.hasVideo,hasAudio:info.hasAudio,videoStreamIndex:info.videoStreamIndex,
-    copyVideo:selectedFormat==="mp4"&&copyVideo,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
+    copyVideo:selectedFormat==="mp4"&&copyVideo,copyAudio,deinterlace:filterMode,smoothing:smoothFps,bitmapSubtitle,
     process:null,response:null};
   return {...info,position,format:selectedFormat,deinterlace:filterMode||"off",smoothing:smoothFps,
+    copyVideo:session.copyVideo,copyAudio:session.copyAudio,
     url:"http://"+BIND_ADDRESS+":"+port+"/media/"+token};
 }
 function onlyWindow(event) {

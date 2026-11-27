@@ -7,7 +7,7 @@
 "use strict";
 function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
                  onChaptersChanged=()=>{},onOffsetChanged=()=>{},
-                 onTracksChanged=()=>{}}) {
+                 onTracksChanged=()=>{},onBeforeAutoplay=()=>false}) {
   if(!bridge||typeof bridge.start!=="function"||!media)return null;
   let generation=0,active=null,chain=Promise.resolve();
   // Only the browser's real playing event proves the native output is
@@ -61,6 +61,7 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         item.activeSmoothing=Number(result.smoothing)||0;
         if(item.activeSmoothing)item.playbackMethod="Bundled native decoder (motion interpolation)";
         item.nativeOutputFormat=result.format||format;
+        item.nativePassthrough={video:result.copyVideo===true,audio:result.copyAudio===true};
         item.nativeMediaInfo={hasVideo:result.hasVideo,hasAudio:result.hasAudio,videoCodec:result.videoCodec,audioCodec:result.audioCodec,format:result.format};
         if(result.hasVideo){item.audio=false;media.closest(".screen")?.classList.remove("audio");}
         else if(result.hasVideo===false&&result.hasAudio){item.audio=true;media.closest(".screen")?.classList.add("audio");}
@@ -86,13 +87,14 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
         // The private loopback endpoint permits the local file origin. CORS
         // mode is required for amplified Web Audio playback of this stream.
         media.crossOrigin="anonymous";
+        if(item.kind==="network")media.preload="auto";
         media.src=result.url;
         media.load();
         onClockChanged();
         // This is still a startup attempt. Only "playing" confirms success.
         onStatus(autoplay?"Decoding with included codecs…":
           "Included codec stream ready.",false);
-        if(autoplay&&(item.kind!=="network"||item.autoplayRequested!==false)) {
+        if(autoplay&&(item.kind!=="network"||item.autoplayRequested!==false)&&!onBeforeAutoplay(item)) {
           try {
             const request=media.play();
             if(request?.catch)request.catch(error=>{

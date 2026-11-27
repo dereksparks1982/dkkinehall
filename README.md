@@ -204,3 +204,6 @@ The featured area alternates between a random available local movie and metadata
 
 
 Cinema Home visual correction: the approved reference now governs the layout proportions, flat icon-and-text navigation, bottom-anchored server/settings/branding, compact title strip, cinematic hero, three-wide Continue Watching and six-wide movie/TV shelves at desktop widths. The Home search/filters open from Search instead of interrupting the default shelves; dedicated library pages retain filters. Artwork titles overlay their cards. Gold remains the action and selected-navigation color, and the vintage film background remains unchanged. Local visual acceptance pending.
+
+
+Home shelf correction: fixed full-window sidebar with consistently left-aligned flat navigation and a single gold current-page highlight. Continue Watching uses uncropped 2:3 poster cards, TV series cover art for resumed episodes, and mouse-wheel horizontal scrolling with hidden scrollbar; episode identity and resume progress are preserved. Movies and TV Shows use independently collapsible wrapping poster grids, with expanded/collapsed preference saved locally. Only Continue Watching scrolls horizontally. Existing featured banner and recommendation logic are unchanged. Installed visual acceptance pending.

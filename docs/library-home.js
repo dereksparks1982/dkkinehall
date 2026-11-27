@@ -14,7 +14,7 @@ const storedMode=()=>{
   catch(_){return "movie";}
 };
 let mode=storedMode(),selectedSeries=null,selectedSeason=null;
-let cinema=null,homePage=nativeBridge?.internalPages?"home":null,seriesMetadata=new Map(),homeSearchOpen=false,resumeExpanded=false;
+let cinema=null,homePage=nativeBridge?.internalPages?"home":null,seriesMetadata=new Map(),homeSearchOpen=false;
 let homeFilters={query:"",genre:"",year:"",rating:"",watched:"",sort:"title"};
 let collectionFilter={kind:"",value:"",query:"",saved:false},collectionTools=null;
 let all=[],folders=[],assignedSources=[],visibleCount=72,renderEpoch=0;
@@ -30,6 +30,7 @@ const applyLibraryZoom=(value,persist=true)=>{
   // A page-local CSS zoom avoids Electron's shared-origin zoom preference
   // affecting the independent player WebContentsView.
   document.body.style.zoom=String(libraryZoom/100);
+  document.body.style.setProperty("--dk-library-zoom",String(libraryZoom/100));
   if(persist)try{localStorage.setItem(libraryZoomKey,String(libraryZoom));}catch(_){}
   hideContextMenu();
   requestAnimationFrame(()=>window.dispatchEvent(new Event("resize")));
@@ -192,7 +193,7 @@ function refreshSeasonWatched(){
 }
 function refreshWatchedCards(){
   const map=new Map(all.map(row=>[row.id,row]));
-  for(const card of document.querySelectorAll("#libraryCollection .library-card,#continueWatching .library-card")){
+  for(const card of document.querySelectorAll("#libraryCollection .library-card,#continueWatching .library-card,#dkCinemaShelves .library-card")){
     const row=map.get(card.dataset.libraryId);
     if(row)paintWatchedCard(card,row,card.dataset.displayRole==="series");
   }
@@ -215,7 +216,7 @@ function createCard(row,{landscape=false,series=false}={}){
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   if(row.classificationReview||row.kind==="tv"&&!Number(row.episode)&&!series){detail.textContent=[detail.textContent,say("Check classification","Проверить категорию")].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
-  if(cinema&&(homePage==="home"||landscape)){card.classList.add("dk-cinema-overlay-card");box.append(title);}
+  if(cinema&&homePage==="home"&&!landscape){card.classList.add("dk-cinema-overlay-card");box.append(title);}
   if(nativeBridge){
     const open=create("button","dk-library-open-card");
     open.type="button";
@@ -259,7 +260,8 @@ function createCard(row,{landscape=false,series=false}={}){
   });
   // Artwork requests are on-demand and bounded; never fetch every poster
   // or hold all image data in memory when a 25,000-file library opens.
-  imageQueue.push({id:artId(row,series),row,series,box,epoch:renderEpoch});
+  const posterSeries=series||!!(cinema&&landscape&&row.kind==="tv");
+  imageQueue.push({id:artId(row,posterSeries),row,series:posterSeries,box,epoch:renderEpoch});
   return card;
 }
 function findLocalArtworkFolder(folder,relative,series=false){
@@ -1782,12 +1784,13 @@ async function discover(ticket){
  try{const im=await nativeBridge.metadataRequest("https://images.metahub.space/background/medium/"+r.id+"/img","image");if(ticket!==featureEpoch||!externalShowing||!im.ok||!/^image\/(jpeg|png|webp)$/.test(im.mime))return;const url=URL.createObjectURL(new Blob([im.bytes],{type:im.mime}));backdropViews.set(hero,{id:"discovery:"+r.id,url});hero.style.setProperty("--dk-detail-backdrop",'url("'+url+'")');hero.classList.add("dk-has-detail-backdrop");}catch(_){}
 }
 function navigateCinema(page){
- window.DKLiveTV?.close();clearFeature();homeSearchOpen=false;resumeExpanded=false;homePage=page;selectedSeries=null;selectedSeason=null;visibleCount=72;collectionFilter={kind:"",value:"",query:"",saved:false};void render();
+ window.DKLiveTV?.close();clearFeature();homeSearchOpen=false;homePage=page;selectedSeries=null;selectedSeason=null;visibleCount=72;collectionFilter={kind:"",value:"",query:"",saved:false};void render();
 }
 function setupCinema(){
  const shell=document.querySelector(".library-shell"),main=shell.querySelector("main"),top=shell.querySelector(".topbar"),tabs=main.querySelector(".library-tabs");
  const side=create("aside","dk-cinema-sidebar"),nav=create("nav","dk-cinema-nav"),bottom=create("div","dk-cinema-bottom"),brand=top.querySelector(".brand");
  const collapse=cinemaButton("☰","☰",()=>{const v=shell.classList.toggle("dk-cinema-collapsed");collapse.setAttribute("aria-expanded",String(!v));try{localStorage.setItem("dk-kinehall.cinema.collapsed",v?"1":"0");}catch(_){}},"btn dk-cinema-collapse");collapse.setAttribute("aria-expanded","true");
+ side.id="dkCinemaSidebar";
  const brandRow=create("div","dk-cinema-brand-row");brandRow.append(brand,collapse);side.append(brandRow,nav,bottom);shell.prepend(side);shell.classList.add("dk-cinema");
  try{if(localStorage.getItem("dk-kinehall.cinema.collapsed")==="1"){shell.classList.add("dk-cinema-collapsed");collapse.setAttribute("aria-expanded","false");}}catch(_){}
  const navButton=(id,icon,en,ru,fn)=>{const b=cinemaButton(en,ru,fn);b.id=id;return adopt(b,icon,en,ru);};
@@ -1814,13 +1817,32 @@ function setupCinema(){
  const controls={};for(const key of ["genre","year","rating","watched","sort"]){const s=create("select","select");s.addEventListener("change",()=>{homeFilters[key]=s.value;visibleCount=72;void render();});controls[key]=s;filters.append(s);}
  const reset=cinemaButton("Clear Filters","Сбросить фильтры",()=>{homeFilters={query:"",genre:"",year:"",rating:"",watched:"",sort:"title"};collectionFilter={kind:"",value:"",query:"",saved:false};watchedFilter="";input.value="";visibleCount=72;void render();});filters.append(reset);
  const shelves=create("div","dk-cinema-shelves");shelves.id="dkCinemaShelves";
- function shelf(kind,en,ru){const section=create("section","library-section"),head=create("div","section-heading"),title=create("h2",null,say(en,ru)),list=create("div","library-posters dk-cinema-shelf"),more=cinemaButton("View all ›","Все ›",()=>switchMode(kind),"btn");head.append(title,more);section.append(head,list);shelves.append(section);return {title,list,more};}
+ function shelf(kind,en,ru){
+  const section=create("section","library-section"),head=create("div","section-heading"),title=create("h2"),list=create("div","library-posters dk-cinema-shelf");
+  const key="dk-kinehall.cinema.shelf."+kind;let collapsed=false;
+  try{collapsed=localStorage.getItem(key)==="collapsed";}catch(_){}
+  list.id="dkCinemaShelf-"+kind;
+  const toggle=cinemaButton(en,ru,()=>{collapsed=!collapsed;try{localStorage.setItem(key,collapsed?"collapsed":"expanded");}catch(_){};apply();if(!collapsed)void render();},"dk-cinema-shelf-toggle");
+  const arrow=create("span","dk-shelf-chevron"),label=create("span","dk-shelf-label",say(en,ru));arrow.setAttribute("aria-hidden","true");toggle.replaceChildren(arrow,label);toggle.setAttribute("aria-controls",list.id);
+  function apply(){list.hidden=collapsed;toggle.setAttribute("aria-expanded",String(!collapsed));arrow.textContent=collapsed?"▸":"▾";}
+  title.append(toggle);head.append(title);section.append(head,list);shelves.append(section);apply();
+  return {title:label,list,toggle,apply};
+ }
  const movies=shelf("movie","Your Movies","Ваши фильмы"),tv=shelf("tv","Your TV Shows","Ваши сериалы");
- for(const s of [movies,tv])s.more.classList.add("dk-cinema-view-all");
- const resumeMore=cinemaButton("View all ›","Все ›",()=>{resumeExpanded=!resumeExpanded;$("continueWatching").classList.toggle("dk-resume-expanded",resumeExpanded);resumeMore.textContent=resumeExpanded?say("Show less","Свернуть"):say("View all ›","Все ›");},"btn dk-cinema-view-all");$("continueSection").querySelector(".section-heading").append(resumeMore);
+ const resume=$("continueWatching");
+ // Wheel over the resume shelf scrolls horizontally; at either end the
+ // normal vertical page scroll resumes. Do not intercept Ctrl+wheel zoom.
+ resume.addEventListener("wheel",event=>{
+  if(event.ctrlKey||event.metaKey||event.defaultPrevented)return;
+  if(Math.abs(event.deltaX)>Math.abs(event.deltaY))return;
+  const max=resume.scrollWidth-resume.clientWidth;if(max<=1||!event.deltaY)return;
+  const delta=event.deltaY*(event.deltaMode===1?24:event.deltaMode===2?resume.clientWidth:1);
+  if((delta<0&&resume.scrollLeft<=1)||(delta>0&&resume.scrollLeft>=max-1))return;
+  event.preventDefault();resume.scrollLeft+=delta;
+ },{passive:false});
  main.insertBefore(hero,$("libraryStatus"));hero.after(filters);$("continueSection").after(shelves);
  const collection=$("libraryCollection").closest(".library-section");collection.id="dkCinemaCollection";
- cinema={shell,main,side,nav,bottom,collapse,heading,hero,filters,input,controls,reset,shelves,movies,tv,collection,resumeMore};
+ cinema={shell,main,side,nav,bottom,collapse,heading,hero,filters,input,controls,reset,shelves,movies,tv,collection};
  $("languageSelect").addEventListener("change",()=>queueMicrotask(()=>{clearFeature();void render();}));
 }
 function setOptions(key,label,values){
@@ -1836,8 +1858,8 @@ function syncCinema(){
  if(!home||live){if(featureTimer||externalBusy||externalShowing)clearFeature();}
  n.heading.textContent=live?say("Live TV","Прямой эфир"):home?say("Home","Главная"):watch?say("Watchlist","Список просмотра"):mode==="tv"?say("TV Shows","Сериалы"):collectionFilter.kind==="collection"?say("Collections","Коллекции"):say("Movies","Фильмы");
  const selected=live?"libraryLiveTV":home?"dkNavHome":watch?"dkNavWatch":mode==="tv"?"tabTV":collectionFilter.kind==="collection"?"dkNavCollections":"tabMovies";
- for(const b of n.side.querySelectorAll(".dk-cinema-nav-button")){const label=say(b.dataset.en,b.dataset.ru);const span=b.querySelector(".dk-cinema-nav-label");if(span)span.textContent=label;b.title=label;b.setAttribute("aria-label",label);b.setAttribute("aria-current",b.id===selected?"page":"false");}
- $("jellyfinPower").dataset.label=say("Server","Сервер");n.resumeMore.textContent=resumeExpanded?say("Show less","Свернуть"):say("View all ›","Все ›");$("continueWatching").classList.toggle("dk-resume-expanded",resumeExpanded);
+ for(const b of n.side.querySelectorAll(".dk-cinema-nav-button")){const label=say(b.dataset.en,b.dataset.ru);const span=b.querySelector(".dk-cinema-nav-label");if(span)span.textContent=label;b.title=label;b.setAttribute("aria-label",label);if(b.id===selected)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");if(b.hasAttribute("aria-selected"))b.setAttribute("aria-selected",String(b.id===selected));}
+ if($("jellyfinPower"))$("jellyfinPower").dataset.label=say("Server","Сервер");
  n.collapse.setAttribute("aria-label",say("Toggle sidebar","Свернуть или развернуть меню"));
  n.input.placeholder=say("Search library","Поиск в медиатеке");n.input.setAttribute("aria-label",n.input.placeholder);if(document.activeElement!==n.input)n.input.value=homeFilters.query;
  const pool=all.filter(r=>cinemaEligible(r)&&(home||watch||r.kind===mode));
@@ -1848,19 +1870,20 @@ function syncCinema(){
  setOptions("watched",say("Viewing status","Статус просмотра"),[["",say("All statuses","Все статусы")],["watched",say("Watched","Просмотрено")],["unwatched",say("Unwatched","Не просмотрено")],["progress",say("In progress","В процессе")]]);
  setOptions("sort",say("Sort","Сортировка"),[["title",say("Title A–Z","Название А–Я")],["reverse",say("Title Z–A","Название Я–А")],["year",say("Year","Год")],["rating",say("Rating","Рейтинг")],["played",say("Last watched","Последний просмотр")]]);
  n.reset.textContent=say("Clear Filters","Сбросить фильтры");n.movies.title.textContent=say("Your Movies","Ваши фильмы");n.tv.title.textContent=say("Your TV Shows","Ваши сериалы");
- for(const x of [n.movies,n.tv]){x.more.hidden=watch;x.more.textContent=say("View all ›","Все ›");}
+ for(const x of [n.movies,n.tv])x.apply();
 }
 function renderHome(){
  const n=cinema,home=homePage==="home",rows=all.filter(r=>cinemaEligible(r)&&matchesCinema(r)&&(home||window.DKCollections?.has(r)));
  const movies=sortCinema(rows.filter(r=>r.kind==="movie")),tv=sortCinema(uniqueSeries(rows.filter(r=>r.kind==="tv")));
  for(const [s,items,series] of [[n.movies,movies,false],[n.tv,tv,true]]){
-  let count=home?24:72;
+  if(s.list.hidden){s.list.replaceChildren();continue;}
+  let count=home?72:72;
   s.list.replaceChildren(...items.slice(0,count).map(r=>createCard(r,{series})));
   if(!items.length)s.list.append(create("p","helper",say("No matching titles.","Нет подходящих наименований.")));
   if(items.length>count){const more=cinemaButton("Show more","Показать ещё",()=>{for(const r of items.slice(count,count+24))s.list.insertBefore(createCard(r,{series}),more);count+=24;if(count>=items.length)more.remove();pumpArtwork();});s.list.append(more);}
  }
  $("libraryCollection").replaceChildren();
- if(home){$("continueWatching").replaceChildren(...all.filter(r=>cinemaEligible(r)&&needsContinue(r)).sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).map(r=>createCard(r,{landscape:true})));if(!featureTimer&&!externalBusy)nextLocal();}
+ if(home){const resume=$("continueWatching"),scroll=resume.scrollLeft;resume.replaceChildren(...all.filter(r=>cinemaEligible(r)&&needsContinue(r)).sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).map(r=>createCard(r,{landscape:true})));resume.scrollLeft=scroll;if(!featureTimer&&!externalBusy)nextLocal();}
  else $("continueWatching").replaceChildren();
  if(!scanning)status("Library loaded from local cache.","Медиатека загружена из локального хранилища.");
  $("folderSummary").textContent=say("Assigned folders: "+assignedSources.length+" · Manual scans only","Выбранные папки: "+assignedSources.length+" · Только ручная проверка");

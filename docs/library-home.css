@@ -301,7 +301,6 @@ html.dk-standalone .dk-cinema>main{grid-column:2;grid-row:2;min-width:0;width:10
 .dk-cinema .library-section .section-heading h2{color:#e2b956;font-size:clamp(.92rem,1.55vw,1.25rem);margin:0;line-height:1.25}
 html.dk-standalone body .dk-cinema .dk-cinema-view-all{color:#d8bd96!important;padding:0 1px;min-width:0;min-height:20px;font-size:.73rem;font-weight:400}
 html.dk-standalone .dk-cinema .library-continue{grid-auto-columns:calc((100% - 2 * 12px)/3);gap:12px;min-height:0;padding:1px 0 6px}
-html.dk-standalone .dk-cinema .library-continue.dk-resume-expanded{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-flow:row;grid-auto-columns:auto;overflow:visible}
 html.dk-standalone .dk-cinema .library-continue .library-poster,html.dk-standalone .dk-cinema .dk-cinema-episodes .library-poster{aspect-ratio:16/9}
 html.dk-standalone .dk-cinema .library-continue .library-poster img,html.dk-standalone .dk-cinema .dk-cinema-episodes .library-poster img{object-fit:cover}
 .dk-cinema .dk-cinema-episodes{grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
@@ -319,4 +318,50 @@ html.dk-standalone .dk-cinema .library-continue .library-poster img,html.dk-stan
 .dk-cinema .dk-collection-tools input[type=search],.dk-cinema .dk-collection-tools .dk-watchlist-filter,.dk-cinema #watchedFilter{display:none}
 html.dk-standalone .dk-cinema main.dk-live-active>:is(#dkCinemaHero,#dkCinemaFilters,#dkCinemaShelves){display:none!important}
 @media(max-width:900px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:160px}.dk-cinema-home .dk-cinema-shelf{grid-auto-columns:calc((100% - 3 * 12px)/4)}.dk-cinema-hero h1{max-width:78%}.dk-hero-description{max-width:75%}}
-@media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:68px;--dk-cinema-pad:10px}.dk-cinema-sidebar{padding:12px 8px}.dk-cinema :is(.brandname,.dk-cinema-nav-label,.dk-cinema-brand-footer){display:none!important}.dk-cinema-brand-row{flex-direction:column}html.dk-standalone body .dk-cinema .dk-cinema-nav-button{justify-content:center;padding-inline:0}.dk-cinema .dk-jellyfin-controls{padding:0;gap:4px}.dk-cinema #jellyfinPower::after{content:"⏻";font-size:16px}.dk-cinema-hero h1,.dk-hero-description,.dk-hero-meta{max-width:100%}.dk-cinema-hero{padding-bottom:40px}html.dk-standalone .dk-cinema .library-continue{grid-auto-columns:calc((100% - 12px)/2)}html.dk-standalone .dk-cinema .library-continue.dk-resume-expanded{grid-template-columns:repeat(2,minmax(0,1fr))}.dk-cinema-home .dk-cinema-shelf{grid-auto-columns:calc((100% - 2 * 12px)/3)}}
+@media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:68px;--dk-cinema-pad:10px}.dk-cinema-sidebar{padding:12px 8px}.dk-cinema :is(.brandname,.dk-cinema-nav-label,.dk-cinema-brand-footer){display:none!important}.dk-cinema-brand-row{flex-direction:column}html.dk-standalone body .dk-cinema .dk-cinema-nav-button{justify-content:center;padding-inline:0}.dk-cinema .dk-jellyfin-controls{padding:0;gap:4px}.dk-cinema #jellyfinPower::after{content:"⏻";font-size:16px}.dk-cinema-hero h1,.dk-hero-description,.dk-hero-meta{max-width:100%}.dk-cinema-hero{padding-bottom:40px}html.dk-standalone .dk-cinema .library-continue{grid-auto-columns:calc((100% - 12px)/2)}.dk-cinema-home .dk-cinema-shelf{grid-auto-columns:calc((100% - 2 * 12px)/3)}}
+
+/* Accepted shelf behavior and fixed sidebar geometry, including page-local zoom. */
+html.dk-standalone .library-shell.dk-cinema{--dk-poster-columns:6}
+html.dk-standalone #dkCinemaSidebar{position:fixed;inset:0 auto auto 0;width:var(--dk-sidebar-width);height:calc(100vh / var(--dk-library-zoom,1));max-height:none;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;align-self:auto}
+html.dk-standalone .dk-cinema>.topbar,html.dk-standalone .dk-cinema>main{grid-column:2}
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button,
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button:is(:hover,:focus,:active,:focus-visible){
+  display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:12px!important;text-align:left!important;
+  width:100%!important;min-width:0!important;height:38px!important;min-height:38px!important;padding:7px 11px!important;
+  border:0!important;outline:0!important;box-shadow:none!important;background:transparent!important;color:#e8dfd7!important;
+  font-weight:450!important;filter:none!important;transform:none!important
+}
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button[aria-current="page"],
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button[aria-current="page"]:is(:hover,:focus,:active,:focus-visible){
+  background:#e2b956!important;color:#462a25!important;font-weight:650!important;box-shadow:none!important;border:0!important
+}
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button:focus-visible{outline:1px dotted #e2b956!important;outline-offset:-3px!important}
+html.dk-standalone body #dkCinemaSidebar #librarySettings:not([aria-current="page"]){color:#e2b956!important}
+html.dk-standalone body #dkCinemaSidebar #jellyfinPower{text-align:left!important;justify-content:flex-start!important;background:transparent!important;outline:0!important}
+html.dk-standalone body #dkCinemaSidebar #jellyfinPower:focus-visible{outline:1px dotted #e2b956!important;outline-offset:-2px!important}
+html.dk-standalone body #dkCinemaSidebar .dk-cinema-collapse{background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important}
+html.dk-standalone body .dk-cinema-collapsed #dkCinemaSidebar .dk-cinema-nav-button{justify-content:center!important;padding-inline:0!important}
+html.dk-standalone .dk-cinema .library-continue{
+ grid-template-columns:none;grid-auto-flow:column;grid-auto-columns:calc((100% - (var(--dk-poster-columns) - 1) * 12px) / var(--dk-poster-columns));
+ gap:12px;min-height:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain;padding:1px 0 6px
+}
+html.dk-standalone .dk-cinema .library-continue::-webkit-scrollbar{display:none}
+html.dk-standalone .dk-cinema .library-continue .library-poster{aspect-ratio:2/3;background:#171310}
+html.dk-standalone .dk-cinema .library-continue .library-poster img{object-fit:contain;object-position:center}
+html.dk-standalone .dk-cinema .library-continue .library-card-title{position:static;background:none;padding:0;font-size:.82rem;text-align:left}
+html.dk-standalone .dk-cinema .dk-cinema-shelf{
+ display:grid;grid-template-columns:repeat(var(--dk-poster-columns),minmax(0,1fr));grid-auto-flow:row;grid-auto-columns:auto;
+ gap:15px 12px;min-height:0;overflow:visible;padding:1px 0 7px
+}
+html.dk-standalone .dk-cinema .dk-cinema-shelf[hidden]{display:none!important}
+.dk-cinema .dk-cinema-shelf>.helper{grid-column:1/-1;min-width:0}
+.dk-cinema .dk-cinema-shelf>button:not(.library-card){grid-column:1/-1;justify-self:start}
+html.dk-standalone body .dk-cinema .dk-cinema-shelf-toggle,
+html.dk-standalone body .dk-cinema .dk-cinema-shelf-toggle:is(:hover,:active,:focus,:focus-visible){
+ display:inline-flex;align-items:center;gap:8px;background:transparent!important;color:#e2b956!important;border:0!important;
+ padding:0!important;min-height:0!important;box-shadow:none!important;outline:0!important;font:inherit;font-weight:750;text-align:left
+}
+html.dk-standalone body .dk-cinema .dk-cinema-shelf-toggle:focus-visible{outline:1px dotted #e2b956!important;outline-offset:3px!important}
+.dk-shelf-chevron{font-size:1.1em;width:15px;text-align:left}
+@media(max-width:900px){html.dk-standalone .library-shell.dk-cinema{--dk-poster-columns:4}}
+@media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-poster-columns:3}html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button{justify-content:center!important;padding-inline:0!important}}

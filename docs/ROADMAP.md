@@ -670,3 +670,6 @@ Build 1 source pass: separate movie and series backdrop keys in existing artwork
 
 
 Cinema Home reference correction: the previous visual arrangement was rejected. Replaced its oversized gold navigation buttons and intervening Home filter bar with reference-proportioned flat sidebar, compact header, hero, immediate landscape Continue Watching and six portrait cards per shelf at desktop width; anchored controls and branding below. Maintain approved gold actions and vintage film background. Installed screenshot comparison and user acceptance pending.
+
+
+Cinema Home correction after user review: full-height sidebar even with library zoom, single selected navigation state, portrait uncropped Continue Watching (mouse wheel horizontal only), independently collapsible and persistent Movies/TV wrapping grids. Source implementation complete; local acceptance pending.

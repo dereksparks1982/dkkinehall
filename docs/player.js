@@ -194,7 +194,7 @@
     loop.classList.toggle("order-active", playbackOrder.loop !== "off");
     const barShuffle=byId("dkShuffleToggle"),barRepeat=byId("dkRepeatToggle");
     if(barShuffle)barShuffle.setAttribute("aria-pressed",String(playbackOrder.shuffle));
-    if(barRepeat){barRepeat.setAttribute("aria-pressed",String(playbackOrder.loop!=="off"));barRepeat.dataset.repeatMode=playbackOrder.loop;barRepeat.title=loop.title;barRepeat.setAttribute("aria-label",loop.title);}
+    if(barRepeat){barRepeat.setAttribute("aria-pressed",String(playbackOrder.loop!=="off"));const mode=playbackOrder.loop==="one"?"one":"repeat";if(barRepeat.dataset.glyph!==mode){barRepeat.innerHTML=mode==="one"?"<svg class=\"player-tool-icon\" aria-hidden=\"true\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"m17 2 4 4-4 4\" /><path d=\"M3 11v-1a4 4 0 0 1 4-4h14\" /><path d=\"m7 22-4-4 4-4\" /><path d=\"M21 13v1a4 4 0 0 1-4 4H3\" /><path d=\"M11 10h1v4\" /></svg>":"<svg class=\"player-tool-icon\" aria-hidden=\"true\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"m17 2 4 4-4 4\" /><path d=\"M3 11v-1a4 4 0 0 1 4-4h14\" /><path d=\"m7 22-4-4 4-4\" /><path d=\"M21 13v1a4 4 0 0 1-4 4H3\" /></svg>";barRepeat.dataset.glyph=mode;}barRepeat.dataset.repeatMode=playbackOrder.loop;barRepeat.title=loop.title;barRepeat.setAttribute("aria-label",loop.title);}
     window.DKLocale?.apply();
   };
   byId("shuffleQueue").addEventListener("click", () => {
@@ -4252,8 +4252,16 @@
   });
   byId("rate").addEventListener("change", event => { media.playbackRate = Number(event.target.value); });
   if(window.DKLibraryBridge?.internalPages){
-    byId("pip").innerHTML='<svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="12" y="11" width="7" height="6" rx="1"/></svg>';
-    byId("fullscreen").innerHTML='<svg class="player-tool-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3m0 8v3a2 2 0 0 1-2 2h-3m-8 0H5a2 2 0 0 1-2-2v-3"/></svg>';
+    // Exact Lucide 0.456.0 artwork from the approved mockup. ISC: docs/LUCIDE-LICENSE.txt.
+    const summary=settingsDetails?.querySelector("summary");
+    if(summary){
+      summary.id="dkSettingsToggle";
+      summary.title="Settings";summary.setAttribute("aria-label","Settings");
+      summary.innerHTML="<svg class=\"player-tool-icon\" aria-hidden=\"true\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><line x1=\"21\" x2=\"14\" y1=\"4\" y2=\"4\" /><line x1=\"10\" x2=\"3\" y1=\"4\" y2=\"4\" /><line x1=\"21\" x2=\"12\" y1=\"12\" y2=\"12\" /><line x1=\"8\" x2=\"3\" y1=\"12\" y2=\"12\" /><line x1=\"21\" x2=\"16\" y1=\"20\" y2=\"20\" /><line x1=\"12\" x2=\"3\" y1=\"20\" y2=\"20\" /><line x1=\"14\" x2=\"14\" y1=\"2\" y2=\"6\" /><line x1=\"8\" x2=\"8\" y1=\"10\" y2=\"14\" /><line x1=\"16\" x2=\"16\" y1=\"18\" y2=\"22\" /></svg><span class=\"visually-hidden\">Settings</span>";
+    }
+    byId("pip").innerHTML="<svg class=\"player-tool-icon\" aria-hidden=\"true\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M21 9V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h4\" /><rect width=\"10\" height=\"7\" x=\"12\" y=\"13\" rx=\"2\" /></svg>";
+    byId("fullscreen").innerHTML="<svg class=\"player-tool-icon\" aria-hidden=\"true\" focusable=\"false\" xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" ><path d=\"M8 3H5a2 2 0 0 0-2 2v3\" /><path d=\"M21 8V5a2 2 0 0 0-2-2h-3\" /><path d=\"M3 16v3a2 2 0 0 0 2 2h3\" /><path d=\"M16 21h3a2 2 0 0 0 2-2v-3\" /></svg>";
+    window.DKLocale?.apply();
   }
   if (!document.pictureInPictureEnabled || typeof media.requestPictureInPicture !== "function") {
     byId("pip").disabled = true;
@@ -6090,19 +6098,18 @@
   // Standalone application menu and toolbar are aliases of the real controls.
   // Keep one repeat/shuffle state and one dock layout.
   if(window.DKLibraryBridge?.internalPages){
-    const menu=byId("dkApplicationMenu"),toolbarIds=["dkEffects","dkPlaylistToggle","dkRepeatToggle","dkShuffleToggle"];
+    const menu=byId("dkApplicationMenu"),toolbarIds=["dkPlaylistToggle","dkRepeatToggle","dkShuffleToggle"];
     for(const id of toolbarIds)byId(id).hidden=false;
     const click=id=>{const node=byId(id);if(node&&!node.disabled)node.click();};
-    const categoryAvailable=id=>Boolean(settingsDetails?.querySelector('[data-category="'+id+'"]'));
+    const categoryAvailable=id=>Boolean(byId("playerSettingsPanel")?.querySelector('[data-category="'+id+'"]'));
     const settings=category=>{
       if(!settingsDetails)return;
       settingsDetails.open=true;
-      const back=settingsDetails.querySelector(".dk-settings-category-nav > button:not([data-category])");
+      const back=byId("playerSettingsPanel")?.querySelector(".dk-settings-category-nav > button:not([data-category])");
       if(back&&!back.hidden)back.click();
-      if(category)settingsDetails.querySelector('[data-category="'+category+'"]')?.click();
+      if(category)byId("playerSettingsPanel")?.querySelector('[data-category="'+category+'"]')?.click();
       keepControlsVisible();
     };
-    byId("dkEffects").addEventListener("click",()=>settings(categoryAvailable("audio")?"audio":categoryAvailable("picture")?"picture":null));
     byId("dkPlaylistToggle").addEventListener("click",()=>playerWindow?.toggleTheater());
     byId("dkRepeatToggle").addEventListener("click",()=>click("loopQueue"));
     byId("dkShuffleToggle").addEventListener("click",()=>click("shuffleQueue"));

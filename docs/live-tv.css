@@ -1,0 +1,35 @@
+/* Approved six-tile standalone Live TV layout. */
+.dk-live-panel[hidden]{display:none!important}
+html.dk-standalone main.dk-live-active > :is(#libraryStatus,#continueSection,.library-section,#folderSummary){display:none!important}
+.dk-live-panel{margin:18px 0;color:#fff}
+.dk-live-toolbar{background:#211b17;border-radius:12px;padding:12px}
+.dk-live-panel h2{margin:0 0 12px;color:#e2b956;font-size:1.2rem}
+.dk-live-tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.dk-live-panel .dk-live-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:82px;border:1px solid transparent;border-radius:8px;font:inherit;font-weight:500;cursor:pointer}
+.dk-live-panel .dk-live-icon{font-size:24px;line-height:1}
+.dk-live-panel .dk-live-discover,.dk-live-panel .dk-live-saved{background:#e2b956;color:#432822}
+.dk-live-panel .dk-live-direct{background:#d52b1e;color:#fff}
+.dk-live-panel .dk-live-playlist{background:#fff;color:#432822}
+.dk-live-panel .dk-live-scan,.dk-live-panel .dk-live-world{background:#432822;color:#e2b956}
+.dk-live-panel .dk-live-tile:hover{filter:brightness(1.09)}
+.dk-live-panel button:focus-visible,.dk-live-panel input:focus-visible,.dk-live-panel select:focus-visible{outline:2px solid #e2b956;outline-offset:3px}
+.dk-live-workspace,.dk-live-guidebar,.dk-live-devices{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:12px 0}
+.dk-live-workspace:empty,.dk-live-notice:empty{display:none}
+.dk-live-panel .dk-live-small{background:#432822;color:#e2b956;border:1px solid #a58039;border-radius:6px;padding:9px 13px;font:inherit;cursor:pointer}
+.dk-live-panel .dk-live-watch{background:#d52b1e;color:#fff;border-color:#d52b1e}
+.dk-live-panel .dk-live-input{background:#211b17;color:#fff;border:1px solid #a58039;border-radius:6px;padding:9px;min-width:170px;font:inherit}
+.dk-live-guidebar h2{margin:0 auto 0 0}
+.dk-live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.dk-live-card{background:#211b17;border:1px solid #a58039;border-radius:9px;padding:12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.dk-live-identity{display:flex;align-items:center;gap:10px;min-width:0}
+.dk-live-art{width:86px;height:52px;flex:0 0 86px;background:#432822;color:#e2b956;display:grid;place-items:center;border-radius:5px;overflow:hidden;font-size:1.25rem}
+.dk-live-art img{width:100%;height:100%;object-fit:contain}
+.dk-live-name{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0;overflow-wrap:anywhere}
+.dk-live-programs{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.dk-live-program{display:flex;flex-direction:column;gap:4px;min-width:0;overflow-wrap:anywhere}
+.dk-live-label{color:#e2b956;font-size:.85rem;font-weight:bold}
+.dk-live-muted,.dk-live-card small{color:#ded5c9}
+.dk-live-description{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.dk-live-notice{color:#e2b956}
+html.dk-standalone #libraryLiveTV[aria-selected=true]{box-shadow:inset 0 0 0 2px #e2b956}
+@media(max-width:560px){.dk-live-grid{grid-template-columns:1fr}.dk-live-panel .dk-live-tile{font-size:.9rem}}

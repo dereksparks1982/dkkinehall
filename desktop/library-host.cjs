@@ -247,7 +247,7 @@ function serveNetwork(req,res){
   const range=req.headers.range;
   if(range&&!/^bytes=(?:\d{1,16}-\d{0,16}|-\d{1,16})$/.test(range))return fail(416);
   const url=entry.url,lib=url.protocol==="https:"?netHTTPS:netHTTP;
-  const upstream=lib.request(url,{method:req.method,agent:false,headers:range?{Range:range}:{}},reply=>{
+  const upstream=lib.request(url,{method:req.method,agent:false,headers:range?{Range:range}:{},...(entry.lookup?{lookup:entry.lookup,family:4}:{})},reply=>{
     if(![200,206,416].includes(reply.statusCode)){reply.destroy();return fail(502);}
     const mime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
     if(reply.statusCode!==416&&!/^(video\/|audio\/|application\/octet-stream$)/.test(mime)){
@@ -290,7 +290,31 @@ async function grantNetwork(id,value){
   networkGrants.set(token,{url,clients:new Set()});
   return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
 }
-// Only the native decoder receives a validated, session-scoped loopback URL.
+// Explicit HTTP(S) streams: LAN addresses use the existing bounded grant.
+ // Internet hostnames are resolved once and pinned to a public IPv4 address;
+ // no redirects, user credentials, loopback or special-use destinations.
+ async function grantExplicitLiveStream(value){
+  if(typeof value!=="string"||value.length>4096)throw Error("Invalid stream URL");
+  const u=new URL(value);
+  if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.hash)throw Error("Invalid stream URL");
+  if(privateIPv4(u.hostname))return grantNetwork(null,u.href);
+  const dns=require("node:dns").promises,net=require("node:net");
+  const public4=ip=>{
+   if(net.isIP(ip)!==4)return false;
+   const [a,b,c]=ip.split(".").map(Number);
+   return a>0&&a<224&&a!==10&&a!==127&&!(a===100&&b>=64&&b<=127)&&!(a===169&&b===254)&&!(a===172&&b>=16&&b<=31)&&!(a===192&&(b===168||b===0||b===88&&c===99))&&!(a===198&&(b===18||b===19||b===51&&c===100))&&!(a===203&&b===0&&c===113);
+  };
+  const ips=await dns.lookup(u.hostname,{family:4,all:true});
+  if(!ips.length||ips.some(x=>!public4(x.address)))throw Error("Invalid stream destination");
+  const ip=ips[0].address;
+  if(networkGrants.size>=256)throw Error("Network media queue is full");
+  const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
+  if(networkGrants.size>=256)throw Error("Network media queue is full");
+  const lookup=(_hostname,opts,cb)=>{if(typeof opts==="function"){cb=opts;opts={};}if(opts?.all)cb(null,[{address:ip,family:4}]);else cb(null,ip,4);};
+  networkGrants.set(token,{url:u,clients:new Set(),lookup});
+  return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
+ }
+ // Only the native decoder receives a validated, session-scoped loopback URL.
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
   const port=await startNetworkProxy();
@@ -1519,23 +1543,37 @@ function install(originalWindow,originalPlayer){
     return writeInterfaceLanguage(value);
   });
   ipcMain.handle("dk-live-tv:local-tuners",event=>{
-    if(!onlyPlayer(event))throw Error("Tuner request rejected");
+    if(!onlyPlayer(event)&&!(allowed(event)&&activePage==="library"))throw Error("Tuner request rejected");
     return listLocalTVTuners();
   });
   ipcMain.handle("dk-live-tv:discover",event=>{
-    if(!onlyPlayer(event))throw Error("Tuner request rejected");
+    if(!onlyPlayer(event)&&!(allowed(event)&&activePage==="library"))throw Error("Tuner request rejected");
     return discoverLiveTuners();
   });
   ipcMain.handle("dk-live-tv:lineup",(event,host)=>{
-    if(!onlyPlayer(event))throw Error("Tuner request rejected");
+    if(!onlyPlayer(event)&&!(allowed(event)&&activePage==="library"))throw Error("Tuner request rejected");
     return loadLiveLineup(host);
   });
   ipcMain.handle("dk-live-tv:grant",(event,id)=>{
     if(!onlyPlayer(event)||typeof id!=="string")throw Error("Tuner request rejected");
     return grantLiveChannel(id);
   });
+  ipcMain.handle("dk-live-tv:play",async(event,kind,value,name)=>{
+    if(!allowed(event)||activePage!=="library"||!["tuner","url"].includes(kind)||
+       typeof value!=="string"||typeof name!=="string"||name.length>250)throw Error("Live TV request rejected");
+    let grant=null;
+    try{
+      grant=kind==="tuner"?await grantLiveChannel(value):await grantExplicitLiveStream(value);
+      await openPlayer(null,false,true);
+      if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
+      showPage("player");
+      player.webContents.send("dk-live-tv:play-channel",{grant,name});
+      grant=null;
+      return true;
+    }finally{if(grant){const entry=networkGrants.get(grant.token);networkGrants.delete(grant.token);for(const client of entry?.clients||[])client.destroy();}}
+  });
   ipcMain.handle("dk-network:discover",event=>{
-    if(!onlyPlayer(event))throw Error("Network request rejected");return discoverNetwork();
+    if(!onlyPlayer(event)&&!(allowed(event)&&activePage==="library"))throw Error("Network request rejected");return discoverNetwork();
   });
   ipcMain.handle("dk-network:register",(event,value)=>{
     if(!onlyPlayer(event))throw Error("Network request rejected");

@@ -51,3 +51,7 @@ or redistributed with the application. See the provider terms:
 
 The original Jellyfin Web image-selection code attribution remains in
 `docs/jellyfin-artwork.js` and `docs/vendor/jellyfin/`.
+
+## Live TV channel artwork
+
+The standalone updater imports the original 101 BMP channel logos from DK Media Plus, pinned to commit `6b99ca5244cbbc5d24a104e033b9106e649782be`, from `assets/channel_logos/builtin/`. Network and station marks belong to their respective owners. DK Softworks claims no ownership or endorsement. Individual artwork redistribution permissions are not verified; review before a public bundled distribution. Programme guide timing and identity concepts are adapted from DK Media Plus `modules-live-tv.js`.

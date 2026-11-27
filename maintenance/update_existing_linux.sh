@@ -65,7 +65,7 @@ fi
 for resource in index.html player.js player.css mkv-tracks.js \
                 mkv-subtitles.js pgs-subtitles.js vobsub.js i18n.js \
                 library.html library-home.js library-home.css library-store.js \
-                native-file.js; do
+                native-file.js live-tv.js live-tv.css assets/channel_logos/manifest.json; do
   if [[ ! -f "$WORK/repo/docs/$resource" ]]; then
     echo "ERROR: GitHub source is missing $resource." >&2
     exit 1
@@ -75,6 +75,9 @@ if [[ ! -f "$WORK/repo/maintenance/sync_original_runtime.py" ]]; then
   echo "ERROR: Chromium synchronizer is missing." >&2
   exit 1
 fi
+
+echo "Preparing verified Live TV channel artwork..."
+python3 "$WORK/repo/maintenance/install_live_tv_artwork.py" "$WORK/repo/docs" "$APP/docs"
 
 echo "Backing up the current installation..."
 mkdir -p -- "$BACKUP"

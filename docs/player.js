@@ -2698,6 +2698,14 @@
     const makeNetworkItem=(grant,name,audio)=>({kind:"network",networkToken:grant.token,networkSource:Object.freeze({networkToken:grant.token}),key:"network:"+grant.token,
       name:String(name||"Network media").slice(0,250),audio,src:grant.src,
       embeddedSubtitles:[],embeddedAudio:[],embeddedVideo:[],chapters:[],mkvInspection:"not-mkv"});
+    bridge.onLiveTvPlay?.(payload=>{
+      const grant=payload?.grant;
+      if(!grant?.token||!grant?.src)return;
+      deferStartup=false;settingsDetails.open=false;
+      const item=makeNetworkItem(grant,payload.name||"Live TV",false);
+      const index=state.current<0?state.queue.length:state.current+1;
+      state.queue.splice(index,0,item);load(index,true);
+    });
     const queuePage=async(serverId,entries)=>{
       if(opening||!entries.length)return;
       opening=true;const epoch=generation,staged=[];

@@ -566,6 +566,7 @@ async function openVideo(row){
   }
 }
 function switchMode(value){
+  window.DKLiveTV?.close();
   mode=value==="tv"?"tv":"movie";
   selectedSeries=null;selectedSeason=null;visibleCount=72;
   try{localStorage.setItem("dk-kinehall.library.category.v1",mode);}catch(_){}
@@ -631,6 +632,7 @@ async function render(){
   const tv=mode==="tv";
   $("tabMovies").setAttribute("aria-selected",String(!tv));
   $("tabTV").setAttribute("aria-selected",String(tv));
+  window.DKLiveTV?.syncTabs();
   const active=all.filter(x=>x.kind===mode&&!(nativeBridge&&/(?:^|[ ._-])sample(?:[ ._-]|$)/i.test(x.filename)));
   const resume=active.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed)
     .slice(0,30);
@@ -995,14 +997,10 @@ function connect(){
   }
   if(nativeBridge?.internalPages&&nativeBridge.liveTvLineup&&nativeBridge.openMediaTool){
     const tv=create("button","btn primary","Live TV");tv.type="button";tv.id="libraryLiveTV";
-    tv.setAttribute("aria-haspopup","dialog");
+    tv.setAttribute("role","tab");tv.setAttribute("aria-selected","false");
+    tv.setAttribute("aria-controls","liveTvPanel");
     $("tabTV").after(tv);
-    tv.addEventListener("click",async()=>{
-      tv.disabled=true;
-      try{await nativeBridge.openMediaTool("live-tv");}
-      catch(_){status("Could not open Live TV.","Не удалось открыть прямой эфир.",true);}
-      finally{tv.disabled=false;}
-    });
+    tv.addEventListener("click",()=>window.DKLiveTV?.open());
     window.DKLocale?.apply();
   }
   if(nativeBridge?.showPlayer){

@@ -381,12 +381,27 @@ function sourceFor(row,sources){
  if(row?.source!=="native"||!row.nativePath)return null;
  return sources.find(source=>(source.kind===row.kind||!!knownFeatureSpecial(row.filename,row.relative))&&row.nativePath.startsWith(source.path+"/"))||null;
 }
+// Standalone South Park films, streaming specials and concert presentations
+// belong in Movies even when their files are stored alongside TV episodes.
+const SOUTH_PARK_FEATURES=[
+ [/^bigger longer (?:and )?uncut\b/i,"South Park: Bigger, Longer & Uncut",1999],
+ [/^joining the panderverse\b/i,"South Park: Joining the Panderverse",2023],
+ [/^not suitable for children\b/i,"South Park (Not Suitable for Children)",2023],
+ [/^post covid (?:the )?return of covid\b/i,"South Park: Post COVID: The Return of COVID",2021],
+ [/^post covid\b/i,"South Park: Post COVID",2021],
+ [/^(?:the )?25th anniversary concert\b/i,"South Park: The 25th Anniversary Concert",2022],
+ [/^the end of obesity\b/i,"South Park: The End of Obesity",2024],
+ [/^(?:the )?streaming wars (?:part|pt) 2\b/i,"South Park: The Streaming Wars Part 2",2022],
+ [/^(?:the )?streaming wars\b/i,"South Park: The Streaming Wars",2022]
+];
 function knownFeatureSpecial(name,relative=name){
- const stem=String(name).replace(/\.[^.]+$/,"").replace(/[._-]+/g," ").trim();
- const context=String(relative||name).replace(/[._-]+/g," ");
- if(/\bSouth\s+Park\b/i.test(context)&&/\bThe\s+End\s+of\s+Obesity\b/i.test(stem))
-  return {kind:"movie",title:"South Park: The End of Obesity",year:2024,series:null,season:null,episode:null,episodeTitle:""};
- return null;
+ const clean=value=>String(value||"").replace(/&/g," and ").replace(/[^\p{L}\p{N}]+/gu," ").trim();
+ const stem=clean(String(name).replace(/\.[^.]+$/,""));
+ if(!/\bsouth park\b/i.test(clean(relative)+" "+stem))return null;
+ const titleStem=stem.replace(/^south park\s*/i,"").replace(/^s00e00\s*/i,"");
+ const match=SOUTH_PARK_FEATURES.find(([pattern])=>pattern.test(titleStem));
+ if(!match)return null;
+ return {kind:"movie",title:match[1],year:match[2],series:null,season:null,episode:null,episodeTitle:""};
 }
 function classifyAssigned(file){
  const info=classify(file.filename,file.relative);if(!info)return null;
@@ -864,7 +879,7 @@ async function saveArtwork(id,blob,credit="",manual=false){
   changed({artwork:true,id});
   return true;
 }
-return Object.freeze({excludedDiscovery,
+return Object.freeze({excludedDiscovery,knownFeatureSpecial,
   folders,addFolder,removeFolder,entries,item,classify,scanFolder,scanAll,
   ingestNative,applyNativeScope,resetNativeLibrary,classifyAssigned,reconcileNative,relocationMatches,relocateNative,setUnavailable,emptyTrash,removeEntry,hideEntry,
   checkReadPermission,openFile,resolvePlaybackEntry,updateProgress,setWatched,setContinueHidden,updateMetadata,editLocalMetadata,hierarchyMetadata,saveHierarchyMetadata,artwork,saveArtwork,removeArtwork,onChange,

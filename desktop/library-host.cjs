@@ -2306,7 +2306,10 @@ function jfRelease(state){
  if(!jfStarting)jfStopping=false;
 }
 function jfReadExisting(base,executable,lock){
- if(!fs.existsSync(lock))return null;
+ if(!fs.existsSync(lock)){
+  if(fs.readdirSync("/proc").some(n=>/^\d+$/.test(n)&&jfProcess(Number(n),base,executable)))throw Error("Private server identity unavailable");
+  return null;
+ }
  const st=fs.lstatSync(lock);
  if(!st.isFile()||st.uid!==process.getuid()||(st.mode&0o077)||st.size>4096)throw Error("Unsafe server state");
  let record=null;
@@ -2417,7 +2420,7 @@ async function jfStart(){
     }else{saved={password:randomBytes(32).toString("hex"),device:randomBytes(16).toString("hex")};jfWrite(secret,JSON.stringify(saved));}
     if(!/^[a-f0-9]{64}$/.test(saved.password)||!/^[a-f0-9]{32}$/.test(saved.device))throw Error("Invalid credentials");
     const port=existing?.port||await jfFreePort();
-    if(jfStopping){if(unlock)unlock();return;}
+    if(jfStopping&&!existing){if(unlock)unlock();return;}
     if(existing){state={...existing,device:saved.device,adopted:true};jfState=state;jfMonitor(state);}
     else {
     jfWrite(path.join(dirs.config,"network.xml"),'<?xml version="1.0" encoding="utf-8"?><NetworkConfiguration><InternalHttpPort>'+port+'</InternalHttpPort><PublicHttpPort>'+port+'</PublicHttpPort><EnableHttps>false</EnableHttps><RequireHttps>false</RequireHttps><EnableIPv4>true</EnableIPv4><EnableIPv6>false</EnableIPv6><EnableRemoteAccess>false</EnableRemoteAccess><AutoDiscovery>false</AutoDiscovery><EnableUPnP>false</EnableUPnP><LocalNetworkAddresses><string>127.0.0.1</string></LocalNetworkAddresses><LocalNetworkSubnets><string>127.0.0.0/8</string></LocalNetworkSubnets></NetworkConfiguration>');
@@ -3208,6 +3211,9 @@ function install(originalWindow,originalPlayer){
   if(!originalWindow?.webContents||typeof originalPlayer!=="string")
     throw new Error("Existing DK Kinehall window was not provided");
   installed=true;home=originalWindow;playerFile=originalPlayer;
+  // Every new desktop session requests the private server by default.
+  // A deliberate Stop remains effective until the next app launch.
+  if(!jellyfinConfig()){try{jfWrite(jfPowerFile(),JSON.stringify({enabled:true}));}catch(_){}}
   void jfStart();app.once("before-quit",()=>{jfClosing=true;});
   // Chromium owns the PNG transfer; only this Player view's named Blob
   // snapshots receive the localized native save prompt. No arbitrary paths

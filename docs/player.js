@@ -427,18 +427,24 @@
       }else item.watchPending=Math.min(120,(item.watchPending||0)+delta);
     }).catch(()=>{item.watchPending=Math.min(120,(item.watchPending||0)+delta);});
   };
-  const rememberPosition = () => {
+  const historyDuration=item=>{
+    const length=codecPlayback?.isActive(item)?codecPlayback.sourceDuration(item):Number(media.duration);
+    if(Number.isFinite(length)&&length>0)item.historyDuration=Math.max(item.historyDuration||0,length);
+    return item.historyDuration||0;
+  };
+  const rememberPosition = (allowEnded=false) => {
     if(state.stopped)return;
     const item = current();
-    const duration=playbackDuration(),position=playbackSeconds();
-    if (!item || item.file?.dvdToken || item.kind==="network" || !Number.isFinite(duration) || duration <= 0) return;
+    if (!item || item.file?.dvdToken || item.kind==="network") return;
+    const duration=window.DKLibraryBridge?.internalPages?historyDuration(item):playbackDuration(),position=playbackSeconds();
+    if (!Number.isFinite(duration) || duration <= 0) return;
     if(window.DKLibraryBridge?.internalPages){
       // Never overwrite saved progress with an initializing decoder clock.
       if(!item.historyReady||media.readyState<2||media.seeking||
          !Number.isFinite(position)||position<=2||item.deinterlacePending)return;
       if(item.historyResumeTarget>2&&position+1<item.historyResumeTarget)return;
       item.historyResumeTarget=0;
-      if(media.ended)return;
+      if(media.ended&&!allowEnded)return;
       state.resume[item.key]=position;
     }else{
       if (position >= duration - 4) delete state.resume[item.key];
@@ -1540,6 +1546,7 @@
     rememberSelectedMedia(item);
     item.autoplayRequested = autoplay;
     item.historyReady=false;
+    item.historyDuration=0;
     item.historyResumeTarget=Number(state.resume[item.key])||0;
     // Reset stale conversion attempts when revisiting a file or selecting a
     // different format. An old asynchronous remux may not replace a new load.
@@ -1973,7 +1980,7 @@
     const plan = window.DKQueueAutoplay.plan(mode, state.current, state.queue.length, playing);
     const newItems = [];
     for (const {file, handle, path} of accepted) {
-      const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:[],
+      const item = {kind: "file", name: file.name, audio: fileIsAudio(file), chapters:Array.isArray(artData?.cueChapters)?artData.cueChapters:[],
         libraryId:artData?.libraryId||(window.DKLibraryBridge?.internalPages&&
           String(file.nativeId||"").startsWith("native:")?file.nativeId:null),
         episodeTitle:artData?.episodeTitle||"",
@@ -2469,8 +2476,9 @@
         if(result?.cancelled)return;
         const selected=[];
         let skipped=Number(result?.skipped)||0;
-        for(const {row,opened} of result?.rows||[]){
-          try{selected.push(window.DKNativeFile.create(row,opened,window.DKLibraryBridge));}
+        for(const {row,opened,cueChapters} of result?.rows||[]){
+          try{const native=window.DKNativeFile.create(row,opened,window.DKLibraryBridge);
+            selected.push({...native,cueChapters:(Array.isArray(cueChapters)?cueChapters:[]).filter(ch=>Number.isFinite(ch.startTime)&&ch.startTime>=0).map(ch=>({startTime:ch.startTime,text:ch.text||streamSay("Track ","Дорожка ")+ch.number}))});}
           catch(_){skipped++;}
         }
         if(!selected.length){
@@ -2478,7 +2486,7 @@
         }
         // Each native file has its own source URL; preserve the playlist order.
         // Opening starts only the first item if idle; queue mode never interrupts.
-        selected.forEach((item,index)=>addFiles([item.file],[],index===0?mode:"queue",{nativeSrc:item.src}));
+        selected.forEach((item,index)=>addFiles([item.file],[],index===0?mode:"queue",{nativeSrc:item.src,cueChapters:item.cueChapters}));
         status(streamSay("Playlist imported. Added: "+selected.length+". Skipped: "+skipped+".",
           "Список импортирован. Добавлено: "+selected.length+". Пропущено: "+skipped+"."),true);
       }catch(_){
@@ -3617,6 +3625,7 @@
     restoreAudioPreference();
     if (state.stopped) { updateTime(); return; }
     item.historyReady=true;
+    if(window.DKLibraryBridge?.internalPages&&item.kind==="file"&&!item.file?.dvdToken)historyDuration(item);
     if(item.kind==="network"&&item.networkResume>0&&!codecPlayback?.isActive(item)){
       const at=item.networkResume;item.networkResume=0;
       if(Number.isFinite(media.duration)&&at<media.duration){try{media.currentTime=at;}catch(_){}}
@@ -3695,9 +3704,22 @@
       if(!recoverNetwork(completed))status("Network stream ended unexpectedly.");
       return;
     }
-    rememberPosition();
-    // A completed movie has no unfinished position to resume.
-    saveLibraryProgress(completed,playbackDuration(),playbackDuration(),true);
+    if(window.DKLibraryBridge?.internalPages&&completed.kind==="file"&&!completed.file?.dvdToken){
+      // Native decoder EOF is not proof of source EOF. Never synthesize a
+      // completed position from a shortened output stream or stale event.
+      if(state.stopped||!completed.historyReady)return;
+      const position=playbackSeconds(),duration=historyDuration(completed);
+      const tolerance=Math.min(2,duration*0.01);
+      if(!Number.isFinite(position)||duration<=0||position<duration-tolerance||media.error){
+        rememberPosition(true);
+        status(streamSay("Playback ended early. Your progress was kept.","Воспроизведение прервано. Позиция просмотра сохранена."),false,true);
+        updateButtons();renderQueue();return;
+      }
+      saveLibraryProgress(completed,position,duration,true);
+    }else{
+      rememberPosition();
+      saveLibraryProgress(completed,playbackDuration(),playbackDuration(),true);
+    }
     delete state.resume[completed.key];
     write(store.resume, state.resume);
     if (playbackOrder.loop === "one") {

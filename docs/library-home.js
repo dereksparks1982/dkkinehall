@@ -129,7 +129,9 @@ function needsContinue(row){
   const value=currentProgress(row),length=Number(row.duration)||0;
   // Unavailable media still has history; retain its disabled/unavailable card.
   const eligible=!nativeBridge?value>2:Number.isFinite(row.watchedSeconds)?row.watchedSeconds>=60:value>=60;
-  return !row.completed&&eligible&&value>2&&(!length||value<length);
+  // Only verified completion or explicit removal should hide a native resume.
+  // The decoder may temporarily report a shorter output duration.
+  return !row.completed&&eligible&&value>2&&(nativeBridge||!length||value<length);
 }
 function coverShell(landscape){
   const shell=create("span","library-poster");

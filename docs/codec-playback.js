@@ -144,7 +144,8 @@ function attach({media,bridge,current,onStatus=()=>{},onClockChanged=()=>{},
     if(!(audioOnly?(alternate==="webm"?caps?.audioWebm:caps?.audioMp4):caps?.[alternate]))return false;
     return start(item,at,Boolean(item.autoplayRequested),alternate,item.codecAudioIndex||0);
   }
-  return {start,seek,stop,isActive,position,duration,offset,retryAlternate};
+  const sourceDuration=item=>isActive(item)&&Number.isFinite(active.duration)&&active.duration>0?active.duration:null;
+  return {start,seek,stop,isActive,position,duration,sourceDuration,offset,retryAlternate};
 }
 root.DKCodecPlayback={attach};
 })(typeof window!=="undefined"?window:globalThis);

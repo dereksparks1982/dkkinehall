@@ -2489,12 +2489,42 @@ function playlistXMLValues(source,ext){
   return values;
 }
 
+function cuePlaylistFiles(source){
+  const files=[];let file=null,track=null,tracks=0;
+  for(const line of source.split(/\r?\n/)){
+    const value=line.trim();
+    if(!value)continue;
+    if(/^FILE\b/i.test(value)){
+      const match=/^FILE\s+(?:"([^"]+)"|(.+?))\s+[A-Z0-9_]+\s*$/i.exec(value);
+      if(!match||files.length>=256)throw Error("Invalid CUE file reference");
+      file={value:match[1]||match[2],chapters:[]};files.push(file);track=null;
+    }else if(/^TRACK\b/i.test(value)){
+      const match=/^TRACK\s+(\d{1,3})\s+[A-Z0-9_/]+\s*$/i.exec(value);
+      if(!file||!match||Number(match[1])<1||++tracks>256)throw Error("Invalid CUE track");
+      track={number:Number(match[1]),text:"",indexed:false};
+    }else if(/^TITLE\b/i.test(value)&&track){
+      const match=/^TITLE\s+(?:"([^"]*)"|(.+))$/i.exec(value);
+      if(match)track.text=(match[1]??match[2]).replace(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069]/g,"").slice(0,200);
+    }else if(/^INDEX\s+01\b/i.test(value)){
+      const match=/^INDEX\s+01\s+(\d{1,6}):(\d{2}):(\d{2})\s*$/i.exec(value);
+      if(!track||track.indexed||!match||Number(match[2])>=60||Number(match[3])>=75)throw Error("Invalid CUE index");
+      const startTime=Number(match[1])*60+Number(match[2])+Number(match[3])/75;
+      if(file.chapters.length&&startTime<=file.chapters[file.chapters.length-1].startTime)throw Error("Unordered CUE indexes");
+      file.chapters.push({number:track.number,text:track.text,startTime});track.indexed=true;
+    }
+  }
+  if(!files.length)throw Error("Empty CUE sheet");
+  return files;
+}
+
 function localPlaylistPaths(raw,filename){
   const source=raw.replace(/^\uFEFF/,"");
   if(source.includes("\0")||/#EXT-X-/i.test(source))throw Error("Not a local media playlist");
-  let values=[];
+  let values=[],cueFiles=[];
   const ext=path.extname(filename).toLowerCase();
-  if(ext===".pls"){
+  if(ext===".cue"){
+    cueFiles=cuePlaylistFiles(source);values=cueFiles.map(file=>file.value);
+  }else if(ext===".pls"){
     const lines=source.split(/\r?\n/);
     if(!lines.some(line=>/^\s*\[playlist\]\s*$/i.test(line)))throw Error("Invalid PLS");
     const numbered=new Map();
@@ -2509,9 +2539,9 @@ function localPlaylistPaths(raw,filename){
     values=playlistXMLValues(source,ext);
   }else throw Error("Unsupported playlist");
   if(values.length>256)throw Error("Too many playlist entries");
-  const targets=[],seen=new Set();
+  const targets=[],seen=new Set(),cueChapters=new Map();
   let skipped=0;
-  for(const rawValue of values){
+  for(const [index,rawValue] of values.entries()){
     const value=rawValue.trim();
     try{
       if(!value||value.length>4096||/[\x00-\x1f\x7f]/.test(value)||value.startsWith("//")||value.startsWith("\\\\"))throw Error();
@@ -2531,9 +2561,10 @@ function localPlaylistPaths(raw,filename){
       }
       if(seen.has(target)){skipped++;continue;}
       seen.add(target);targets.push(target);
+      if(ext===".cue")cueChapters.set(target,cueFiles[index].chapters);
     }catch(_){skipped++;}
   }
-  return {targets,skipped};
+  return {targets,skipped,cueChapters};
 }
 async function importLocalPlaylist(language){
   if(localPlaylistBusy)return {cancelled:true};
@@ -2543,7 +2574,7 @@ async function importLocalPlaylist(language){
     const selected=await dialog.showOpenDialog(home,{
       title:ru?"Открыть список воспроизведения":"Open local playlist",
       properties:["openFile"],
-      filters:[{name:ru?"Списки воспроизведения":"Playlists",extensions:["m3u","m3u8","pls","xspf","asx","wax","wvx","wpl"]}]
+      filters:[{name:ru?"Списки воспроизведения":"Playlists",extensions:["m3u","m3u8","pls","xspf","asx","wax","wvx","wpl","cue"]}]
     });
     if(selected.canceled||!selected.filePaths[0])return {cancelled:true};
     const filename=selected.filePaths[0];
@@ -2568,7 +2599,7 @@ async function importLocalPlaylist(language){
       try{
         const id=native.fileIdentity(target);
         const opened=await native.openVideo(id,target);
-        entries.push({row:{id,nativePath:target,filename:opened.name,size:opened.size,modified:opened.modified},opened});
+        entries.push({row:{id,nativePath:target,filename:opened.name,size:opened.size,modified:opened.modified},opened,cueChapters:parsed.cueChapters.get(target)||[]});
       }catch(_){skipped++;}
     }
     if(!entries.length)return {rows:[],skipped};

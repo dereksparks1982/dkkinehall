@@ -16,7 +16,7 @@ let imported=read(keys.playlist,[]);if(!Array.isArray(imported))imported=[];
 imported=imported.filter(x=>x&&validURL(x.url)&&typeof x.name==="string").slice(0,3000);
 let saved=read(keys.saved,[]);if(!Array.isArray(saved))saved=[];
 let host=read(keys.host,"");if(typeof host!=="string")host="";
-let tuner=[],programs=new Map(),xmlNames=new Map(),logoFiles=[],mode="all",country="",active=false,busy=false,panel=null,notice=null,workspace=null,grid=null,heading=null,search=null,serial=0;
+let tuner=[],localChannels=[],broadcastPrograms=new Map(),atscRunning=false,atscCancelled=false,programs=new Map(),xmlNames=new Map(),logoFiles=[],mode="all",country="",active=false,busy=false,panel=null,notice=null,workspace=null,grid=null,heading=null,search=null,serial=0;
 const aliases=[
 ["pbs kids","pbs_kids"],["ion plus","ion_plus"],["daystar espanol","daystar_espanol"],["one america news plus","oan_plus"],["oan plus","oan_plus"],["my network tv","mynetworktv"],["great american","great_american"],["family channel","family_channel"],["hasbro legends","hasbro_legends"],["moviesphere gold","moviesphere_gold"],["the nest","the_nest"],["true crime","true_crime"],["weather nation","weathernation"],["court tv","courttv"],["start tv","starttv"],["shop lc","shoplc"],["me tv","metv"],["catchy tv","catchy"],["the 365","365blk"],["action channel","action_channel"],["silver spur","silverspur"]
 ];
@@ -29,7 +29,7 @@ function logo(row){
  for(const [key,value] of aliases){if((" "+n+" ").includes(" "+key+" ")||n2===compact(key)){const found=logoFiles.find(x=>x===value+".bmp");if(found)return found;}}
  return logoFiles.filter(x=>! /^\d+\./.test(x)).sort((a,b)=>b.length-a.length).find(x=>{const base=x.replace(/\.bmp$/i,""),name=normalize(base);return n2===compact(base)||(" "+n+" ").includes(" "+name+" ");})||"";
 }
-const entryKey=row=>row.kind==="tuner"?"tuner:"+row.host+":"+row.number:"url:"+row.url;
+const entryKey=row=>row.kind==="atsc"?"atsc:"+row.device+":"+row.number:row.kind==="tuner"?"tuner:"+row.host+":"+row.number:"url:"+row.url;
 const isSaved=row=>saved.some(x=>entryKey(x)===entryKey(row));
 function saveRow(row){const key=entryKey(row);saved=isSaved(row)?saved.filter(x=>entryKey(x)!==key):[...saved,{...row,id:undefined}].slice(0,3000);if(!write(keys.saved,saved))report("Could not save channels.","Не удалось сохранить каналы.");render();}
 function report(en,russian){if(notice)notice.textContent=tr(en,russian);}
@@ -43,6 +43,7 @@ function parseDate(s){
  return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+(m[6]||0))/1000-offset*60;
 }
 function programRows(row){
+ if(row.kind==="atsc"){const broadcast=broadcastPrograms.get(entryKey(row));if(broadcast?.length)return broadcast;}
  const ids=[row.guideId,row.name,row.number].filter(Boolean);let id=ids.find(x=>programs.has(x));
  if(!id){id=ids.map(x=>xmlNames.get(normalize(x))).find(x=>x&&programs.has(x));}
  return programs.get(id)||[];
@@ -61,6 +62,7 @@ function programBlock(label,translated,p){
  return d;
 }
 async function play(row){
+ if(row.kind==="atsc"){report("Local tuner playback is not wired yet.","Воспроизведение с местного тюнера ещё не подключено.");return;}
  if(busy)return;const rev=serial;setBusy(true);report("Opening channel…","Открытие канала…");
  try{
   let id=row.id;
@@ -76,7 +78,7 @@ async function play(row){
 }
 function render(){
  if(!grid)return;
- const query=normalize(search?.value),all=[...tuner,...imported];
+ const query=normalize(search?.value),all=[...tuner,...localChannels,...imported];
  let rows=mode==="saved"?saved:mode==="world"?imported.filter(x=>x.country&&(!country||x.country===country)):all;
  if(query)rows=rows.filter(x=>normalize(x.number+" "+x.name+" "+(x.country||"")).includes(query));
  heading.textContent=mode==="saved"?tr("Saved Channels","Избранные каналы"):mode==="world"?tr("World TV","Мировое телевидение"):tr("Channel Guide","Телепрограмма");
@@ -94,6 +96,7 @@ function render(){
   const {current,next}=guideInfo(row);
   const info=el("div","dk-live-programs");info.append(programBlock("Now","Сейчас",current),programBlock("Next","Далее",next));
   const watch=button("Watch Live","Смотреть",()=>void play(row),"dk-live-small dk-live-watch");
+  if(row.kind==="atsc"){watch.disabled=true;watch.textContent=tr("Playback pending","Воспроизведение пока недоступно");}
   card.append(identity,info,watch);frag.append(card);
  }
  grid.append(frag);
@@ -108,6 +111,23 @@ async function loadLineup(value){
  catch(_){if(epoch(rev))report("Cannot load tuner channels.","Не удалось загрузить каналы тюнера.");}
  finally{setBusy(false);}
 }
+async function atscAction(action,device){
+ if(busy||atscRunning)return;const rev=serial;atscCancelled=false;atscRunning=true;setBusy(true);
+ report(action==="guide"?"Reading broadcast programme guide…":action==="scan"?"Scanning antenna channels…":"Loading saved antenna channels…",action==="guide"?"Чтение эфирной телепрограммы…":action==="scan"?"Поиск эфирных каналов…":"Загрузка сохранённых эфирных каналов…");
+ try{
+  const data=await bridge.liveTvAtscRun(action,device);if(!epoch(rev))return;
+  localChannels=[...localChannels.filter(x=>x.device!==device),...data.channels.map(x=>({...x,kind:"atsc",device,guideId:x.number}))];
+  for(const key of [...broadcastPrograms.keys()])if(key.startsWith("atsc:"+device+":"))broadcastPrograms.delete(key);
+  for(const p of data.programs){const key="atsc:"+device+":"+p.number;if(!broadcastPrograms.has(key))broadcastPrograms.set(key,[]);broadcastPrograms.get(key).push(p);}
+  for(const rows of broadcastPrograms.values())rows.sort((a,b)=>a.start-b.start);
+  showAll();report("Antenna data loaded.","Эфирные данные загружены.");
+ }catch(_){if(epoch(rev))report(atscCancelled?"Antenna operation cancelled.":"Antenna operation failed. Check tuner permissions and signal.",atscCancelled?"Операция отменена.":"Ошибка. Проверьте доступ к тюнеру и сигнал.");}
+ finally{atscRunning=false;setBusy(false);}
+}
+bridge.onLiveTvAtscProgress?.(p=>{
+ if(!active||!atscRunning)return;
+ report((p.action==="guide"?"Guide":"Scan")+" "+p.completed+"/"+p.total+" · "+p.found,(p.action==="guide"?"Телепрограмма":"Поиск")+" "+p.completed+"/"+p.total+" · "+p.found);
+});
 function scanTuners(){
  if(busy)return;clearWork();showAll();
  const input=makeInput("text","Tuner IPv4 address","Адрес тюнера IPv4");input.value=host;
@@ -117,7 +137,14 @@ function scanTuners(){
   const [network,local]=await Promise.allSettled([bridge.liveTvDiscover(),bridge.liveTvLocalTuners()]);
   if(!epoch(rev))return;
   for(const d of network.status==="fulfilled"?network.value:[]){devices.append(button("HDHomeRun "+d.host,"Сетевой тюнер "+d.host,()=>{input.value=d.host;void loadLineup(d.host);}));}
-  for(const d of local.status==="fulfilled"?local.value:[]){devices.append(el("p","dk-live-muted",(d.name||tr("TV tuner","ТВ-тюнер"))+" "+d.adapter+":"+d.frontend+" · "+tr(d.accessible?"Detected; local channel scanning not yet implemented.":"Device permission required.",d.accessible?"Обнаружен; поиск каналов ещё не реализован.":"Требуется доступ к устройству.")));}
+  const ready=await bridge.liveTvAtscStatus?.().catch(()=>false);if(!epoch(rev))return;
+  for(const d of local.status==="fulfilled"?local.value:[]){
+   const group=el("div","dk-live-devices"),device="adapter"+d.adapter+"/frontend"+d.frontend;
+   group.append(el("p","dk-live-muted",(d.name||tr("TV tuner","ТВ-тюнер"))+" "+d.adapter+":"+d.frontend+" · "+tr(!d.accessible?"Device permission required.":ready?"ATSC 1.0":"ATSC helper unavailable.",!d.accessible?"Требуется доступ к устройству.":ready?"ATSC 1.0":"Модуль ATSC недоступен.")));
+   if(ready&&d.accessible)group.append(button("Scan Antenna","Поиск эфирных каналов",()=>void atscAction("scan",device)),button("Load Saved Antenna Channels","Загрузить эфирные каналы",()=>void atscAction("cached",device)),button("Refresh Broadcast Guide","Обновить эфирную телепрограмму",()=>void atscAction("guide",device)));
+   devices.append(group);
+  }
+  if(ready)devices.append(button("Cancel Antenna Operation","Отменить операцию",()=>{atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}));
   const count=(network.status==="fulfilled"?network.value.length:0)+(local.status==="fulfilled"?local.value.length:0);
   report(count?"Select a tuner or enter its address.":"No tuners found. Enter an address manually.",count?"Выберите тюнер или введите адрес.":"Тюнеры не найдены. Введите адрес вручную.");
  }catch(_){if(epoch(rev))report("Tuner discovery failed.","Ошибка поиска тюнеров.");}finally{setBusy(false);}})();
@@ -208,6 +235,6 @@ function init(){
 }
 function syncTabs(){if(!active)return;for(const id of ["tabMovies","tabTV"])$(id)?.setAttribute("aria-selected","false");$("libraryLiveTV")?.setAttribute("aria-selected","true");}
 function open(){init();active=true;serial++;panel.hidden=false;panel.parentElement.classList.add("dk-live-active");syncTabs();render();}
-function close(){if(!active)return;active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
+function close(){if(!active)return;if(atscRunning){atscCancelled=true;void bridge.liveTvAtscCancel?.().catch(()=>{});}active=false;serial++;panel.hidden=true;panel.parentElement.classList.remove("dk-live-active");$("libraryLiveTV")?.setAttribute("aria-selected","false");}
 window.DKLiveTV={open,close,syncTabs};
 })();

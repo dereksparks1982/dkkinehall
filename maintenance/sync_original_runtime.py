@@ -90,6 +90,7 @@ def sync(root, codec_source=None):
     if not codec_bundle.enabled and codec_source is not None:
         codec_bundle = InstalledCodecBundle(source_root)
     library_bundle = LibraryBundle(source_root)
+    library_bundle.prepare_dvb()
     required = {"index.html","player.js","player.css","mkv-tracks.js",
                 "mkv-subtitles.js","pgs-subtitles.js","vobsub.js",
                 "queue-autoplay.js","folder-access.js","i18n.js",
@@ -120,6 +121,8 @@ def sync(root, codec_source=None):
                 name = entry.name.removeprefix("./")
                 existing.add(name)
                 relative = name[len(PREFIX):] if name.startswith(PREFIX) else ""
+                if entry.isfile() and name == "resources/app/bin/dk-atsc" and library_bundle.dvb_binary:
+                    continue # replaced by the newly compiled helper below
                 if entry.isfile() and name == "resources/app/main.cjs":
                     # The window icon was already configured, but Ubuntu's dock
                     # could not associate the app with our registered launcher.
@@ -193,6 +196,7 @@ def sync(root, codec_source=None):
             # native-codec bridge. The archive remains staged until verified.
             library_bundle.assert_ready()
             library_bundle.add_host(after, existing)
+            library_bundle.add_dvb(after)
             codec_bundle.assert_ready()
             codec_bundle.add_entries(after, existing)
         with tarfile.open(updated, "r:gz") as archive:

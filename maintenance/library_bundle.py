@@ -7,6 +7,9 @@ from pathlib import Path
 import io
 import os
 import tarfile
+import shutil
+import subprocess
+import tempfile
 
 PREFIX="resources/app/"
 MAIN="resources/app/main.cjs"
@@ -27,6 +30,8 @@ class LibraryBundle:
         missing=[str(p) for p in (self.host,self.preload,self.indexer)
                  if not p.is_file()]
         if missing:raise RuntimeError("Library Home runtime sources missing: "+", ".join(missing))
+        self.dvb_binary=None
+        self.dvb_temp=None
         self.main_count=0
         self.preload_count=0
 
@@ -68,6 +73,28 @@ class LibraryBundle:
         if self.main_count!=1 or self.preload_count!=1:
             raise RuntimeError("Library Home/player wiring is incomplete")
 
+    def prepare_dvb(self):
+        source=self.root/"desktop"/"dvb"
+        compiler=shutil.which("c++")
+        if not compiler:
+            print("ATSC helper not built: C++ compiler unavailable; existing player remains usable.")
+            return
+        self.dvb_temp=tempfile.TemporaryDirectory(prefix="dk-atsc-")
+        binary=Path(self.dvb_temp.name)/"dk-atsc"
+        try:
+            subprocess.run([compiler,"-std=c++17","-O2","-pthread",
+                str(source/"dk-atsc.cpp"),str(source/"tuner_backend.cpp"),"-o",str(binary)],
+                check=True,timeout=180)
+            self.dvb_binary=binary
+        except (OSError,subprocess.SubprocessError) as exc:
+            print("ATSC helper unavailable:",exc)
+    def add_dvb(self,archive):
+        if not self.dvb_binary:return
+        data=self.dvb_binary.read_bytes()
+        info=tarfile.TarInfo("./resources/app/bin/dk-atsc")
+        info.size=len(data);info.mode=0o755
+        archive.addfile(info,io.BytesIO(data))
+        self.dvb_temp.cleanup()
     def add_host(self,archive,existing):
         for name,source in ((HOST,self.host),(INDEXER,self.indexer)):
             if name in existing:continue

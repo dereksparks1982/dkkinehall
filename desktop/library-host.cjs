@@ -139,6 +139,39 @@ async function listLocalTVTuners(){
   }
   return out;
 }
+let atscJob=null;
+const atscBinary=()=>path.join(app.getAppPath(),"bin","dk-atsc");
+function atscReady(){try{fs.accessSync(atscBinary(),fs.constants.X_OK);return true;}catch(_){return false;}}
+function cancelAtsc(){
+  if(!atscJob)return false;
+  atscJob.cancelled=true;atscJob.child.kill("SIGTERM");return true;
+}
+async function runAtsc(action,device,web){
+  if(!atscReady()||!["scan","guide","cached"].includes(action)||typeof device!=="string"||!/^adapter\d{1,4}\/frontend\d{1,4}$/.test(device))throw Error("ATSC helper or device unavailable");
+  if(atscJob)throw Error("ATSC operation already running");
+  const cache=path.join(app.getPath("userData"),"atsc-v1",device.replace("/","-"));
+  fs.mkdirSync(cache,{recursive:true,mode:0o700});
+  return new Promise((resolve,reject)=>{
+    const child=spawn(atscBinary(),[action,device,cache],{stdio:["ignore","pipe","pipe"],shell:false});
+    const job={child,cancelled:false};atscJob=job;
+    let stdout="",stderr="",done=false,tooLarge=false;
+    const timer=setTimeout(()=>{job.cancelled=true;child.kill("SIGKILL");},15*60*1000);
+    const finish=(err,value)=>{if(done)return;done=true;clearTimeout(timer);if(atscJob===job)atscJob=null;err?reject(err):resolve(value);};
+    child.stdout.on("data",chunk=>{stdout+=chunk.toString("utf8");if(stdout.length>8*1024*1024){tooLarge=true;child.kill("SIGKILL");}});
+    child.stderr.on("data",chunk=>{
+      stderr+=chunk.toString("utf8");
+      const lines=stderr.split("\n");stderr=lines.pop().slice(-1024);
+      for(const line of lines){const m=/^PROGRESS (\d+) (\d+) (\d+)$/.exec(line);if(m&&!web.isDestroyed())web.send("dk-live-tv:atsc-progress",{action,completed:+m[1],total:+m[2],found:+m[3]});}
+    });
+    child.on("error",error=>finish(error));
+    child.on("close",code=>{
+      if(job.cancelled)return finish(Error("ATSC operation cancelled"));
+      if(code!==0||tooLarge)return finish(Error("ATSC operation failed"));
+      try{const data=JSON.parse(stdout);if(!Array.isArray(data.channels)||!Array.isArray(data.programs)||data.channels.length>5000||data.programs.length>50000)throw Error("Invalid ATSC response");finish(null,data);}
+      catch(error){finish(error);}
+    });
+  });
+}
 async function loadLiveLineup(host){
   if(typeof host!=="string"||!privateIPv4(host))throw Error("Private IPv4 tuner address required");
   if(liveLineupBusy)throw Error("Tuner request busy");
@@ -1542,6 +1575,18 @@ function install(originalWindow,originalPlayer){
     if((!allowed(event)&&!onlyPlayer(event))||!["en","ru"].includes(value))throw Error("Language request rejected");
     return writeInterfaceLanguage(value);
   });
+  ipcMain.handle("dk-live-tv:atsc-status",event=>{
+    if(!allowed(event)||activePage!=="library")throw Error("ATSC request rejected");
+    return atscReady();
+  });
+  ipcMain.handle("dk-live-tv:atsc-run",(event,action,device)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("ATSC request rejected");
+    return runAtsc(action,device,event.sender);
+  });
+  ipcMain.handle("dk-live-tv:atsc-cancel",event=>{
+    if(!allowed(event)||activePage!=="library")throw Error("ATSC request rejected");
+    return cancelAtsc();
+  });
   ipcMain.handle("dk-live-tv:local-tuners",event=>{
     if(!onlyPlayer(event)&&!(allowed(event)&&activePage==="library"))throw Error("Tuner request rejected");
     return listLocalTVTuners();
@@ -1925,7 +1970,7 @@ function install(originalWindow,originalPlayer){
     return showPage("library");
   });
   home.on("closed",()=>{
-    closeNetwork();scanController?.abort();
+    cancelAtsc();closeNetwork();scanController?.abort();
     if(installedWindow())player.webContents.close();
     player=null;home=null;
   });

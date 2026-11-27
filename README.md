@@ -8,6 +8,10 @@
 
 DK Kinehall (ДК Кинехолл) is a free media player made by **DK Softworks**. Watch movies and TV shows or listen to music saved on your own device.
 
+## Our direction
+
+DK Kinehall aims to match VLC's practical playback and media tools, exceed them with an integrated personal cinema and television library, support extensions from multiple media-player ecosystems, and eventually provide an optional self-hosted media server and Plex migration tools. The desktop player will remain free, ad-free and usable without a subscription, mandatory account or separate server. Third-party streams may have their own access conditions. These are development commitments, not claims of completed feature parity. See the [master roadmap](docs/ROADMAP.md) for planned work and acceptance requirements.
+
 ## Features
 
 - Play movies, TV shows and music.

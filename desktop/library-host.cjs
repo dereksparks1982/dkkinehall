@@ -271,36 +271,116 @@ async function browseNetwork(id,control,type,objectId,start,query=null){
   try{return await networkRequest(target,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPACTION":'"'+type+'#'+action+'"',"Content-Length":Buffer.byteLength(body)}},body);}
   finally{networkBrowseBusy--;}
 }
-function serveNetwork(req,res){
+// Explicit public destinations are resolved and pinned separately at every hop.
+// LAN grants never cross their original host; no user credentials or special networks.
+const public4=ip=>{
+  if(require("node:net").isIP(ip)!==4)return false;
+  const [a,b,c]=ip.split(".").map(Number);
+  return a>0&&a<224&&a!==10&&a!==127&&!(a===100&&b>=64&&b<=127)&&!(a===169&&b===254)&&!(a===172&&b>=16&&b<=31)&&!(a===192&&(b===168||b===0||b===88&&c===99))&&!(a===198&&(b===18||b===19||b===51&&c===100))&&!(a===203&&b===0&&c===113);
+};
+async function streamTarget(value,lan=null){
+  const url=new URL(value);
+  if(url.href.length>4096||!["http:","https:"].includes(url.protocol)||url.username||url.password||url.hash)throw Error("Invalid stream address");
+  if(lan){if(url.hostname!==lan||!privateIPv4(url.hostname))throw Error("LAN host changed");return {url};}
+  const ips=await require("node:dns").promises.lookup(url.hostname,{family:4,all:true});
+  if(!ips.length||ips.some(x=>!public4(x.address)))throw Error("Invalid public destination");
+  const ip=ips[0].address;
+  return {url,lookup:(_host,opts,cb)=>{if(typeof opts==="function"){cb=opts;opts={};}if(opts?.all)cb(null,[{address:ip,family:4}]);else cb(null,ip,4);}};
+}
+function openStream(target,{method="GET",range,timeout=20000,track=()=>{},signal}={}){
+  return new Promise((resolve,reject)=>{
+    const lib=target.url.protocol==="https:"?netHTTPS:netHTTP;
+    const req=lib.request(target.url,{method,agent:false,signal,headers:{"User-Agent":"DK Kinehall","Accept":"*/*","Accept-Encoding":"identity",...(range?{Range:range}:{})},...(target.lookup?{lookup:target.lookup,family:4}:{})},resolve);
+    track(req);req.setTimeout(timeout,()=>req.destroy(Error("Stream timed out")));req.on("error",reject);req.end();
+  });
+}
+async function followStream(value,lan,opts={}){
+  let url=new URL(value);
+  for(let i=0;i<6;i++){
+    const target=await streamTarget(url.href,lan);
+    const reply=await openStream(target,opts);
+    if(![301,302,303,307,308].includes(reply.statusCode))return {reply,url:target.url};
+    const location=reply.headers.location;reply.destroy();
+    if(typeof location!=="string"||i===5)throw Error("Redirect limit");
+    url=new URL(location,url);
+  }
+  throw Error("Redirect limit");
+}
+async function boundedBody(reply,limit){
+  const chunks=[];let size=0;
+  for await(const chunk of reply){size+=chunk.length;if(size>limit){reply.destroy();throw Error("Response too large");}chunks.push(chunk);}
+  return Buffer.concat(chunks);
+}
+const hlsMime=m=>/^(?:application\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)|audio\/(?:mpegurl|x-mpegurl))$/i.test(m);
+function rewriteHLS(text,base,entry,token,port){
+  if(!/^\uFEFF?#EXTM3U(?:\r?\n|$)/.test(text)||!/#EXT-X-/i.test(text)||/#EXT-X-DEFINE:|\{\$|#EXT-X-CONTENT-STEERING:/i.test(text))throw Error("Unsupported HLS manifest");
+  entry.parts??=new Map();entry.partKeys??=new Map();
+  function ref(raw,kind){
+    const url=new URL(raw,base);
+    if(!["http:","https:"].includes(url.protocol)||url.username||url.password||url.hash||url.href.length>4096)throw Error("Unsafe HLS URL");
+    const ext=/\.(m3u8|m3u|ts|m4s|mp4|aac|ac3|mp3|vtt|webvtt|key|m4a|cmfv|cmfa)$/i.exec(url.pathname)?.[1]?.toLowerCase();
+    const suffix=kind==="playlist"?"m3u8":kind==="key"?"key":kind==="init"?(ext||"mp4"):(ext||"ts");
+    const key=kind+" "+url.href;
+    let id=entry.partKeys.get(key);
+    if(!id){
+      while(entry.parts.size>=4096){const first=entry.parts.keys().next().value;const old=entry.parts.get(first);entry.parts.delete(first);entry.partKeys.delete(old.key);}
+      id=randomBytes(12).toString("hex");entry.parts.set(id,{url,kind,key,suffix});entry.partKeys.set(key,id);
+    }
+    return "http://127.0.0.1:"+port+"/hls/"+token+"/"+id+"."+suffix;
+  }
+  let variant=false;
+  return text.split(/\r?\n/).map(line=>{
+    const trimmed=line.trim();if(!trimmed)return line;
+    if(!trimmed.startsWith("#")){const kind=variant?"playlist":"segment";variant=false;return ref(trimmed,kind);}
+    if(/^#EXT-X-STREAM-INF:/i.test(trimmed))variant=true;
+    if(!/^#EXT-X-/i.test(trimmed))return line;
+    if(/(?:^|[:,])\s*(?:[A-Z0-9-]*URI)\s*=/i.test(trimmed)){
+      const kind=/^#EXT-X-(?:KEY|SESSION-KEY):/i.test(trimmed)?"key":/^#EXT-X-MAP:/i.test(trimmed)?"init":/^#EXT-X-(?:MEDIA|I-FRAME-STREAM-INF|RENDITION-REPORT):/i.test(trimmed)?"playlist":"segment";
+      const rewritten=trimmed.replace(/([:,]\s*(?:[A-Z0-9-]*URI)\s*=\s*)"([^"]+)"/gi,(_,prefix,value)=>prefix+'"'+ref(value,kind)+'"');
+      if([...rewritten.matchAll(/(?:^|[:,])\s*(?:[A-Z0-9-]*URI)\s*=([^,]*)/gi)].some(m=>!m[1].trimStart().startsWith('"')))throw Error("Unquoted HLS URI");
+      return rewritten;
+    }
+    return line;
+  }).join("\n");
+}
+async function serveNetwork(req,res){
   if((req.url||"").startsWith("/voiceover/"))return serveVoiceover(req,res);
-  const match=/^\/media\/([a-f0-9]{48})$/.exec(req.url||"");
-  const entry=match&&networkGrants.get(match[1]);
+  const root=/^\/media\/([a-f0-9]{48})$/.exec(req.url||"");
+  const part=/^\/hls\/([a-f0-9]{48})\/([a-f0-9]{24})\.([a-z0-9]+)$/.exec(req.url||"");
+  const token=(root||part)?.[1],entry=token&&networkGrants.get(token);
+  const resource=part&&entry?.parts?.get(part[2]);
   const fail=(status=404)=>{if(!res.headersSent)res.writeHead(status,{"Cache-Control":"no-store"});res.end();};
-  if(!entry||!["GET","HEAD"].includes(req.method)||networkClients.size>=8)return fail();
+  if(!entry||(part&&(!resource||resource.suffix!==part[3]))||!["GET","HEAD"].includes(req.method)||networkClients.size>=12)return fail();
   const range=req.headers.range;
   if(range&&!/^bytes=(?:\d{1,16}-\d{0,16}|-\d{1,16})$/.test(range))return fail(416);
-  const url=entry.url,lib=url.protocol==="https:"?netHTTPS:netHTTP;
-  const upstream=lib.request(url,{method:req.method,agent:false,headers:range?{Range:range}:{},...(entry.lookup?{lookup:entry.lookup,family:4}:{})},reply=>{
+  const controller=new AbortController();res.on("close",()=>controller.abort());
+  const track=upstream=>{
+    networkClients.add(upstream);entry.clients.add(upstream);
+    upstream.on("close",()=>{networkClients.delete(upstream);entry.clients.delete(upstream);});
+  };
+  const timer=setTimeout(()=>controller.abort(),20000);
+  try{
+    const {reply,url}=await followStream((resource?.url||entry.url).href,entry.lan||null,{method:req.method,range,track,signal:controller.signal});
+    clearTimeout(timer);
+    if(!networkGrants.has(token)||res.destroyed){reply.destroy();return;}
     if(![200,206,416].includes(reply.statusCode)){reply.destroy();return fail(502);}
     const mime=String(reply.headers["content-type"]||"").split(";")[0].trim().toLowerCase();
-    if(reply.statusCode!==416&&!/^(video\/|audio\/|application\/octet-stream$)/.test(mime)){
+    const manifest=hlsMime(mime)||resource?.kind==="playlist"||/\.m3u8?$/i.test(url.pathname)||(!resource&&mime==="text/plain");
+    const headers={"Content-Type":mime||"application/octet-stream","Access-Control-Allow-Origin":"null","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
+    if(manifest){
+      if(req.method==="HEAD"){reply.destroy();res.writeHead(200,{...headers,"Content-Type":"application/vnd.apple.mpegurl"});return res.end();}
+      const body=await boundedBody(reply,2*1024*1024);
+      const rewritten=rewriteHLS(body.toString("utf8"),url,entry,token,networkProxy.address().port);
+      res.writeHead(200,{...headers,"Content-Type":"application/vnd.apple.mpegurl","Content-Length":Buffer.byteLength(rewritten)});return res.end(rewritten);
+    }
+    if(reply.statusCode!==416&&!/^(video\/|audio\/|application\/(?:octet-stream|mp4|mpegts|x-mpegts)$|binary\/octet-stream$)/.test(mime)&&!(resource?.kind==="key"||resource?.kind==="init"||resource?.kind==="segment"&&/^text\/vtt$/.test(mime))){
       reply.destroy();return fail(415);
     }
-    const headers={"Content-Type":mime||"application/octet-stream","Access-Control-Allow-Origin":"null",
-      "Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
-    for(const key of ["content-length","content-range","accept-ranges"]){
-      const value=reply.headers[key];if(typeof value==="string")headers[key]=value;
-    }
+    for(const k of ["content-length","content-range","accept-ranges"]){if(typeof reply.headers[k]==="string")headers[k]=reply.headers[k];}
     res.writeHead(reply.statusCode,headers);
     reply.on("error",()=>res.destroy());reply.on("aborted",()=>res.destroy());
     if(req.method==="HEAD"){reply.resume();res.end();}else reply.pipe(res);
-  });
-  networkClients.add(upstream);entry.clients.add(upstream);
-  upstream.setTimeout(20000,()=>upstream.destroy(Error("Network media timed out")));
-  upstream.on("close",()=>{networkClients.delete(upstream);entry.clients.delete(upstream);});
-  upstream.on("error",()=>{if(res.headersSent)res.destroy();else fail(502);});
-  res.on("close",()=>upstream.destroy());
-  upstream.end();
+  }catch(_){if(!res.destroyed)fail(502);}finally{clearTimeout(timer);}
 }
 async function startNetworkProxy(){
   if(networkProxy?.listening)return networkProxy.address().port;
@@ -320,33 +400,36 @@ async function grantNetwork(id,value){
   if(networkGrants.size>=256)throw Error("Network media queue is full");
   const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
   if(networkGrants.size>=256)throw Error("Network media queue is full");
-  networkGrants.set(token,{url,clients:new Set()});
+  networkGrants.set(token,{url,lan:url.hostname,clients:new Set()});
   return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
 }
-// Explicit HTTP(S) streams: LAN addresses use the existing bounded grant.
- // Internet hostnames are resolved once and pinned to a public IPv4 address;
- // no redirects, user credentials, loopback or special-use destinations.
- async function grantExplicitLiveStream(value){
-  if(typeof value!=="string"||value.length>4096)throw Error("Invalid stream URL");
-  const u=new URL(value);
-  if(!["http:","https:"].includes(u.protocol)||u.username||u.password||u.hash)throw Error("Invalid stream URL");
-  if(privateIPv4(u.hostname))return grantNetwork(null,u.href);
-  const dns=require("node:dns").promises,net=require("node:net");
-  const public4=ip=>{
-   if(net.isIP(ip)!==4)return false;
-   const [a,b,c]=ip.split(".").map(Number);
-   return a>0&&a<224&&a!==10&&a!==127&&!(a===100&&b>=64&&b<=127)&&!(a===169&&b===254)&&!(a===172&&b>=16&&b<=31)&&!(a===192&&(b===168||b===0||b===88&&c===99))&&!(a===198&&(b===18||b===19||b===51&&c===100))&&!(a===203&&b===0&&c===113);
-  };
-  const ips=await dns.lookup(u.hostname,{family:4,all:true});
-  if(!ips.length||ips.some(x=>!public4(x.address)))throw Error("Invalid stream destination");
-  const ip=ips[0].address;
-  if(networkGrants.size>=256)throw Error("Network media queue is full");
-  const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
-  if(networkGrants.size>=256)throw Error("Network media queue is full");
-  const lookup=(_hostname,opts,cb)=>{if(typeof opts==="function"){cb=opts;opts={};}if(opts?.all)cb(null,[{address:ip,family:4}]);else cb(null,ip,4);};
-  networkGrants.set(token,{url:u,clients:new Set(),lookup});
-  return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
- }
+// Public stream grants are session-scoped; redirects and HLS resources are validated individually.
+async function grantExplicitLiveStream(value){
+ const u=new URL(value);
+ if(privateIPv4(u.hostname))return grantNetwork(null,u.href);
+ await streamTarget(u.href);
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ const port=await startNetworkProxy(),token=randomBytes(24).toString("hex");
+ if(networkGrants.size>=256)throw Error("Network media queue is full");
+ networkGrants.set(token,{url:u,clients:new Set()});
+ return {token,src:"http://127.0.0.1:"+port+"/media/"+token};
+}
+let liveResourceBusy=0;
+async function liveResource(value,kind){
+ if(typeof value!=="string"||value.length>4096||!["playlist","guide","logo"].includes(kind)||liveResourceBusy>=6)throw Error("TV resource unavailable");
+ const limit=kind==="logo"?2*1024*1024:kind==="guide"?32*1024*1024:8*1024*1024;
+ liveResourceBusy++;const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),45000);
+ try{
+  const {reply}=await followStream(value,null,{signal:controller.signal,timeout:15000});
+  if(reply.statusCode!==200){reply.destroy();throw Error("TV resource unavailable");}
+  const mime=String(reply.headers["content-type"]||"").split(";")[0].toLowerCase();
+  if(kind==="logo"&&!/^image\/(?:png|jpeg|webp|gif)$/.test(mime)){reply.destroy();throw Error("Unsupported logo");}
+  let data=await boundedBody(reply,limit);
+  if(kind==="logo")return {mime,base64:data.toString("base64")};
+  if(data[0]===31&&data[1]===139)data=require("node:zlib").gunzipSync(data,{maxOutputLength:kind==="guide"?64*1024*1024:limit});
+  return {text:data.toString("utf8")};
+ }finally{clearTimeout(timer);liveResourceBusy--;}
+}
  // Only the native decoder receives a validated, session-scoped loopback URL.
 async function resolveNetworkMedia(token){
   if(typeof token!=="string"||!/^[a-f0-9]{48}$/.test(token)||!networkGrants.has(token))throw Error("Network media selection expired");
@@ -1602,6 +1685,10 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-live-tv:grant",(event,id)=>{
     if(!onlyPlayer(event)||typeof id!=="string")throw Error("Tuner request rejected");
     return grantLiveChannel(id);
+  });
+  ipcMain.handle("dk-live-tv:resource",(event,url,kind)=>{
+    if(!allowed(event)||activePage!=="library")throw Error("TV resource request rejected");
+    return liveResource(url,kind);
   });
   ipcMain.handle("dk-live-tv:play",async(event,kind,value,name)=>{
     if(!allowed(event)||activePage!=="library"||!["tuner","url"].includes(kind)||

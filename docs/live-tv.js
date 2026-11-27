@@ -12,6 +12,7 @@ const read=(k,fallback)=>{try{return JSON.parse(localStorage.getItem(k))??fallba
 const write=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(_){return false;}};
 const keys={playlist:"dk-kinehall.live.playlist.v1",saved:"dk-kinehall.live.saved.v1",host:"dk-kinehall.live.host.v1"};
 const validURL=value=>{try{const u=new URL(value);return /^https?:$/.test(u.protocol)&&!u.username&&!u.password&&!u.hash&&u.href.length<=4096?u.href:null;}catch(_){return null;}};
+let directory=[],directoryCountry="",guideSources=new Set(),guideLast=new Map(),logoObserver=null,logoGeneration=0,logoQueue=[],logoBusy=0;const logoCache=new Map();
 let imported=read(keys.playlist,[]);if(!Array.isArray(imported))imported=[];
 imported=imported.filter(x=>x&&validURL(x.url)&&typeof x.name==="string").slice(0,3000);
 let saved=read(keys.saved,[]);if(!Array.isArray(saved))saved=[];
@@ -78,18 +79,17 @@ async function play(row){
 }
 function render(){
  if(!grid)return;
- const query=normalize(search?.value),all=[...tuner,...localChannels,...imported];
- let rows=mode==="saved"?saved:mode==="world"?imported.filter(x=>x.country&&(!country||x.country===country)):all;
+ const query=normalize(search?.value),all=[...tuner,...localChannels,...new Map([...imported,...directory].map(x=>[x.url,x])).values()];
+ let rows=mode==="saved"?saved:mode==="world"?all.filter(x=>x.kind==="url"&&(!country||x.country===country)):all;
  if(query)rows=rows.filter(x=>normalize(x.number+" "+x.name+" "+(x.country||"")).includes(query));
  heading.textContent=mode==="saved"?tr("Saved Channels","Избранные каналы"):mode==="world"?tr("World TV","Мировое телевидение"):tr("Channel Guide","Телепрограмма");
+ logoObserver?.disconnect();logoGeneration++;logoQueue=[];
  grid.replaceChildren();
  if(!rows.length){grid.append(el("p","dk-live-muted",mode==="world"?tr("Import a playlist with country information.","Импортируйте список с указанием страны."):mode==="saved"?tr("No saved channels yet.","Нет избранных каналов."):tr("Scan a tuner or import a playlist to find channels.","Найдите каналы через тюнер или импортируйте список.")));return;}
  const frag=document.createDocumentFragment();
  for(const row of rows.slice(0,250)){
   const card=el("article","dk-live-card"),identity=el("div","dk-live-identity"),art=el("div","dk-live-art"),name=el("div","dk-live-name");
-  const file=logo(row);
-  if(file){const img=el("img");img.alt="";img.loading="lazy";img.src="./assets/channel_logos/builtin/"+encodeURIComponent(file);img.addEventListener("error",()=>{img.remove();art.textContent=row.number||"▣";},{once:true});art.append(img);}
-  else art.textContent=row.number||"▣";
+  attachLogo(art,row);
   name.append(el("strong","",row.name),el("small","",row.number|| (row.country?countryLabel(row.country):tr("Stream","Поток"))));
   const star=button(isSaved(row)?"Remove saved":"Save",isSaved(row)?"Убрать":"Сохранить",()=>saveRow(row),"dk-live-small dk-live-save");
   identity.append(art,name,star);
@@ -101,6 +101,32 @@ function render(){
  }
  grid.append(frag);
  if(rows.length>250)grid.append(el("p","dk-live-muted",tr("Showing the first 250 channels. Use search to narrow the guide.","Показаны первые 250 каналов. Используйте поиск.")));
+}
+function attachLogo(art,row){
+ const file=logo(row),url=validURL(row.logo||"");
+ art.textContent=row.number||"▣";
+ const paint=src=>{const img=el("img");img.alt="";img.loading="lazy";img.src=src;img.addEventListener("error",()=>{img.remove();art.textContent=row.number||"▣";},{once:true});art.replaceChildren(img);};
+ if(file){paint("./assets/channel_logos/builtin/"+encodeURIComponent(file));return;}
+ if(!url)return;
+ if(logoCache.has(url)){paint(logoCache.get(url));return;}
+ if(!logoObserver&&typeof IntersectionObserver==="function")logoObserver=new IntersectionObserver(entries=>{
+  for(const e of entries)if(e.isIntersecting){logoObserver.unobserve(e.target);const job=e.target.dkLogoJob;if(job)logoQueue.push(job);}
+  pumpLogos();
+ },{rootMargin:"150px"});
+ const job={url,paint,generation:logoGeneration};art.dkLogoJob=job;
+ if(logoObserver)logoObserver.observe(art);else{logoQueue.push(job);pumpLogos();}
+}
+function pumpLogos(){
+ while(logoBusy<3&&logoQueue.length){
+  const job=logoQueue.shift();if(job.generation!==logoGeneration||!active)continue;
+  logoBusy++;
+  Promise.resolve().then(()=>bridge.liveTvResource(job.url,"logo")).then(data=>{
+   if(!/^image\/(?:png|jpeg|webp|gif)$/.test(data.mime)||typeof data.base64!=="string"||data.base64.length>2800000)return;
+   const src="data:"+data.mime+";base64,"+data.base64;
+   if(src.length<400000){logoCache.set(job.url,src);while(logoCache.size>48)logoCache.delete(logoCache.keys().next().value);}
+   if(active&&job.generation===logoGeneration)job.paint(src);
+  }).catch(()=>{}).finally(()=>{logoBusy--;pumpLogos();});
+ }
 }
 function clearWork(){workspace.replaceChildren();}
 function makeInput(type,en,russian){const input=el("input","dk-live-input");input.type=type;input.placeholder=tr(en,russian);input.setAttribute("aria-label",tr(en,russian));return input;}
@@ -159,18 +185,18 @@ async function discover(){
 function direct(){
  if(busy)return;clearWork();const input=makeInput("url","HTTP or HTTPS stream address","Адрес потока HTTP или HTTPS");
  const open=()=>{const url=validURL(input.value.trim());if(!url){report("Enter a valid HTTP or HTTPS address.","Введите действительный адрес HTTP или HTTPS.");return;}const name=new URL(url).hostname;void play({kind:"url",url,name});};
- workspace.append(input,button("Play Stream","Воспроизвести поток",open));input.addEventListener("keydown",e=>{if(e.key==="Enter")open();});input.focus();
+ workspace.append(input,button("Play Stream","Воспроизвести поток",open),button("Import URL","Импорт по адресу",()=>void remotePlaylist(input.value.trim(),false)));input.addEventListener("keydown",e=>{if(e.key==="Enter")open();});input.focus();
 }
-function parseM3U(text){
+function parseM3U(text,base=null){
  let pending=null;const rows=[],seen=new Set();
  for(const raw of text.split(/\r?\n/)){
   const line=raw.trim();if(!line)continue;
   if(/^#EXTINF:/i.test(line)){
    const a={};for(const m of line.matchAll(/([\w-]+)="([^"]*)"/g))a[m[1].toLowerCase()]=m[2];
    let q=false,comma=-1;for(let i=0;i<line.length;i++){if(line[i]==='"')q=!q;else if(line[i]===","&&!q){comma=i;break;}}
-   pending={name:(comma>=0?line.slice(comma+1):a["tvg-name"]||"").trim().slice(0,250),guideId:(a["tvg-id"]||"").slice(0,250),country:(a["tvg-country"]||"").split(/[;,]/)[0].trim().toUpperCase(),number:(a["tvg-chno"]||"").slice(0,20)};
+   pending={name:(comma>=0?line.slice(comma+1):a["tvg-name"]||"").trim().slice(0,250),guideId:(a["tvg-id"]||"").slice(0,250),country:(a["tvg-country"]||/\.([a-z]{2})(?:@[^\s]+)?$/i.exec(a["tvg-id"]||"")?.[1]||"").split(/[;,]/)[0].trim().toUpperCase(),number:(a["tvg-chno"]||"").slice(0,20),logo:validURL(a["tvg-logo"]||"")||"",group:(a["group-title"]||"").slice(0,100)};
   }else if(!line.startsWith("#")){
-   const url=validURL(line);if(url&&!seen.has(url)){seen.add(url);const m=pending||{};rows.push({kind:"url",url,name:m.name||new URL(url).hostname,guideId:m.guideId||"",country:/^[A-Z]{2}$/.test(m.country||"")?m.country:"",number:m.number||""});if(rows.length>=3000)break;}
+   let address=line;try{if(base)address=new URL(line,base).href;}catch(_){}const url=validURL(address);if(url&&!seen.has(url)){seen.add(url);const m=pending||{};rows.push({kind:"url",url,name:m.name||new URL(url).hostname,guideId:m.guideId||"",country:/^[A-Z]{2}$/.test(m.country||"")?m.country:"",number:m.number||"",logo:m.logo||"",group:m.group||""});if(rows.length>=12000)break;}
    pending=null;
   }
  }
@@ -185,15 +211,14 @@ function importPlaylist(){
  if(busy)return;
  chooseFile(".m3u,.m3u8,text/plain,application/vnd.apple.mpegurl",4*1024*1024,text=>{
   if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/i.test(text)){report("This is an HLS media manifest, not a channel list.","Это манифест HLS, а не список каналов.");return;}
+  readGuideHeader(text);
   const rows=parseM3U(text);if(!rows.length){report("No compatible channel addresses in this playlist.","В списке нет совместимых адресов каналов.");return;}
   imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);
   if(!write(keys.playlist,imported))report("Playlist loaded for this session only.","Список загружен только для этого сеанса.");
-  else report("Playlist imported.","Список импортирован.");clearWork();showAll();
+  else report("Playlist imported.","Список импортирован.");clearWork();showAll();void autoGuide();
  });
 }
-function importGuide(){
- if(busy)return;
- chooseFile(".xml,.xmltv,text/xml,application/xml",20*1024*1024,text=>{
+function parseGuide(text){
   if(/<!DOCTYPE|<!ENTITY/i.test(text))throw Error("Invalid XML");
   const doc=new DOMParser().parseFromString(text,"application/xml");if(doc.querySelector("parsererror")||doc.documentElement.localName!=="tv")throw Error("Invalid guide");
   const names=new Map(),items=new Map();let count=0;
@@ -204,14 +229,63 @@ function importGuide(){
    if(!items.has(id))items.set(id,[]);items.get(id).push(row);
   }
   for(const rows of items.values())rows.sort((a,b)=>a.start-b.start);
-  programs=items;xmlNames=names;render();report("Programme guide imported for this session.","Телепрограмма импортирована на этот сеанс.");
- });
+  for(const [id,rows] of items)programs.set(id,rows);
+  for(const [name,id] of names)xmlNames.set(name,id);
+  while(programs.size>10000)programs.delete(programs.keys().next().value);
+  render();
+}
+function importGuide(){
+ if(busy)return;
+ clearWork();
+ const input=makeInput("url","Free XMLTV guide URL (.xml or .xml.gz)","Адрес бесплатной телепрограммы (.xml или .xml.gz)");
+ workspace.append(input,button("Load Guide URL","Загрузить телепрограмму",()=>void fetchGuide(input.value.trim(),true)),button("Choose Guide File","Выбрать файл телепрограммы",()=>chooseFile(".xml,.xmltv,text/xml,application/xml",20*1024*1024,text=>{parseGuide(text);report("Programme guide imported.","Телепрограмма импортирована.");})),button("Refresh Free Guide","Обновить бесплатную телепрограмму",()=>void autoGuide(true)));
+}
+function readGuideHeader(text){
+ const header=text.split(/\r?\n/,1)[0]||"";
+ for(const m of header.matchAll(/(?:x-tvg-url|url-tvg|tvg-url)="([^"]+)"/gi))for(const url of m[1].split(",")){const u=validURL(url.trim());if(u&&guideSources.size<6)guideSources.add(u);}
+}
+const regionalGuides={US:"https://epgshare01.online/epgshare01/epg_ripper_US_SPORTS1.xml.gz",GB:"https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz"};
+let guideLoading=false;
+async function fetchGuide(value,manual=false){
+ const url=validURL(value);if(!url||guideLoading||!active)return;
+ if(!manual&&Date.now()-(guideLast.get(url)||0)<6*3600*1000)return;
+ guideLoading=true;const rev=serial;report("Loading free programme guide…","Загрузка бесплатной телепрограммы…");
+ try{
+  const data=await bridge.liveTvResource(url,"guide");if(!epoch(rev))return;
+  parseGuide(data.text);guideLast.set(url,Date.now());report("Guide loaded; available channel matches are shown.","Телепрограмма загружена; показаны найденные соответствия.");
+ }catch(_){if(epoch(rev))report("Free guide unavailable or too large. Try another guide URL.","Бесплатная телепрограмма недоступна или слишком велика. Попробуйте другой адрес.");}
+ finally{guideLoading=false;}
+}
+async function autoGuide(force=false){
+ const url=regionalGuides[country||directoryCountry]||[...guideSources][0];
+ if(url)await fetchGuide(url,force);
+ else if(force)report("Select a supported country or enter a free XMLTV guide URL.","Выберите поддерживаемую страну или введите адрес бесплатной телепрограммы.");
+}
+async function remotePlaylist(value,worldMode,chosen=""){
+ const url=validURL(value);if(!url||busy)return;
+ const rev=serial;setBusy(true);report("Loading free channel directory…","Загрузка бесплатного списка каналов…");
+ try{
+  const data=await bridge.liveTvResource(url,"playlist");if(!epoch(rev))return;
+  if(/#EXT-X-(?:TARGETDURATION|STREAM-INF|MEDIA-SEQUENCE)/i.test(data.text)){setBusy(false);await play({kind:"url",url,name:new URL(url).hostname});return;}
+  if(!/^\uFEFF?#EXTM3U/i.test(data.text))throw Error("Invalid list");
+  readGuideHeader(data.text);const rows=parseM3U(data.text,url);
+  if(!rows.length)throw Error("Empty playlist");
+  if(worldMode){directory=rows.map(x=>chosen&&!x.country?{...x,country:chosen}:x);directoryCountry=chosen;mode="world";country=chosen;render();}
+  else{imported=[...new Map([...imported,...rows].map(x=>[x.url,x])).values()].slice(0,3000);write(keys.playlist,imported);showAll();}
+  report("Channels loaded: "+rows.length,"Каналов загружено: "+rows.length);void autoGuide();
+ }catch(_){if(epoch(rev))report("Channel directory unavailable.","Список каналов недоступен.");}
+ finally{setBusy(false);}
 }
 function world(){
- clearWork();mode="world";country="";
+ clearWork();mode="world";country=directoryCountry;
  const select=el("select","dk-live-input"),all=el("option","",tr("All countries","Все страны"));all.value="";select.append(all);
- for(const c of [...new Set(imported.map(x=>x.country).filter(Boolean))].sort()){const opt=el("option","",countryLabel(c));opt.value=c;select.append(opt);}
- select.addEventListener("change",()=>{country=select.value;render();});workspace.append(select);render();
+ const countries=new Set([...("US GB CA AU NZ DE FR ES IT RU UA PL BR MX AR IN PK SA AE EG TR JP KR CN NL BE SE NO FI DK IE CH AT GR PT RO ZA NG KE MA TN DZ IQ IR IL ID MY PH TH VN SG CZ SK HU BG HR RS BA SI LT LV EE IS LU MT CY GE AM AZ KZ UZ BD LK NP CL CO PE VE EC UY PY BO CR PA DO CU JM TT").split(" "),...imported.map(x=>x.country).filter(Boolean)]);
+ for(const c of [...countries].sort()){const opt=el("option","",countryLabel(c));opt.value=c;select.append(opt);}
+ select.value=country;
+ const load=()=>{const chosen=select.value;const url="https://iptv-org.github.io/iptv/"+(chosen?"countries/"+chosen.toLowerCase()+".m3u":"index.m3u");void remotePlaylist(url,true,chosen);};
+ select.addEventListener("change",()=>{country=select.value;render();load();});
+ workspace.append(select,button("Refresh Free Channels","Обновить бесплатные каналы",load),button("Refresh Free Guide","Обновить бесплатную телепрограмму",()=>void autoGuide(true)));render();
+ if(!directory.length&&!busy)load();else void autoGuide();
 }
 function showSaved(){clearWork();mode="saved";render();}
 const icons={discover:"◎",direct:"🌐",playlist:"≡+",scan:"⋔",world:"◉",saved:"☆"};

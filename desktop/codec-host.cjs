@@ -60,7 +60,7 @@ function verifyDVD(source){
 const isNetwork=source=>source?.kind==="network";
 // Restrict remote inputs to ordinary media containers, excluding playlists,
 // concat, image sequences, and other external-resource demuxers.
-const networkInputArgs=["-protocol_whitelist","http,tcp","-format_whitelist","mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","12000000","-http_proxy","","-probesize","8388608","-analyzeduration","5000000"];
+const networkInputArgs=["-protocol_whitelist","http,tcp,crypto","-format_whitelist","hls,mov,matroska,webm,avi,mpeg,mpegts,asf,flv,ogg,mp3,flac,wav,aac,ac3,ape,rm,ivf","-rw_timeout","12000000","-http_proxy","","-probesize","8388608","-analyzeduration","5000000"];
 async function resolvePlaybackSource(value){
   if(value?.kind==="network")return {kind:"network",token:value.token,url:await require("./library-host.cjs").resolveNetworkMedia(value.token)};
   if(value?.kind!=="dvd")return resolveSource(value,checkVideo);
@@ -395,7 +395,7 @@ function serve(req,res) {
   }
   const args=["-hide_banner","-loglevel","error","-nostdin",
     "-progress","pipe:2","-nostats",
-    ...(active.network?[...networkInputArgs,"-ss",String(active.position),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
+    ...(active.network?[...networkInputArgs,...(active.position>0?["-ss",String(active.position)]:[]),"-i",active.path]:active.dvd?[...dvdArgs({...active.dvd,drive:true}),"-i",active.path,"-ss",String(active.position)]:["-ss",String(active.position),"-i",active.path]),
     ...(active.hasVideo?["-map",active.bitmapSubtitle!==null?"[dkvideo]":"0:"+active.videoStreamIndex]:[]),
     ...(active.hasAudio?["-map","0:a:"+active.audioOrdinal]:[]),"-sn","-dn"];
   const filters=[];

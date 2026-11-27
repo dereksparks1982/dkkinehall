@@ -64,14 +64,13 @@ const nameSort=(a,b)=>String(a).localeCompare(String(b),undefined,{
   numeric:true,sensitivity:"base"
 });
 const seriesKey=value=>window.DKMediaMetadata?.normalize(value)||String(value||"").trim().toLowerCase();
-const formatCode=row=>"S"+String(row.season).padStart(2,"0")+
-  "E"+String(row.episode).padStart(2,"0");
-const metadataFilename=row=>row.manualClassification?(row.kind==="movie"?row.title.replace(/[:]/g,"")+(row.year?" ("+row.year+")":"")+".mkv":row.series+"."+formatCode(row)+".mkv"):row.kind==="movie"&&(row.featureClassification||store.knownFeatureSpecial(row.filename,row.relative))?row.title.replace(/[:]/g,"")+" ("+row.year+").mkv":row.kind==="movie"&&Number(row.year)===1974&&
+const formatCode=row=>Number(row.episode)>0?"S"+String(row.season).padStart(2,"0")+"E"+String(row.episode).padStart(2,"0"):say("Unnumbered","Без номера");
+const metadataFilename=row=>row.manualClassification||row.verifiedClassification?(row.kind==="movie"?row.title.replace(/[:]/g,"")+(row.year?" ("+row.year+")":"")+".mkv":row.series+"."+formatCode(row)+".mkv"):row.kind==="movie"&&(row.featureClassification||store.knownFeatureSpecial(row.filename,row.relative))?row.title.replace(/[:]/g,"")+" ("+row.year+").mkv":row.kind==="movie"&&Number(row.year)===1974&&
   seriesKey(row.title)==="the man with the golden gun"?"The Man with the Golden Gun (1974).mkv":row.kind==="tv"&&
   window.DKMediaMetadata?.parseFilename?.(row.filename)?.type!=="episode"?
-  row.series+".S"+String(row.season).padStart(2,"0")+
+  Number(row.episode)>0?row.series+".S"+String(row.season).padStart(2,"0")+
     "E"+String(row.episode).padStart(2,"0")+
-    row.filename.slice(row.filename.lastIndexOf(".")):
+    row.filename.slice(row.filename.lastIndexOf(".")):row.filename:
   row.filename;
 const mediaName=row=>row.kind==="tv"?
   row.series+" · "+formatCode(row)+
@@ -211,6 +210,7 @@ function createCard(row,{landscape=false,series=false}={}){
   const detail=create("span","library-card-detail",
     series?"":row.kind==="tv"?(row.episodeTitle||""):row.year||"");
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
+  if(row.classificationReview||row.kind==="tv"&&!Number(row.episode)&&!series){detail.textContent=[detail.textContent,say("Check classification","Проверить категорию")].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
   if(nativeBridge){
     const open=create("button","dk-library-open-card");
@@ -328,6 +328,14 @@ async function jellyfinArtwork(row,id,series,force){
     if(!/^image\/(jpeg|png|webp)$/.test(blob.type)||blob.size>3*1024*1024)return null;
     if(!await store.saveArtwork(id,blob,"Jellyfin"))return (await store.artwork(id))?.blob||null;return blob;
   }catch(_){return null;}
+}
+async function verifyMediaCategory(row){
+ if(!nativeBridge||!navigator.onLine||!artworkFinder?.classifyMedia||row.manualClassification||row.manualMatch||row.manualFields||row.missing)return row;
+ const parsed=window.DKMediaMetadata?.parseFilename(row.filename);
+ if(!parsed||row.kind==="tv"&&Number(row.episode)>0||row.kind==="movie"&&parsed.type!=="episode"&&row.movieMetadataVerified)return row;
+ const result=await artworkFinder.classifyMedia(row.filename,{seriesHint:row.kind==="tv"?row.series:""});
+ if(result&&await store.applyVerifiedClassification(row,result))return await store.item(row.id)||row;
+ return row;
 }
 async function findArtwork(row,id,series=false,force=false){
   const cache=await store.artwork(id);
@@ -1126,6 +1134,13 @@ async function scan(manual=false){
       const cancelled=!!discovered.cancelled||controller.signal.aborted;
       const counts=await store.ingestNative(cancelled?{...discovered,complete:false}:discovered);
       const merged=cancelled?0:await store.reconcileNative();
+      if(!cancelled&&navigator.onLine){
+        const candidates=(await store.entries()).filter(row=>row.source==="native"&&!store.excludedDiscovery(row)&&!row.missing&&!row.manualClassification&&!row.manualMatch&&!row.manualFields&&!row.verifiedClassification&&(row.kind==="tv"&&!Number(row.episode)||row.kind==="movie"&&window.DKMediaMetadata?.parseFilename(row.filename)?.type==="episode")).slice(0,12);
+        for(let i=0;i<candidates.length&&!controller.signal.aborted;i++){
+          status("Checking media categories: "+(i+1)+" / "+candidates.length,"Проверка категорий: "+(i+1)+" / "+candidates.length);
+          try{await verifyMediaCategory(candidates[i]);}catch(_){}
+        }
+      }
       if(manual||counts.added||counts.updated||counts.missing||merged)await render();
       else scheduleHistoryRefresh();
       const errors=Array.isArray(discovered.errors)?discovered.errors:[];
@@ -1290,7 +1305,9 @@ async function libraryMaintenance(action,selection=null){
           // Wait for any earlier background lookup to finish before forcing a new one.
           while(activeArtwork.has(task.id)&&!refreshCancelled)await new Promise(resolve=>setTimeout(resolve,80));
           if(refreshCancelled)break;
-          await findArtwork(task.row,task.id,task.series,true);
+          const current=await store.item(task.row.id)||task.row;
+          const classified=task.series?current:await verifyMediaCategory(current);
+          if(!task.series||classified.kind==="tv")await findArtwork(classified,artId(classified,task.series),task.series,true);
         }catch(_){}
         done++;
         status("Refreshing metadata: "+done+" / "+tasks.length,

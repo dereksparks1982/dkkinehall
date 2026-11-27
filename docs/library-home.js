@@ -1344,12 +1344,12 @@ function paintJellyfinState(data){
  if(!controls||!button||!light||!node)return;
  const messages={off:say("Server off","Сервер выключен"),starting:say("Starting server…","Запуск сервера…"),stopping:say("Stopping server…","Остановка сервера…"),scanning:say("Server running · Scanning library","Сервер работает · Сканирование медиатеки"),ready:say("Server running","Сервер работает"),external:say("External server configured (read only)","Настроен внешний сервер (только чтение)"),unavailable:say("Server unavailable · Fallback metadata","Сервер недоступен · Резервные метаданные"),unknown:say("Server status unknown","Состояние сервера неизвестно")};
  controls.hidden=false;light.dataset.state=data.state;node.textContent=(messages[data.state]||messages.unknown)+(data.state==="scanning"&&data.progress!=null?" "+Math.round(data.progress)+"%":"");
- button.textContent=data.enabled&&data.state!=="unavailable"?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
+ button.textContent=data.enabled&&(data.state!=="unavailable"||data.runningProcess)?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
  button.disabled=jfPowerBusy||!data.controllable||!nativeBridge?.jellyfinPower;
 }
 async function toggleJellyfinPower(){
  if(jfPowerBusy||!jfLast?.controllable||!nativeBridge?.jellyfinPower)return;
- const enabled=!(jfLast.enabled&&jfLast.state!=="unavailable");
+ const enabled=!(jfLast.enabled&&(jfLast.state!=="unavailable"||jfLast.runningProcess));
  jfPowerBusy=true;paintJellyfinState(jfLast);
  try{await nativeBridge.jellyfinPower(enabled);}catch(_){status("Could not change server power.","Не удалось изменить состояние сервера.",true);}
  finally{jfPowerBusy=false;await pollJellyfin();}

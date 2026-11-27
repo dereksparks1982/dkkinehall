@@ -1808,7 +1808,8 @@ function setupCinema(){
  const player=adopt($("showPlayer"),"▶","Player","Проигрыватель");if(player)nav.append(player);
  const settings=adopt($("librarySettings"),"⚙","Settings","Настройки");if(settings)bottom.append(settings);
  bottom.append($("jellyfinServerControls"));tabs.hidden=true;
- const footer=shell.querySelector(".dk-branded-footer");if(footer){footer.classList.add("dk-cinema-brand-footer");bottom.append(footer);}
+ // Keep the application-wide footer outside the sidebar.
+ const footer=shell.querySelector(".dk-branded-footer");if(footer){footer.classList.add("dk-cinema-window-footer");shell.append(footer);}
  for(const id of ["addLibraryFolder","scanLibrary","libraryEmptyTrash","libraryRefreshMetadata"])$(id)?.classList.add("dk-management-only");
  const heading=create("h1","dk-cinema-heading");top.prepend(heading);
  const hero=create("section","dk-cinema-hero");hero.id="dkCinemaHero";hero.hidden=true;hero.setAttribute("aria-live","polite");

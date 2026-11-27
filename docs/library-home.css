@@ -261,7 +261,7 @@ html.dk-standalone body .dk-cinema #librarySettings:not([aria-current="page"]){c
 .dk-cinema-nav-icon{width:18px;height:18px;flex:none}
 .dk-cinema-nav-label{min-width:0}
 .dk-cinema-collapsed .dk-cinema-sidebar{padding:12px 8px}
-.dk-cinema-collapsed :is(.brandname,.dk-cinema-nav-label,.dk-cinema-brand-footer){display:none!important}
+.dk-cinema-collapsed :is(.brandname,.dk-cinema-nav-label){display:none!important}
 html.dk-standalone body .dk-cinema-collapsed .dk-cinema-nav-button{justify-content:center;padding-inline:0}
 .dk-cinema-collapsed .dk-cinema-brand-row{flex-direction:column}
 .dk-cinema .dk-jellyfin-controls{margin:0;padding:0 11px;flex-wrap:nowrap;gap:9px;min-height:34px;flex-direction:row}
@@ -271,7 +271,6 @@ html.dk-standalone body .dk-cinema #jellyfinPower{flex:1;min-width:0;min-height:
 .dk-cinema #jellyfinScanStatus{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .dk-cinema-collapsed .dk-jellyfin-controls{padding:0;justify-content:center;gap:4px}
 .dk-cinema-collapsed #jellyfinPower::after{content:"⏻";font-size:16px}
-html.dk-standalone .dk-cinema .dk-cinema-brand-footer{display:flex;flex-direction:column;align-items:flex-start;gap:5px;margin:15px 0 0;padding:0 11px;border:0;background:none;font-size:.68rem;line-height:1.3;color:#cfa653}
 html.dk-standalone .library-shell.dk-cinema>.topbar{grid-column:2;grid-row:1;padding:clamp(10px,1.6vh,20px) var(--dk-cinema-pad) 9px;margin:0;border:0;border-radius:0;background:transparent;box-shadow:none;min-width:0;container-type:normal}
 .dk-cinema-heading{font-size:clamp(1rem,1.6vw,1.4rem);color:#e2b956;margin:0;font-weight:750}
 html.dk-standalone .library-shell.dk-cinema>.topbar>.library-tools>select.language-select{background-color:transparent!important;color:#e6d6c1!important;border-color:transparent!important;font-size:.83rem;height:30px;min-height:30px;padding-left:6px;max-width:110px;width:auto;background-size:10px 7px}
@@ -318,7 +317,7 @@ html.dk-standalone .dk-cinema .library-continue .library-poster img,html.dk-stan
 .dk-cinema .dk-collection-tools input[type=search],.dk-cinema .dk-collection-tools .dk-watchlist-filter,.dk-cinema #watchedFilter{display:none}
 html.dk-standalone .dk-cinema main.dk-live-active>:is(#dkCinemaHero,#dkCinemaFilters,#dkCinemaShelves){display:none!important}
 @media(max-width:900px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:160px}.dk-cinema-home .dk-cinema-shelf{grid-auto-columns:calc((100% - 3 * 12px)/4)}.dk-cinema-hero h1{max-width:78%}.dk-hero-description{max-width:75%}}
-@media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:68px;--dk-cinema-pad:10px}.dk-cinema-sidebar{padding:12px 8px}.dk-cinema :is(.brandname,.dk-cinema-nav-label,.dk-cinema-brand-footer){display:none!important}.dk-cinema-brand-row{flex-direction:column}html.dk-standalone body .dk-cinema .dk-cinema-nav-button{justify-content:center;padding-inline:0}.dk-cinema .dk-jellyfin-controls{padding:0;gap:4px}.dk-cinema #jellyfinPower::after{content:"⏻";font-size:16px}.dk-cinema-hero h1,.dk-hero-description,.dk-hero-meta{max-width:100%}.dk-cinema-hero{padding-bottom:40px}html.dk-standalone .dk-cinema .library-continue{grid-auto-columns:calc((100% - 12px)/2)}.dk-cinema-home .dk-cinema-shelf{grid-auto-columns:calc((100% - 2 * 12px)/3)}}
+@media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-sidebar-width:68px;--dk-cinema-pad:10px}.dk-cinema-sidebar{padding:12px 8px}.dk-cinema :is(.brandname,.dk-cinema-nav-label){display:none!important}.dk-cinema-brand-row{flex-direction:column}html.dk-standalone body .dk-cinema .dk-cinema-nav-button{justify-content:center;padding-inline:0}.dk-cinema .dk-jellyfin-controls{padding:0;gap:4px}.dk-cinema #jellyfinPower::after{content:"⏻";font-size:16px}.dk-cinema-hero h1,.dk-hero-description,.dk-hero-meta{max-width:100%}.dk-cinema-hero{padding-bottom:40px}html.dk-standalone .dk-cinema .library-continue{grid-auto-columns:calc((100% - 12px)/2)}.dk-cinema-home .dk-cinema-shelf{grid-auto-columns:calc((100% - 2 * 12px)/3)}}
 
 /* Accepted shelf behavior and fixed sidebar geometry, including page-local zoom. */
 html.dk-standalone .library-shell.dk-cinema{--dk-poster-columns:6}
@@ -365,3 +364,14 @@ html.dk-standalone body .dk-cinema .dk-cinema-shelf-toggle:focus-visible{outline
 .dk-shelf-chevron{font-size:1.1em;width:15px;text-align:left}
 @media(max-width:900px){html.dk-standalone .library-shell.dk-cinema{--dk-poster-columns:4}}
 @media(max-width:620px){html.dk-standalone .library-shell.dk-cinema{--dk-poster-columns:3}html.dk-standalone body #dkCinemaSidebar .dk-cinema-nav-button{justify-content:center!important;padding-inline:0!important}}
+
+/* Application-wide footer: reserve its space even at non-default library zoom. */
+html.dk-standalone .library-shell.dk-cinema{--dk-window-footer-height:32px;padding-bottom:var(--dk-window-footer-height)}
+html.dk-standalone #dkCinemaSidebar{height:calc(100vh / var(--dk-library-zoom,1) - var(--dk-window-footer-height))}
+html.dk-standalone .dk-cinema>.dk-branded-footer.dk-cinema-window-footer{
+ position:fixed;left:0;right:0;bottom:0;z-index:46;display:flex;flex-direction:row;
+ justify-content:space-between;align-items:center;box-sizing:border-box;
+ height:var(--dk-window-footer-height);width:auto;max-width:none;margin:0;padding:0 15px;
+ border:0;background:#15100ff5;color:#e2b956;font-size:.75rem;line-height:1.2;gap:12px
+}
+html.dk-standalone .dk-cinema>.dk-cinema-window-footer a{color:#e2b956;flex:none}

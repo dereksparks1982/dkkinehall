@@ -207,3 +207,5 @@ Cinema Home visual correction: the approved reference now governs the layout pro
 
 
 Home shelf correction: fixed full-window sidebar with consistently left-aligned flat navigation and a single gold current-page highlight. Continue Watching uses uncropped 2:3 poster cards, TV series cover art for resumed episodes, and mouse-wheel horizontal scrolling with hidden scrollbar; episode identity and resume progress are preserved. Movies and TV Shows use independently collapsible wrapping poster grids, with expanded/collapsed preference saved locally. Only Continue Watching scrolls horizontally. Existing featured banner and recommendation logic are unchanged. Installed visual acceptance pending.
+
+Cinema Home footer: DK Kinehall · DK Softworks stays at the application window's bottom left; ACP remains linked at the bottom right. Both use gold, stay visible during scrolling and sidebar collapse, and sit outside the navigation sidebar.

@@ -2470,14 +2470,14 @@ async function jfStatus(){
   if(jfStopping)return jfJSON({state:"stopping",enabled:jfEnabled(),controllable:false});
   if(jfStarting)return jfJSON({state:"starting",enabled:true,controllable:true});
   if(!jfEnabled())return jfJSON({state:"off",enabled:false,controllable:true});
-  if(!jfConfig||!jfState)return jfJSON({state:"unavailable",enabled:true,controllable:true});
+  if(!jfConfig||!jfState)return jfJSON({state:"unavailable",enabled:true,controllable:true,runningProcess:!!jfState});
   try{
     const tasks=await jfAdmin(jfState,"GET","/ScheduledTasks");
     const task=Array.isArray(tasks)?tasks.find(x=>x.Key==="RefreshLibrary"):null;
     const running=task?.State==="Running"||task?.State==="Cancelling";
     const progress=typeof task?.CurrentProgressPercentage==="number"?Math.max(0,Math.min(100,task.CurrentProgressPercentage)):null;
     return jfJSON({enabled:true,controllable:true,state:running?"scanning":"ready",progress:running?progress:null,completed:task?.LastExecutionResult?.EndTimeUtc||null});
-  }catch(_){return jfJSON({state:"unavailable",enabled:true,controllable:true});}
+  }catch(_){return jfJSON({state:"unavailable",enabled:true,controllable:true,runningProcess:!!jfState});}
 }
 async function jfMatch(url,kind){
   const fail={ok:false,status:404};

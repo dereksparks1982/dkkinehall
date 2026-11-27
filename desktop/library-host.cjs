@@ -2061,6 +2061,92 @@ async function openPlayer(id,external=false,settingsOnly=false){
 // Only a native file chooser and a second, explicit approval can grant local entries.
 let localPlaylistBusy=false;
 const LOCAL_PLAYLIST_LIMIT=1024*1024;
+// A small bounded XML reader for local playlist containers only. It has no
+// entity resolver, DTD, namespace rewriting, filesystem or network callbacks.
+function playlistXMLText(value){
+  if(/&(?!(?:amp|lt|gt|quot|apos|#\d{1,7}|#x[0-9a-fA-F]{1,6});)/.test(value))throw Error("Invalid XML entity");
+  return value.replace(/&(amp|lt|gt|quot|apos|#\d{1,7}|#x[0-9a-fA-F]{1,6});/g,(_,entity)=>{
+    if(entity[0]!=="#")return {amp:"&",lt:"<",gt:">",quot:'"',apos:"'"}[entity];
+    const n=entity[1]==="x"?parseInt(entity.slice(2),16):Number(entity.slice(1));
+    if(n>0x10ffff||n===0||n>=0xd800&&n<=0xdfff||n<32&&![9,10,13].includes(n))throw Error("Invalid XML character");
+    return String.fromCodePoint(n);
+  });
+}
+function playlistXMLValues(source,ext){
+  if(/<!DOCTYPE|<!ENTITY/i.test(source))throw Error("DTD not supported");
+  const expected=ext===".xspf"?"playlist":ext===".wpl"?"smil":"asx";
+  const tokens=/<\!--[\s\S]*?-->|<\?[\s\S]*?\?>|<!\[CDATA\[[\s\S]*?\]\]>|<\/[A-Za-z_][\w.:-]*\s*>|<[A-Za-z_][\w.:-]*(?:[^<>"']|"[^"]*"|'[^']*')*>|[^<]+/gy;
+  const stack=[],values=[];
+  let pos=0,rootSeen=false,rootClosed=false,trackTaken=false,entryTaken=false;
+  const push=value=>{if(values.length>=256)throw Error("Too many playlist entries");values.push(value);};
+  const signature=()=>stack.map(node=>node.name).join("/");
+  while(pos<source.length){
+    tokens.lastIndex=pos;
+    const m=tokens.exec(source);
+    if(!m)throw Error("Invalid playlist XML");
+    const token=m[0];pos=tokens.lastIndex;
+    if(token.startsWith("<!--"))continue;
+    if(token.startsWith("<?")){
+      if(rootSeen||!/^<\?(?:xml(?:\s|[?])|wpl(?:\s|[?]))/i.test(token))throw Error("Unsupported XML instruction");
+      continue;
+    }
+    if(token.startsWith("<![CDATA[")){
+      if(signature()==="playlist/tracklist/track/location")stack[stack.length-1].text+=token.slice(9,-3);
+      else if(!stack.length)throw Error("Invalid XML text");
+      continue;
+    }
+    if(token.startsWith("</")){
+      const node=stack.pop();
+      if(!node||node.raw!==token.slice(2,-1).trim())throw Error("Mismatched XML element");
+      if(ext===".xspf"&&node.name==="location"&&signature()==="playlist/tracklist/track"&&!trackTaken&&node.text.trim()){
+        push(node.text.trim());trackTaken=true;
+      }
+      if(!stack.length)rootClosed=true;
+      continue;
+    }
+    if(token.startsWith("<")){
+      const start=/^<([A-Za-z_][\w.:-]*)/.exec(token);
+      if(!start)throw Error("Invalid XML element");
+      const raw=start[1],name=raw.toLowerCase(),self=/\/\s*>$/.test(token);
+      let attrs=token.slice(start[0].length,token.length-(self?2:1)).trim();
+      const properties=new Map();
+      while(attrs){
+        const attr=/^([A-Za-z_][\w.:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(attrs);
+        if(!attr||properties.has(attr[1].toLowerCase()))throw Error("Invalid XML attribute");
+        properties.set(attr[1].toLowerCase(),playlistXMLText(attr[2]??attr[3]));
+        attrs=attrs.slice(attr[0].length);
+        if(attrs&&!/^\s/.test(attrs))throw Error("Invalid XML attribute spacing");
+        attrs=attrs.trimStart();
+      }
+      if(properties.has("xml:base")||name==="base")throw Error("Playlist base override not supported");
+      if(!stack.length){
+        if(rootSeen||rootClosed||name!==expected)throw Error("Invalid playlist root");
+        rootSeen=true;
+      }
+      if(stack.length>=32)throw Error("Playlist XML too deep");
+      stack.push({name,raw,text:""});
+      const sig=signature();
+      if(sig==="playlist/tracklist/track")trackTaken=false;
+      if(sig==="asx/entry")entryTaken=false;
+      if(sig==="asx/entry/ref"&&!entryTaken&&properties.get("href")){
+        push(properties.get("href"));entryTaken=true;
+      }
+      if(sig==="smil/body/seq/media"&&properties.get("src"))push(properties.get("src"));
+      if(self){stack.pop();if(!stack.length)rootClosed=true;}
+      continue;
+    }
+    if(!stack.length&&token.trim())throw Error("Invalid XML text");
+    const value=playlistXMLText(token);
+    if(signature()==="playlist/tracklist/track/location"){
+      const node=stack[stack.length-1];
+      node.text+=value;
+      if(node.text.length>4096)throw Error("Playlist address too long");
+    }
+  }
+  if(stack.length||!rootSeen||!rootClosed)throw Error("Incomplete playlist XML");
+  return values;
+}
+
 function localPlaylistPaths(raw,filename){
   const source=raw.replace(/^\uFEFF/,"");
   if(source.includes("\0")||/#EXT-X-/i.test(source))throw Error("Not a local media playlist");
@@ -2077,6 +2163,8 @@ function localPlaylistPaths(raw,filename){
     values=[...numbered].sort((a,b)=>a[0]-b[0]).map(entry=>entry[1]);
   }else if(ext===".m3u"||ext===".m3u8"){
     values=source.split(/\r?\n/).filter(line=>line.trim()&&!line.trimStart().startsWith("#"));
+  }else if([".xspf",".asx",".wax",".wvx",".wpl"].includes(ext)){
+    values=playlistXMLValues(source,ext);
   }else throw Error("Unsupported playlist");
   if(values.length>256)throw Error("Too many playlist entries");
   const targets=[],seen=new Set();
@@ -2086,7 +2174,12 @@ function localPlaylistPaths(raw,filename){
     try{
       if(!value||value.length>4096||/[\x00-\x1f\x7f]/.test(value)||value.startsWith("//")||value.startsWith("\\\\"))throw Error();
       let target;
-      if(/^file:/i.test(value)){
+      if(ext===".xspf"){
+        // XSPF locations are URI references, not literal filesystem strings.
+        const url=new URL(value,pathToFileURL(filename));
+        if(url.protocol!=="file:"||url.host||url.search||url.hash||url.username||url.password)throw Error();
+        target=fileURLToPath(url);
+      }else if(/^file:/i.test(value)){
         const url=new URL(value);
         if(url.host||url.search||url.hash||url.username||url.password)throw Error();
         target=fileURLToPath(url);
@@ -2108,7 +2201,7 @@ async function importLocalPlaylist(language){
     const selected=await dialog.showOpenDialog(home,{
       title:ru?"Открыть список воспроизведения":"Open local playlist",
       properties:["openFile"],
-      filters:[{name:ru?"Списки воспроизведения":"Playlists",extensions:["m3u","m3u8","pls"]}]
+      filters:[{name:ru?"Списки воспроизведения":"Playlists",extensions:["m3u","m3u8","pls","xspf","asx","wax","wvx","wpl"]}]
     });
     if(selected.canceled||!selected.filePaths[0])return {cancelled:true};
     const filename=selected.filePaths[0];

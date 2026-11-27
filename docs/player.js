@@ -2445,7 +2445,7 @@
         status(streamSay("Playlist imported. Added: "+selected.length+". Skipped: "+skipped+".",
           "Список импортирован. Добавлено: "+selected.length+". Пропущено: "+skipped+"."),true);
       }catch(_){
-        status(streamSay("Cannot import this local playlist. Use a UTF-8 M3U, M3U8 or PLS video list with up to 256 entries.",
+        status(streamSay("Cannot import this local playlist. Use a supported UTF-8 video list with up to 256 entries.",
           "Не удалось импортировать список. Выберите список видео в кодировке ЮТФ-8 с числом записей не более 256."));
       }finally{importing=false;buttons.forEach(button=>button.disabled=false);}
     };

@@ -4841,7 +4841,7 @@
     dialog.append(title,hint,sourceLabel,rateLabel,sizeLabel,micLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
-      title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen or window. Record video with optional microphone audio as WebM.","Выберите экран или окно. Запись видео в формате WebM со звуком микрофона по желанию.");
+      title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen, window or camera. Record video with optional microphone audio as WebM.","Выберите экран, окно или камеру. Запись видео в формате WebM со звуком микрофона по желанию.");
       micText.textContent=t("Include microphone","Записывать микрофон");
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
       refresh.textContent=t("Refresh sources","Обновить источники");start.textContent=t("Start recording","Начать запись");stop.textContent=t("Stop and save","Остановить и сохранить");discard.textContent=t("Discard recording","Удалить запись");close.textContent=t("Close","Закрыть");
@@ -4849,10 +4849,11 @@
     }
     async function sources(){
       if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
+      const old=source.value;source.replaceChildren();const camera=node("option",t("Default camera","Камера по умолчанию"));camera.value="dk-camera";source.append(camera);
       try{
-        const rows=await bridge.screenRecordSources(),old=source.value;source.replaceChildren();
-        for(const row of rows){const o=node("option",row.name||row.id);o.value=row.id;source.append(o);}if(rows.some(r=>r.id===old))source.value=old;
-        message.textContent=rows.length?"":t("No capture sources found. The desktop session may require a system screen-sharing portal.","Источники не найдены. Возможно, требуется системный портал захвата экрана.");
+        const rows=await bridge.screenRecordSources();
+        for(const row of rows){const o=node("option",row.name||row.id);o.value=row.id;source.append(o);}if(old==="dk-camera"||rows.some(r=>r.id===old))source.value=old;else if(rows.length)source.value=rows[0].id;
+        message.textContent=rows.length?"":t("No screen or window sources found. Camera recording may still work.","Экраны и окна не найдены. Запись камеры может быть доступна.");
       }catch(_){message.textContent=t("Could not list capture sources.","Не удалось получить список источников.");}
       finally{refreshing=false;labels();}
     }
@@ -4881,7 +4882,7 @@
         if(!mime)throw Error("WebM recording unavailable");
         grant=await bridge.screenRecordBegin(source.value);if(!grant)return;
         const height=Number(resolution.value),fps=Number(rate.value);
-        stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
+        stream=await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{width:{ideal:Math.round(height*16/9)},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
         if(mic.checked){const audio=await navigator.mediaDevices.getUserMedia({audio:true,video:false});for(const track of audio.getAudioTracks())stream.addTrack(track);}
         const recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
         const r={token:grant.token,stream,recorder,started:Date.now(),bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
@@ -4906,7 +4907,7 @@
         if(stream)for(const track of stream.getTracks())track.stop();
         if(grant)try{await bridge.screenRecordAction("cancel",grant.token);}catch(_){}
         if(recording){clearInterval(recording.timer);recording=null;}
-        message.textContent=t("Screen capture could not start. Check desktop capture support and select a new output filename.","Не удалось начать захват экрана. Проверьте поддержку захвата и выберите новое имя файла.");
+        message.textContent=t("Capture could not start. Check device availability, permissions and output filename.","Не удалось начать запись. Проверьте доступность устройства, разрешения и имя файла.");
       }finally{opening=false;labels();}
     }
     refresh.onclick=()=>void sources();source.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);

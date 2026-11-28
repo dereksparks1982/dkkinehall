@@ -323,3 +323,114 @@ module.exports={
   discover,openVideo,readRange,localArtwork,deleteVideo,
   fileIdentity,checkVideo,rootPath,setSelectedRoots,chooseLocalPoster,checkCatalogPaths,playbackAvailability,relocationCandidate
 };
+
+
+// Detached account-free HTTP service, launched by the existing desktop
+// server power control. Uses the actual desktop catalog snapshot, not an
+// independent scan or a publicly exposed metadata-engine admin API.
+function runKinehallViewer(dataDir){
+ const netHTTP=require("node:http"),PORT=8097;
+ const stateFile=path.join(dataDir,"viewer-state.json"),catalogFile=path.join(dataDir,"viewer-catalog.json"),sourceFile=path.join(dataDir,"library-sources-v1.json"),powerFile=path.join(dataDir,"jellyfin-power.json");
+ if(!path.isAbsolute(dataDir)||!fs.statSync(dataDir).isDirectory())throw Error("Invalid server data directory");
+ const readJSON=(file,limit)=>{const st=fs.lstatSync(file);if(!st.isFile()||st.uid!==process.getuid()||(st.mode&0o077)||st.size>limit)throw Error("Invalid server data");return JSON.parse(fs.readFileSync(file,"utf8"));};
+ const enabled=()=>{try{return readJSON(powerFile,4096).enabled!==false;}catch(error){return error.code==="ENOENT";}};
+ const roots=()=>{try{const value=readJSON(sourceFile,1024*1024);return Array.isArray(value)?value.filter(r=>typeof r?.path==="string"&&path.isAbsolute(r.path)&&r.path!==path.parse(r.path).root&&["movie","tv"].includes(r.kind)).map(r=>r.path):[];}catch(_){return [];}};
+ const validRow=(r,selected)=>!!r&&typeof r.nativePath==="string"&&path.isAbsolute(r.nativePath)&&VIDEO.test(r.nativePath)&&r.id===fileIdentity(r.nativePath)&&["movie","tv"].includes(r.kind)&&selected.some(root=>containment(root,r.nativePath));
+ const stateIdentity=crypto.randomBytes(16).toString("hex"),started=fs.readFileSync("/proc/self/stat","utf8").split(")").pop().trim().split(/\s+/)[19];
+ const atomic=(file,value)=>{const tmp=file+"."+stateIdentity+".tmp";fs.writeFileSync(tmp,JSON.stringify(value),{mode:0o600,flag:"w"});fs.renameSync(tmp,file);};
+ const viewerPreviewPage="<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>DK Kinehall Viewer</title><style>body{font:16px system-ui;background:#15100f;color:#eee1cc;margin:0;padding:24px}main{max-width:1200px;margin:auto}h1,strong,a{color:#e2b956}article{display:grid;gap:10px;background:#261d18;padding:16px;border-radius:8px;border:1px solid #806b42;overflow-wrap:anywhere}input,button,select{font:inherit;padding:10px;border:1px solid #806b42;border-radius:5px}button{background:#e2b956;color:#462a25;cursor:pointer}input:not([type=checkbox]),select{background:#15100f;color:#fff;min-width:0}#catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin:20px 0}#status{min-height:1.5em}p{margin:0}header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}video{width:100%;max-height:65vh;background:#000}[hidden]{display:none!important}</style><main><h1 id=\"heading\"></h1><p id=\"status\" role=\"status\"></p><header><input id=\"filter\" type=\"search\"><select id=\"kind\"><option value=\"\" id=\"allKind\"></option><option value=\"movie\" id=\"movieKind\"></option><option value=\"tv\" id=\"tvKind\"></option></select><label><input id=\"saved\" type=\"checkbox\"><span id=\"savedLabel\"></span></label><button id=\"refresh\" type=\"button\"></button><span id=\"count\"></span></header><section id=\"player\" hidden><h2 id=\"playingTitle\"></h2><video id=\"video\" controls playsinline preload=\"metadata\"></video><button id=\"stopPlayback\" type=\"button\"></button></section><div id=\"catalog\"></div><button id=\"more\" type=\"button\" hidden></button></main><script>\nconst $=id=>document.getElementById(id),ru=navigator.language.toLowerCase().startsWith(\"ru\"),t=(en,r)=>ru?r:en;\ndocument.documentElement.lang=ru?\"ru\":\"en\";\ndocument.title=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\nconst el=(tag,txt)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;return n;};\nconst button=(text,action)=>{const b=el(\"button\",text);b.type=\"button\";b.onclick=action;return b;};\nconst msg=text=>{$(\"status\").textContent=text;};\nconst storageKey=\"dk-kinehall.viewer.browser.v1\";\nlet state={saved:[],progress:{}};\ntry{const x=JSON.parse(localStorage.getItem(storageKey)||\"null\");if(x&&Array.isArray(x.saved)&&x.progress&&typeof x.progress===\"object\")state=x;}catch(_){}\nfunction persist(){try{localStorage.setItem(storageKey,JSON.stringify(state));return true;}catch(_){msg(t(\"This browser could not save your viewing history.\",\"Не удалось сохранить историю просмотра в браузере.\"));return false;}}\nlet rows=[],query=\"\",savedOnly=false,playing=null,progressAt=0,visible=100;\nconst video=$(\"video\");\nfunction saveProgress(force=false){\n if(!playing||!Number.isFinite(video.duration)||video.duration<=0||(!force&&Date.now()-progressAt<15000))return;\n progressAt=Date.now();playing.position=video.ended?0:video.currentTime;\n state.progress[playing.id]={position:playing.position,completed:video.ended};persist();\n}\nfunction stopPlayback(){saveProgress(true);playing=null;video.pause();video.removeAttribute(\"src\");video.load();$(\"player\").hidden=true;}\nfunction play(row){\n stopPlayback();playing=row;progressAt=Date.now();$(\"playingTitle\").textContent=row.title;$(\"player\").hidden=false;\n video.src=\"/media/\"+encodeURIComponent(row.id);$(\"player\").scrollIntoView({block:\"start\"});\n void video.play().catch(()=>{});\n}\nvideo.addEventListener(\"loadedmetadata\",()=>{if(playing&&playing.position>0&&playing.position<video.duration-2)video.currentTime=playing.position;});\nvideo.addEventListener(\"timeupdate\",()=>saveProgress());\nvideo.addEventListener(\"pause\",()=>saveProgress(true));\nvideo.addEventListener(\"ended\",()=>saveProgress(true));\nvideo.addEventListener(\"error\",()=>{if(playing)msg(t(\"This browser cannot play this file directly. Open the original in a compatible player; transcoding is planned.\",\"Браузер не может воспроизвести этот файл напрямую. Откройте оригинал в совместимом проигрывателе; перекодирование будет добавлено позже.\"));});\nwindow.addEventListener(\"pagehide\",()=>saveProgress(true));\n$(\"stopPlayback\").textContent=t(\"Close Player\",\"Закрыть проигрыватель\");$(\"stopPlayback\").onclick=()=>{stopPlayback();render();};\nfunction render(){\n const catalog=$(\"catalog\");catalog.replaceChildren();\n const q=query.toLocaleLowerCase().trim(),saved=new Set(state.saved);\n const matches=rows.filter(r=>(!savedOnly||saved.has(r.id))&&(!q||r.title.toLocaleLowerCase().includes(q))&&(!$(\"kind\").value||r.kind===$(\"kind\").value));\n for(const row of matches.slice(0,visible)){\n  const card=el(\"article\"),title=el(\"strong\",row.title),detail=el(\"p\",[row.kind===\"movie\"?t(\"Movie\",\"Фильм\"):t(\"TV\",\"Сериал\"),row.year||\"\",row.episode||\"\",row.format||\"\"].filter(Boolean).join(\" · \"));\n  const save=button(saved.has(row.id)?t(\"Remove from watchlist\",\"Убрать из списка\"):t(\"Add to watchlist\",\"Добавить в список\"),()=>{const ids=new Set(state.saved);if(ids.has(row.id))ids.delete(row.id);else ids.add(row.id);state.saved=[...ids];persist();render();});\n  const original=el(\"a\",t(\"Open original file\",\"Открыть исходный файл\"));original.href=\"/media/\"+encodeURIComponent(row.id);original.target=\"_blank\";original.rel=\"noopener\";\n  card.append(title,detail,button(row.position>0?t(\"Resume\",\"Продолжить\"):t(\"Play\",\"Воспроизвести\"),()=>play(row)),original,save);catalog.append(card);\n }\n if(!matches.length)catalog.append(el(\"p\",t(\"No matching titles.\",\"Нет подходящих наименований.\")));\n $(\"more\").hidden=visible>=matches.length;$(\"count\").textContent=String(matches.length)+\" \"+t(\"titles\",\"наименований\");\n}\nasync function load(){\n try{\n  const r=await fetch(\"/api/catalog\",{cache:\"no-store\"});if(!r.ok)throw Error();\n  const data=await r.json();rows=(data.items||[]).map(row=>({...row,position:Number(state.progress[row.id]?.position)||0}));render();msg(\"\");\n }catch(_){msg(t(\"Catalog unavailable. Open Kinehall and check your library.\",\"Каталог недоступен. Откройте Кинехолл и проверьте медиатеку.\"));}\n}\n$(\"heading\").textContent=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\n$(\"filter\").placeholder=t(\"Search titles\",\"Поиск наименований\");\n$(\"savedLabel\").textContent=t(\"Watchlist only\",\"Только список просмотра\");\n$(\"allKind\").textContent=t(\"All titles\",\"Все наименования\");$(\"movieKind\").textContent=t(\"Movies\",\"Фильмы\");$(\"tvKind\").textContent=t(\"TV Shows\",\"Сериалы\");\n$(\"more\").textContent=t(\"Show more\",\"Показать ещё\");$(\"more\").onclick=()=>{visible+=100;render();};\n$(\"refresh\").textContent=t(\"Refresh\",\"Обновить\");$(\"refresh\").onclick=()=>void load();\n$(\"filter\").oninput=()=>{query=$(\"filter\").value;visible=100;render();};\n$(\"saved\").onchange=()=>{savedOnly=$(\"saved\").checked;visible=100;render();};\n$(\"kind\").onchange=()=>{visible=100;render();};\nvoid load();\n</script></html>";
+ const viewerCSP="default-src 'none'; script-src 'sha256-"+crypto.createHash("sha256").update("\nconst $=id=>document.getElementById(id),ru=navigator.language.toLowerCase().startsWith(\"ru\"),t=(en,r)=>ru?r:en;\ndocument.documentElement.lang=ru?\"ru\":\"en\";\ndocument.title=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\nconst el=(tag,txt)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;return n;};\nconst button=(text,action)=>{const b=el(\"button\",text);b.type=\"button\";b.onclick=action;return b;};\nconst msg=text=>{$(\"status\").textContent=text;};\nconst storageKey=\"dk-kinehall.viewer.browser.v1\";\nlet state={saved:[],progress:{}};\ntry{const x=JSON.parse(localStorage.getItem(storageKey)||\"null\");if(x&&Array.isArray(x.saved)&&x.progress&&typeof x.progress===\"object\")state=x;}catch(_){}\nfunction persist(){try{localStorage.setItem(storageKey,JSON.stringify(state));return true;}catch(_){msg(t(\"This browser could not save your viewing history.\",\"Не удалось сохранить историю просмотра в браузере.\"));return false;}}\nlet rows=[],query=\"\",savedOnly=false,playing=null,progressAt=0,visible=100;\nconst video=$(\"video\");\nfunction saveProgress(force=false){\n if(!playing||!Number.isFinite(video.duration)||video.duration<=0||(!force&&Date.now()-progressAt<15000))return;\n progressAt=Date.now();playing.position=video.ended?0:video.currentTime;\n state.progress[playing.id]={position:playing.position,completed:video.ended};persist();\n}\nfunction stopPlayback(){saveProgress(true);playing=null;video.pause();video.removeAttribute(\"src\");video.load();$(\"player\").hidden=true;}\nfunction play(row){\n stopPlayback();playing=row;progressAt=Date.now();$(\"playingTitle\").textContent=row.title;$(\"player\").hidden=false;\n video.src=\"/media/\"+encodeURIComponent(row.id);$(\"player\").scrollIntoView({block:\"start\"});\n void video.play().catch(()=>{});\n}\nvideo.addEventListener(\"loadedmetadata\",()=>{if(playing&&playing.position>0&&playing.position<video.duration-2)video.currentTime=playing.position;});\nvideo.addEventListener(\"timeupdate\",()=>saveProgress());\nvideo.addEventListener(\"pause\",()=>saveProgress(true));\nvideo.addEventListener(\"ended\",()=>saveProgress(true));\nvideo.addEventListener(\"error\",()=>{if(playing)msg(t(\"This browser cannot play this file directly. Open the original in a compatible player; transcoding is planned.\",\"Браузер не может воспроизвести этот файл напрямую. Откройте оригинал в совместимом проигрывателе; перекодирование будет добавлено позже.\"));});\nwindow.addEventListener(\"pagehide\",()=>saveProgress(true));\n$(\"stopPlayback\").textContent=t(\"Close Player\",\"Закрыть проигрыватель\");$(\"stopPlayback\").onclick=()=>{stopPlayback();render();};\nfunction render(){\n const catalog=$(\"catalog\");catalog.replaceChildren();\n const q=query.toLocaleLowerCase().trim(),saved=new Set(state.saved);\n const matches=rows.filter(r=>(!savedOnly||saved.has(r.id))&&(!q||r.title.toLocaleLowerCase().includes(q))&&(!$(\"kind\").value||r.kind===$(\"kind\").value));\n for(const row of matches.slice(0,visible)){\n  const card=el(\"article\"),title=el(\"strong\",row.title),detail=el(\"p\",[row.kind===\"movie\"?t(\"Movie\",\"Фильм\"):t(\"TV\",\"Сериал\"),row.year||\"\",row.episode||\"\",row.format||\"\"].filter(Boolean).join(\" · \"));\n  const save=button(saved.has(row.id)?t(\"Remove from watchlist\",\"Убрать из списка\"):t(\"Add to watchlist\",\"Добавить в список\"),()=>{const ids=new Set(state.saved);if(ids.has(row.id))ids.delete(row.id);else ids.add(row.id);state.saved=[...ids];persist();render();});\n  const original=el(\"a\",t(\"Open original file\",\"Открыть исходный файл\"));original.href=\"/media/\"+encodeURIComponent(row.id);original.target=\"_blank\";original.rel=\"noopener\";\n  card.append(title,detail,button(row.position>0?t(\"Resume\",\"Продолжить\"):t(\"Play\",\"Воспроизвести\"),()=>play(row)),original,save);catalog.append(card);\n }\n if(!matches.length)catalog.append(el(\"p\",t(\"No matching titles.\",\"Нет подходящих наименований.\")));\n $(\"more\").hidden=visible>=matches.length;$(\"count\").textContent=String(matches.length)+\" \"+t(\"titles\",\"наименований\");\n}\nasync function load(){\n try{\n  const r=await fetch(\"/api/catalog\",{cache:\"no-store\"});if(!r.ok)throw Error();\n  const data=await r.json();rows=(data.items||[]).map(row=>({...row,position:Number(state.progress[row.id]?.position)||0}));render();msg(\"\");\n }catch(_){msg(t(\"Catalog unavailable. Open Kinehall and check your library.\",\"Каталог недоступен. Откройте Кинехолл и проверьте медиатеку.\"));}\n}\n$(\"heading\").textContent=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\n$(\"filter\").placeholder=t(\"Search titles\",\"Поиск наименований\");\n$(\"savedLabel\").textContent=t(\"Watchlist only\",\"Только список просмотра\");\n$(\"allKind\").textContent=t(\"All titles\",\"Все наименования\");$(\"movieKind\").textContent=t(\"Movies\",\"Фильмы\");$(\"tvKind\").textContent=t(\"TV Shows\",\"Сериалы\");\n$(\"more\").textContent=t(\"Show more\",\"Показать ещё\");$(\"more\").onclick=()=>{visible+=100;render();};\n$(\"refresh\").textContent=t(\"Refresh\",\"Обновить\");$(\"refresh\").onclick=()=>void load();\n$(\"filter\").oninput=()=>{query=$(\"filter\").value;visible=100;render();};\n$(\"saved\").onchange=()=>{savedOnly=$(\"saved\").checked;visible=100;render();};\n$(\"kind\").onchange=()=>{visible=100;render();};\nvoid load();\n").digest("base64")+"'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+ const viewerMime=file=>({".mp4":"video/mp4",".m4v":"video/mp4",".webm":"video/webm",".ogv":"video/ogg",".mkv":"video/x-matroska",".avi":"video/x-msvideo",".mov":"video/quicktime",".ts":"video/mp2t",".mts":"video/mp2t",".m2ts":"video/mp2t",".mpeg":"video/mpeg",".mpg":"video/mpeg",".wmv":"video/x-ms-wmv",".flv":"video/x-flv",".3gp":"video/3gpp"}[path.extname(file).toLowerCase()]||"application/octet-stream");
+ function viewerByteRange(raw,size){
+ if(!Number.isSafeInteger(size)||size<=0)return null;
+ if(raw===undefined)return {start:0,end:size-1,partial:false};
+ const m=typeof raw==="string"&&/^bytes=(\d*)-(\d*)$/.exec(raw);
+ if(!m||(!m[1]&&!m[2]))return null;
+ let start,end;
+ if(!m[1]){const suffix=Number(m[2]);if(!Number.isSafeInteger(suffix)||suffix<=0)return null;start=Math.max(0,size-suffix);end=size-1;}
+ else{start=Number(m[1]);end=m[2]?Math.min(size-1,Number(m[2])):size-1;}
+ if(!Number.isSafeInteger(start)||!Number.isSafeInteger(end)||start<0||start>=size||end<start)return null;
+ return {start,end,partial:true};
+}
+
+
+ const viewerIPv4=value=>{
+ if(typeof value!=="string")return null;
+ const a=value.split(".");if(a.length!==4||a.some(x=>!/^(0|[1-9]\d{0,2})$/.test(x)||Number(x)>255))return null;
+ return a.reduce((n,x)=>(n*256+Number(x))>>>0,0);
+};
+const viewerPrivate=value=>{const n=viewerIPv4(value);return n!==null&&((n>>>24)===10||(n>>>20)===0xac1||(n>>>16)===0xc0a8);};
+
+ const localAddresses=()=>Object.values(os.networkInterfaces()).flat().filter(r=>r?.family==="IPv4"&&viewerPrivate(r.address)).map(r=>r.address);
+ const allowed=req=>{
+  const remote=String(req.socket.remoteAddress||"").replace(/^::ffff:/,"");
+  const local=String(req.socket.localAddress||"").replace(/^::ffff:/,"");
+  const host=req.headers.host;
+  return enabled()&&(remote==="127.0.0.1"||viewerPrivate(remote))&&(local==="127.0.0.1"||localAddresses().includes(local))&&(host===local+":"+PORT||local==="127.0.0.1"&&host==="localhost:"+PORT);
+ };
+ let cached=null,cachedStamp=null,stopping=false;
+ const catalog=()=>{
+  const selected=roots();setSelectedRoots(selected);
+  let stat;try{stat=fs.lstatSync(catalogFile);}catch(error){if(error.code==="ENOENT")return new Map();throw error;}
+  const stamp=[stat.ino,stat.size,stat.mtimeMs].join(":");
+  if(stamp!==cachedStamp){
+   const data=readJSON(catalogFile,64*1024*1024);if(!Array.isArray(data))throw Error("Invalid catalog");
+   cached=data;cachedStamp=stamp;
+  }
+  const result=new Map();for(const r of cached||[])if(validRow(r,selected))result.set(r.id.slice(7),r);
+  return result;
+ };
+ const json=(res,status,value)=>{const body=JSON.stringify(value);res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Content-Length":Buffer.byteLength(body),"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"});res.end(body);};
+ const streams=new Set();
+ async function stream(req,res,row){
+  let handle=null;
+  try{
+   const grant=await checkVideo(row.id,row.nativePath);
+   handle=await fsp.open(grant.target,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);
+   const stat=await handle.stat(),real=await fsp.realpath("/proc/self/fd/"+handle.fd);
+   if(!stat.isFile()||stat.dev!==grant.stat.dev||stat.ino!==grant.stat.ino||!allowed(req)||!validRow(row,roots())||!roots().some(root=>containment(root,real))||!catalog().has(row.id.slice(7)))throw Error("Media unavailable");
+   const range=viewerByteRange(req.headers.range,stat.size);
+   if(!range){res.writeHead(416,{"Content-Range":"bytes */"+stat.size,"Cache-Control":"no-store"});res.end();return;}
+   const headers={"Content-Type":viewerMime(row.nativePath),"Content-Length":range.end-range.start+1,"Accept-Ranges":"bytes","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};
+   if(range.partial)headers["Content-Range"]="bytes "+range.start+"-"+range.end+"/"+stat.size;
+   res.writeHead(range.partial?206:200,headers);
+   if(req.method==="HEAD"){res.end();return;}
+   const body=handle.createReadStream({start:range.start,end:range.end,autoClose:true});handle=null;
+   let timer;const record={close:()=>{body.destroy();res.destroy();}};streams.add(record);
+   const release=()=>{clearInterval(timer);streams.delete(record);body.destroy();};
+   res.once("close",release);body.once("close",release);body.once("error",()=>res.destroy());
+   timer=setInterval(()=>{try{if(!allowed(req)||!roots().some(root=>containment(root,real))||!catalog().has(row.id.slice(7)))record.close();}catch(_){record.close();}},3000);timer.unref();
+   body.pipe(res);
+  }catch(_){if(!res.headersSent)json(res,404,{error:"Media unavailable"});else res.destroy();}
+  finally{if(handle)await handle.close().catch(()=>{});}
+ }
+ const server=netHTTP.createServer({maxHeaderSize:8192,requestTimeout:10000,headersTimeout:5000},async(req,res)=>{
+  try{
+   if(!allowed(req)||typeof req.url!=="string"||req.url.length>250||!["GET","HEAD"].includes(req.method))return json(res,404,{error:"Not found"});
+   if(req.method==="GET"&&req.url==="/"){res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Content-Security-Policy":viewerCSP,"Cache-Control":"no-store","X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"});return res.end(viewerPreviewPage);}
+   if(req.method==="GET"&&req.url==="/api/catalog"){
+    const rows=[...catalog().values()].map(r=>({id:r.id.slice(7),title:r.kind==="tv"?[r.series,r.episodeTitle||r.title].filter(Boolean).join(" · "):r.title,kind:r.kind,year:r.year,episode:r.kind==="tv"?"S"+String(r.season??0).padStart(2,"0")+"E"+String(r.episode??0).padStart(2,"0"):null,format:path.extname(r.nativePath).slice(1).toUpperCase()}));
+    rows.sort((a,b)=>a.title.localeCompare(b.title,undefined,{numeric:true}));return json(res,200,{items:rows});
+   }
+   const match=/^\/media\/([a-f0-9]{64})$/.exec(req.url);
+   if(match){const row=catalog().get(match[1]);if(row)return await stream(req,res,row);}
+   return json(res,404,{error:"Not found"});
+  }catch(_){if(!res.headersSent)json(res,503,{error:"Viewer unavailable"});else res.destroy();}
+ });
+ let heartbeat;
+ function stop(){
+  if(stopping)return;stopping=true;clearInterval(heartbeat);
+  for(const item of streams)item.close();streams.clear();server.closeAllConnections?.();server.close();
+  try{if(readJSON(stateFile,4096).identity===stateIdentity)fs.unlinkSync(stateFile);}catch(_){}
+  process.exit(0);
+ }
+ function tick(){
+  if(!enabled())return stop();
+  try{atomic(stateFile,{pid:process.pid,started,identity:stateIdentity,port:PORT,heartbeat:Date.now()});}catch(_){stop();}
+ }
+ process.once("SIGTERM",stop);process.once("SIGINT",stop);
+ server.on("error",()=>stop());server.keepAliveTimeout=3000;
+ if(!enabled())return;
+ server.listen(PORT,"0.0.0.0",()=>{tick();if(!stopping)heartbeat=setInterval(tick,2000);});
+}
+if(require.main===module&&process.argv[2]==="--dk-kinehall-viewer")runKinehallViewer(process.argv[3]);

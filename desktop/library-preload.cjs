@@ -11,7 +11,8 @@ const subscribe=(channel,callback)=>{
 };
 const nativeLibrary=Object.freeze({
   internalPages:true,
-  viewerPreview:(action,address=null)=>libIpc.invoke("dk-library:viewer-preview",String(action),address===null?null:String(address)),
+  viewerPreview:action=>libIpc.invoke("dk-library:viewer-preview",String(action)),
+  publishViewerCatalog:rows=>libIpc.invoke("dk-library:viewer-catalog",rows),
   getInterfaceLanguage:fallback=>libIpc.invoke("dk-library:language-get",fallback==="ru"?"ru":"en"),
   setInterfaceLanguage:value=>libIpc.invoke("dk-library:language-set",value==="ru"?"ru":"en"),
   onInterfaceLanguage:callback=>subscribe("dk-library:language-changed",callback),

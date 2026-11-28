@@ -1064,6 +1064,14 @@ function syncCollectionTools(rows,tv){
  check.checked=collectionFilter.saved;checkText.textContent=say("Watchlist","Список просмотра");
  clear.textContent=say("Clear Filters","Сбросить фильтры");
 }
+let viewerPublishTimer=null;
+function publishViewerCatalog(){
+ if(!nativeBridge?.publishViewerCatalog)return;
+ clearTimeout(viewerPublishTimer);viewerPublishTimer=setTimeout(()=>{
+  const rows=all.filter(r=>r.source==="native"&&!r.missing&&!r.unavailable&&!store.excludedDiscovery?.(r)).map(r=>({id:r.id,nativePath:r.nativePath,kind:r.kind,title:r.title,series:r.series,episodeTitle:r.episodeTitle,year:r.year,season:r.season,episode:r.episode}));
+  void nativeBridge.publishViewerCatalog(rows).catch(()=>{});
+ },350);
+}
 async function render(){
   const epoch=++renderEpoch;
   if(bottomObserver)bottomObserver.disconnect();
@@ -1072,6 +1080,7 @@ async function render(){
   folders=await store.folders();
   all=(await store.entries()).filter(row=>!nativeBridge||!store.excludedDiscovery?.(row));
   if(epoch!==renderEpoch)return;
+  publishViewerCatalog();
   try{legacyResume=JSON.parse(localStorage.getItem("dkmedia.web.resume.v1")||"{}")||{};}
   catch(_){legacyResume={};}
   if(nativeBridge)legacyProgressById=recoverLegacyProgress(all);
@@ -1453,8 +1462,9 @@ function paintJellyfinState(data){
  controls.hidden=false;light.dataset.state=data.state;node.textContent=(messages[data.state]||messages.unknown)+(data.state==="scanning"&&data.progress!=null?" "+Math.round(data.progress)+"%":"");
  light.title=node.textContent;light.setAttribute("aria-label",node.textContent);
  const shortcut=$("dkSidebarServer"),lamp=$("dkSidebarServerLight");
+ $("dkViewerAddress")?.closest(".dk-server-settings")?.updateViewer?.(data.viewer);
  if(lamp){lamp.dataset.state=data.state;lamp.title=node.textContent;}
- if(shortcut){shortcut.title=node.textContent;shortcut.setAttribute("aria-label",say("Server Settings","Настройки сервера")+" · "+node.textContent);}
+ if(shortcut){shortcut.title=node.textContent+(data.viewer?.url?" · "+data.viewer.url:"");shortcut.setAttribute("aria-label",say("Server Settings","Настройки сервера")+" · "+shortcut.title);}
  button.textContent=data.enabled&&(data.state!=="unavailable"||data.runningProcess)?say("Stop Server","Остановить сервер"):say("Start Server","Запустить сервер");
  button.title=button.textContent+" · "+node.textContent;button.setAttribute("aria-label",button.title);
  button.disabled=jfPowerBusy||!data.controllable||!nativeBridge?.jellyfinPower;
@@ -1471,7 +1481,7 @@ async function pollJellyfin(){
   jfPollBusy=true;
   try{
     const data=await jfCall("status");paintJellyfinState(data);
-    const completed=data.state==="ready"&&jfLast&&(jfLast.state!=="ready"||data.completed!==jfLast.completed);
+    const completed=data.metadataState==="ready"&&jfLast&&(jfLast.metadataState!=="ready"||data.completed!==jfLast.completed);
     jfLast=data;
     if(completed&&!scanning&&!maintaining){
       jfRevision++;backdropAttempts.clear();artAttempted.clear();titleAttempted.clear();networkArtworkCount=0;networkTitleCount=0;
@@ -2243,12 +2253,12 @@ function connect(){
     try{const data=JSON.parse(localStorage.getItem(historyKey)||"[]");if(Array.isArray(data))reports=data.filter(x=>x?.schema===1&&Array.isArray(x.checks)&&x.facts&&x.totals).slice(0,10);}catch(_){}
     const words={passed:["Passed","Пройдено"],attention:["Needs attention","Требует внимания"],problem:["Problem","Проблема"],notTested:["Not tested","Не проверено"],information:["Information","Сведения"]};
     const labels={
-     runtime:["Private server executable","Исполняемый файл сервера"],powerPreference:["Startup preference","Настройка автозапуска"],managedProcess:["Owned server process","Управляемый процесс"],listener:["Loopback-only listener","Локальный сетевой порт"],residentMemory:["Resident memory","Оперативная память"],threads:["Process threads","Потоки процесса"],diskSpace:["Available disk space","Свободное место на диске"],codecTools:["FFmpeg and FFprobe executables","Исполняемые файлы FFmpeg и FFprobe"],assignedFolders:["Assigned folders","Назначенные папки"],availableFolders:["Available folders","Доступные папки"],logCount:["Log files (count)","Количество журналов"],logBytes:["Log files (size)","Размер журналов"],authenticatedHealth:["Authenticated server health / latency","Доступность сервера и задержка"],scanTask:["Library scan task","Задача проверки медиатеки"],catalogCounts:["Server catalog counts","Размер каталога сервера"],sessions:["Server session count","Количество сеансов сервера"],databaseIntegrity:["Database integrity","Целостность базы данных"],codecPlayback:["Actual codec playback","Воспроизведение с кодеками"],transcoding:["Actual transcoding","Перекодирование"],remoteReachability:["Remote reachability","Удалённый доступ"]};
+     homeViewer:["Home-network streaming","Просмотр в домашней сети"],runtime:["Private server executable","Исполняемый файл сервера"],powerPreference:["Startup preference","Настройка автозапуска"],managedProcess:["Owned server process","Управляемый процесс"],listener:["Loopback-only listener","Локальный сетевой порт"],residentMemory:["Resident memory","Оперативная память"],threads:["Process threads","Потоки процесса"],diskSpace:["Available disk space","Свободное место на диске"],codecTools:["FFmpeg and FFprobe executables","Исполняемые файлы FFmpeg и FFprobe"],assignedFolders:["Assigned folders","Назначенные папки"],availableFolders:["Available folders","Доступные папки"],logCount:["Log files (count)","Количество журналов"],logBytes:["Log files (size)","Размер журналов"],authenticatedHealth:["Authenticated server health / latency","Доступность сервера и задержка"],scanTask:["Library scan task","Задача проверки медиатеки"],catalogCounts:["Server catalog counts","Размер каталога сервера"],sessions:["Server session count","Количество сеансов сервера"],databaseIntegrity:["Database integrity","Целостность базы данных"],codecPlayback:["Actual codec playback","Воспроизведение с кодеками"],transcoding:["Actual transcoding","Перекодирование"],remoteReachability:["Remote reachability","Удалённый доступ"]};
     const guidance={runtime:["Check the private runtime installation.","Проверьте установку частного сервера."],managedProcess:["Check server power and startup status.","Проверьте питание и запуск сервера."],listener:["Check local server network configuration.","Проверьте локальные сетевые настройки сервера."],diskSpace:["Free disk space before scanning.","Освободите место перед проверкой."],codecTools:["Verify the packaged playback tools.","Проверьте наличие средств воспроизведения."],assignedFolders:["Assign media folders in Library Management.","Назначьте папки в управлении медиатекой."],availableFolders:["Reconnect missing drives and check folder access.","Подключите накопители и проверьте доступ к папкам."],authenticatedHealth:["Try restarting the private server.","Попробуйте перезапустить частный сервер."],scanTask:["Review scan status and retry if needed.","Проверьте состояние задачи и повторите при необходимости."]};
     const stateWords={off:["Off","Выключен"],starting:["Starting","Запускается"],stopping:["Stopping","Останавливается"],ready:["Running","Работает"],scanning:["Scanning","Сканирование"],external:["External server","Внешний сервер"],unavailable:["Unavailable","Недоступен"],unknown:["Unknown","Неизвестно"]};
     const updateServerLabels=()=>{
       lifecycle.textContent=say("The power choice is remembered for automatic startup. The private server is designed to remain running after the app closes.","Выбранное состояние питания сохраняется для автоматического запуска. Частный сервер может продолжать работу после закрытия приложения.");
-      networkInfo.textContent=say("The private metadata server stays local. The home-network viewer below shares your media library.","Частный сервер метаданных работает локально. Просмотр в домашней сети предоставляет доступ к медиатеке.");
+      networkInfo.textContent=say("The server automatically shares your media library on your home network.","Сервер автоматически предоставляет доступ к медиатеке в домашней сети.");
       openDiagnostics.textContent=say("Diagnostic Centre","Центр диагностики");scanServer.textContent=say("Scan Library","Проверить медиатеку");
     };
     function valueText(check){
@@ -2299,31 +2309,18 @@ function connect(){
      if(reports.length)drawReport(reports[0]);else for(const b of [exportReport,exportText,copyReport,viewText])b.disabled=true;
      refreshReport.disabled=false;void updateReport();
     }
-    const previewStatus=create("p","helper"),viewerAddress=create("select","select");
-    viewerAddress.setAttribute("aria-label",say("Home network interface","Интерфейс домашней сети"));
-    let viewerAddressURL=null,viewerRunning=false,viewerControlBusy=false;
-    const toggleViewer=cinemaButton("Start Home-Network Viewer","Запустить просмотр в домашней сети",()=>void viewerPreviewAction(viewerRunning?"stop":"start"));
-    const openPreview=cinemaButton("Open Viewer","Открыть просмотр",()=>void viewerPreviewAction("open"));
+    const previewStatus=create("p","helper");
+    let viewerAddressURL=null;
+    const openPreview=cinemaButton("Open Viewer","Открыть просмотр",()=>void nativeBridge.viewerPreview("open").catch(()=>{}));
     const copyURL=cinemaButton("Copy Viewer Address","Копировать адрес просмотра",async()=>{if(viewerAddressURL)try{await navigator.clipboard.writeText(viewerAddressURL);}catch(_){previewStatus.textContent=viewerAddressURL;}});
-    const note=create("p","helper",say("Open the displayed HTTP address on any device on your home network. Everyone on that network can view the shared library. No account or encryption.","Откройте указанный адрес на любом устройстве домашней сети. Все устройства в этой сети могут просматривать общую медиатеку. Учётные записи и шифрование не используются."));
+    const note=create("p","helper",say("Open this address on another device on your home network. Streaming starts automatically with the server.","Откройте этот адрес на другом устройстве домашней сети. Просмотр запускается автоматически вместе с сервером."));
     function drawViewer(r){
-     viewerRunning=!!r.running;viewerAddressURL=r.url||null;const prior=viewerAddress.value;
-     viewerAddress.replaceChildren(...(r.interfaces||[]).map(address=>{const opt=create("option",null,address);opt.value=address;return opt;}));
-     if((r.interfaces||[]).includes(prior))viewerAddress.value=prior;
-     viewerAddress.hidden=viewerAddress.options.length<2;viewerAddress.disabled=viewerRunning;
-     toggleViewer.textContent=viewerRunning?say("Stop Home-Network Viewer","Остановить просмотр в домашней сети"):say("Start Home-Network Viewer","Запустить просмотр в домашней сети");
-     toggleViewer.disabled=false;openPreview.disabled=!viewerRunning;copyURL.disabled=!viewerAddressURL;
-     previewStatus.textContent=viewerRunning?(r.mode==="local"?say("Local only: ","Только локально: "):say("Viewer address: ","Адрес просмотра: "))+r.url:say("Viewer stopped.","Просмотр остановлен.");
+     viewerAddressURL=r?.url||null;
+     openPreview.disabled=!viewerAddressURL;copyURL.disabled=!viewerAddressURL;
+     previewStatus.textContent=r?.running?say("Watch on your devices: ","Смотрите на своих устройствах: ")+(r.urls?.length?r.urls.join(" · "):r.url):r?.starting?say("Server starting…","Запуск сервера…"):jfLast?.enabled?say("Viewer unavailable. Check Diagnostics.","Просмотр недоступен. Проверьте диагностику."):say("Server off.","Сервер выключен.");
     }
-    async function viewerPreviewAction(action){
-     if(!nativeBridge.viewerPreview||viewerControlBusy)return;viewerControlBusy=true;toggleViewer.disabled=true;openPreview.disabled=true;
-     try{drawViewer(await nativeBridge.viewerPreview(action,action==="start"?viewerAddress.value:null));}
-     catch(_){
-      try{drawViewer(await nativeBridge.viewerPreview("status"));}catch(_){toggleViewer.disabled=false;}
-      previewStatus.textContent=say("Viewer unavailable. Check the network connection and whether port 8097 is already in use.","Просмотр недоступен. Проверьте подключение к сети и доступность порта 8097.");
-     }finally{viewerControlBusy=false;}
-    }
-    if(nativeBridge.viewerPreview)serverPanel.append(viewerAddress,toggleViewer,openPreview,copyURL,note,previewStatus);
+    async function viewerPreviewAction(){if(nativeBridge.viewerPreview)try{drawViewer(await nativeBridge.viewerPreview("status"));}catch(_){drawViewer(null);}}
+    if(nativeBridge.viewerPreview){previewStatus.id="dkViewerAddress";serverPanel.append(openPreview,copyURL,note,previewStatus);serverPanel.updateViewer=drawViewer;}
     const chooseCategory=id=>{
       selectedCategory=id;
       title.textContent=id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
@@ -2331,7 +2328,7 @@ function connect(){
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
       serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";
-      if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();void viewerPreviewAction("status");}
+      if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();void viewerPreviewAction();}
       if(id==="diagnostics"){body.hidden=true;enterDiagnostics();}else{reportEpoch++;refreshReport.disabled=false;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
       if(id==="network"||id==="disc"){
@@ -2426,7 +2423,7 @@ function connect(){
       // discard/rebuild the artwork for the entire library.
       void store.item(event.id).then(row=>{
         if(!row)return;
-        const index=all.findIndex(item=>item.id===row.id);if(index>=0)all[index]=row;
+        const index=all.findIndex(item=>item.id===row.id);if(index>=0)all[index]=row;publishViewerCatalog();
         if(detailMovieId===row.id&&$("movieDetailsDialog").open)displayMovieDetails(row);
         for(const card of document.querySelectorAll(".library-card")){
           if(card.dataset.libraryId!==row.id ||

@@ -2325,7 +2325,7 @@ function viewerManage(action,value){
 // Opt-in localhost browser preview. No LAN bind, remote proxy, metadata
 // admin endpoints, raw media paths, or arbitrary file operations.
 const viewerPreviewPage="<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>DK Kinehall Viewer</title><style>body{font:16px system-ui;background:#15100f;color:#eee1cc;margin:0;padding:24px}main{max-width:1000px;margin:auto}h1,strong{color:#e2b956}form,article{display:grid;gap:10px;background:#261d18;padding:18px;border-radius:8px;border:1px solid #806b42}form{max-width:340px}input,button{font:inherit;padding:10px;border:1px solid #806b42;border-radius:5px}button{background:#e2b956;color:#462a25;cursor:pointer}input:not([type=checkbox]){background:#15100f;color:#fff;min-width:0}#catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:20px}#library[hidden],form[hidden]{display:none}#status{min-height:1.5em}p{margin:0}header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}</style><main><h1 id=\"heading\"></h1><p id=\"status\" role=\"status\"></p><form id=\"login\" hidden><label for=\"name\" id=\"nameLabel\"></label><input id=\"name\" required maxlength=\"48\" autocomplete=\"username\"><label for=\"password\" id=\"passLabel\"></label><input id=\"password\" type=\"password\" required maxlength=\"128\" autocomplete=\"current-password\"><button id=\"signIn\" type=\"submit\"></button></form><section id=\"library\" hidden><header><strong id=\"account\"></strong><button id=\"logout\" type=\"button\"></button><input id=\"filter\" type=\"search\"><label><input id=\"saved\" type=\"checkbox\"><span id=\"savedLabel\"></span></label></header><section id=\"player\" hidden><h2 id=\"playingTitle\"></h2><video id=\"video\" controls playsinline preload=\"metadata\" style=\"width:100%;max-height:65vh;background:#000\"></video><button id=\"stopPlayback\" type=\"button\"></button></section><div id=\"catalog\"></div></section></main><script>\nconst $=id=>document.getElementById(id);\nconst ru=navigator.language.toLowerCase().startsWith(\"ru\");\nconst t=(en,r)=>ru?r:en;\ndocument.documentElement.lang=ru?\"ru\":\"en\";\nconst el=(tag,txt)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;return n;};\nconst button=(text,action)=>{const b=el(\"button\",text);b.type=\"button\";b.onclick=action;return b;};\nconst msg=(text)=>{$(\"status\").textContent=text;};\nasync function api(url,data){\n const options={credentials:\"same-origin\",cache:\"no-store\"};\n if(data!==undefined){options.method=\"POST\";options.headers={\"Content-Type\":\"application/json\"};options.body=JSON.stringify(data);}\n const r=await fetch(url,options);if(!r.ok)throw Error(String(r.status));return r.json();\n}\nlet account=null,rows=[],query=\"\",savedOnly=false,playing=null,progressAt=0;\nconst video=$(\"video\");\nfunction saveProgress(force=false){\n if(!playing||!Number.isFinite(video.duration)||video.duration<=0||(!force&&Date.now()-progressAt<15000))return;\n progressAt=Date.now();\n const row=playing,position=video.ended?video.duration:video.currentTime,duration=video.duration;\n row.position=video.ended?0:position;\n void api(\"/api/progress\",{id:row.id,position,duration,completed:video.ended}).catch(()=>{});\n}\nfunction stopPlayback(){saveProgress(true);playing=null;video.pause();video.removeAttribute(\"src\");video.load();$(\"player\").hidden=true;}\nfunction play(row){\n stopPlayback();playing=row;progressAt=Date.now();$(\"playingTitle\").textContent=row.title;$(\"player\").hidden=false;\n video.src=\"/media/\"+encodeURIComponent(row.id);\n void video.play().catch(()=>{});\n}\nvideo.addEventListener(\"loadedmetadata\",()=>{if(playing&&playing.position>0&&playing.position<video.duration-2)video.currentTime=playing.position;});\nvideo.addEventListener(\"timeupdate\",()=>saveProgress());\nvideo.addEventListener(\"pause\",()=>saveProgress(true));\nvideo.addEventListener(\"ended\",()=>saveProgress(true));\nvideo.addEventListener(\"error\",()=>{if(playing)msg(t(\"This file may require a codec or transcoding not supported by your browser.\",\"Для этого файла может потребоваться неподдерживаемый браузером кодек или перекодирование.\"));});\n$(\"stopPlayback\").textContent=t(\"Close Player\",\"Закрыть проигрыватель\");$(\"stopPlayback\").onclick=stopPlayback;\nfunction render(){\n $(\"catalog\").replaceChildren();\n const q=query.toLocaleLowerCase().trim();\n for(const row of rows.filter(r=>(!savedOnly||r.saved)&&(!q||r.title.toLocaleLowerCase().includes(q))).slice(0,500)){\n  const card=el(\"article\"),title=el(\"strong\",row.title),detail=el(\"p\",[row.kind===\"movie\"?t(\"Movie\",\"Фильм\"):t(\"TV\",\"Сериал\"),row.year||\"\",row.episode||\"\"].filter(Boolean).join(\" · \"));\n  const save=button(row.saved?t(\"Remove from watchlist\",\"Убрать из списка\"):t(\"Add to watchlist\",\"Добавить в список\"),async()=>{save.disabled=true;try{await api(\"/api/watchlist\",{id:row.id,saved:!row.saved});row.saved=!row.saved;render();}catch(_){msg(t(\"Could not save.\",\"Не удалось сохранить.\"));save.disabled=false;}});\n  card.append(title,detail);\n  if(row.directPlay)card.append(button(t(\"Play\",\"Воспроизвести\"),()=>play(row)));else card.append(el(\"p\",t(\"Transcoding required\",\"Требуется перекодирование\")));\n  card.append(save);if(row.position>0)card.append(el(\"p\",t(\"Resume position: \",\"Позиция просмотра: \")+Math.floor(row.position/60)+t(\" min\",\" мин\")));$(\"catalog\").append(card);\n }\n if(!$(\"catalog\").children.length)$(\"catalog\").append(el(\"p\",t(\"No matching titles.\",\"Нет подходящих наименований.\")));\n}\nasync function load(){\n try{account=await api(\"/api/me\");$(\"login\").hidden=true;$(\"library\").hidden=false;$(\"account\").textContent=account.name;const data=await api(\"/api/catalog\");rows=data.items||[];render();msg(t(\"Local direct playback. Actual compatibility depends on your browser codecs.\",\"Локальное воспроизведение. Совместимость зависит от кодеков браузера.\"));}\n catch(e){if(e.message===\"401\"){$(\"login\").hidden=false;$(\"library\").hidden=true;msg(t(\"Sign in to your viewer account.\",\"Войдите в учётную запись зрителя.\"));}else msg(t(\"Catalog unavailable. Check the private metadata server.\",\"Каталог недоступен. Проверьте сервер метаданных.\"));}\n}\n$(\"heading\").textContent=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\n$(\"nameLabel\").textContent=t(\"Account name\",\"Имя учётной записи\");\n$(\"passLabel\").textContent=t(\"Password\",\"Пароль\");\n$(\"signIn\").textContent=t(\"Sign in\",\"Войти\");\n$(\"logout\").textContent=t(\"Sign out\",\"Выйти\");\n$(\"filter\").placeholder=t(\"Search titles\",\"Поиск наименований\");\n$(\"savedLabel\").textContent=t(\"Watchlist only\",\"Только список просмотра\");\n$(\"login\").onsubmit=async e=>{e.preventDefault();const password=$(\"password\").value;$(\"password\").value=\"\";$(\"signIn\").disabled=true;try{await api(\"/api/login\",{name:$(\"name\").value,password});await load();}catch(_){msg(t(\"Sign-in failed. Check your account or wait before retrying.\",\"Не удалось войти. Проверьте учётную запись или подождите.\"));}finally{$(\"signIn\").disabled=false;}};\n$(\"logout\").onclick=async()=>{stopPlayback();try{await api(\"/api/logout\",{});}catch(_){}rows=[];await load();};\n$(\"filter\").oninput=()=>{query=$(\"filter\").value;render();};\n$(\"saved\").onchange=()=>{savedOnly=$(\"saved\").checked;render();};\nvoid load();\n</script></html>";
-let viewerServer=null,viewerOpening=null,viewerAuthBusy=false,viewerFailed=[];
+let viewerServer=null,viewerOpening=null,viewerAuthBusy=false,viewerFailed=[],viewerBinding=null;
 const viewerSessions=new Map(),viewerStreams=new Set();
 const viewerSessionTTL=8*60*60*1000;
 function viewerRevokeAccount(id){for(const [token,session] of viewerSessions)if(session.id===id)viewerSessions.delete(token);for(const stream of viewerStreams)if(stream.accountId===id)stream.close();}
@@ -2418,11 +2418,36 @@ async function viewerStream(req,res,session,id){
  }catch(_){if(!res.headersSent)viewerJson(res,404,{error:"Media unavailable"});else res.destroy();}
  finally{if(handle)await handle.close().catch(()=>{});}
 }
+// Explicit TLS-only serving on one selected private IPv4 interface.
+const viewerIPv4=value=>{
+ if(typeof value!=="string")return null;
+ const a=value.split(".");if(a.length!==4||a.some(x=>!/^(0|[1-9]\d{0,2})$/.test(x)||Number(x)>255))return null;
+ return a.reduce((n,x)=>(n*256+Number(x))>>>0,0);
+};
+const viewerPrivate=value=>{const n=viewerIPv4(value);return n!==null&&((n>>>24)===10||(n>>>20)===0xac1||(n>>>16)===0xc0a8);};
+function viewerSameSubnet(client,address,mask){
+ const a=viewerIPv4(client),b=viewerIPv4(address),m=viewerIPv4(mask);
+ if(a===null||b===null||m===null||!viewerPrivate(client)||!viewerPrivate(address)||m===0)return false;
+ const inverse=(~m)>>>0;if((inverse&(inverse+1))!==0)return false;
+ return (a&m)===(b&m);
+}
+function viewerInterfaces(){
+ return Object.values(require("node:os").networkInterfaces()).flat().filter(x=>x&&!x.internal&&x.family==="IPv4"&&viewerPrivate(x.address)&&viewerSameSubnet(x.address,x.address,x.netmask)).map(x=>({address:x.address,netmask:x.netmask}));
+}
+function viewerBindingValid(binding){
+ return binding?.mode==="local"||binding?.mode==="lan"&&viewerInterfaces().some(x=>x.address===binding.address&&x.netmask===binding.netmask);
+}
+function viewerRequestAllowed(binding,remote,host){
+ if(!binding||host!==binding.address+":"+binding.port||!viewerBindingValid(binding))return false;
+ return binding.mode==="local"?remote==="127.0.0.1":viewerSameSubnet(remote,binding.address,binding.netmask);
+}
+function viewerURL(binding){return (binding.mode==="lan"?"https":"http")+"://"+binding.address+":"+binding.port;}
 async function serveViewer(req,res){
  const no=()=>viewerJson(res,404,{error:"Not found"});
  try{
-  const port=viewerServer?.address()?.port,origin="http://127.0.0.1:"+port;
-  if(!port||req.socket.remoteAddress!=="127.0.0.1"||req.headers.host!=="127.0.0.1:"+port||typeof req.url!=="string"||req.url.length>250||!req.url.startsWith("/")||req.url.startsWith("//"))return no();
+  const binding=viewerBinding;
+  if(!viewerRequestAllowed(binding,req.socket.remoteAddress,req.headers.host)||binding.mode==="lan"&&!req.socket.encrypted||typeof req.url!=="string"||req.url.length>250||!req.url.startsWith("/")||req.url.startsWith("//"))return no();
+  const origin=viewerURL(binding),secure=binding.mode==="lan"?"; Secure":"";
   const url=new URL(req.url,origin);if(url.origin!==origin||url.search||url.hash)return no();
   const method=req.method;
   if(method==="POST"&&req.headers.origin!==origin)return viewerJson(res,403,{error:"Forbidden"});
@@ -2440,16 +2465,17 @@ async function serveViewer(req,res){
     const row=viewerRead().find(x=>x.id===proof.account.id);if(!row?.enabled||row.hash!==proof.verifiedHash)return viewerJson(res,401,{error:"Invalid credentials"});
     for(const [token,s] of viewerSessions)if(s.expires<Date.now())viewerSessions.delete(token);
     if(viewerSessions.size>=100)return viewerJson(res,429,{error:"Too many sessions"});
+    if(viewerBinding!==binding||!viewerRequestAllowed(binding,req.socket.remoteAddress,req.headers.host))return viewerJson(res,503,{error:"Viewer unavailable"});
     const token=randomBytes(32).toString("hex");
     viewerSessions.set(token,{id:row.id,hash:row.hash,expires:Date.now()+viewerSessionTTL});
-    return viewerJson(res,200,{ok:true},{"Set-Cookie":"dkviewer="+token+"; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800"});
+    return viewerJson(res,200,{ok:true},{"Set-Cookie":"dkviewer="+token+"; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800"+secure});
    }finally{viewerAuthBusy=false;}
   }
   const session=viewerSession(req);if(!session)return viewerJson(res,401,{error:"Sign in required"});
   const account=session.account;
   if(method==="GET"&&url.pathname==="/api/me")return viewerJson(res,200,account);
   if(method==="POST"&&url.pathname==="/api/logout"){
-   viewerSessions.delete(session.token);for(const stream of viewerStreams)if(stream.token===session.token)stream.close();return viewerJson(res,200,{ok:true},{"Set-Cookie":"dkviewer=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"});
+   viewerSessions.delete(session.token);for(const stream of viewerStreams)if(stream.token===session.token)stream.close();return viewerJson(res,200,{ok:true},{"Set-Cookie":"dkviewer=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"+secure});
   }
   const mediaMatch=/^\/media\/([a-f0-9-]{32,36})$/i.exec(url.pathname);
   if((method==="GET"||method==="HEAD")&&mediaMatch&&jellyfinId(mediaMatch[1]))return await viewerStream(req,res,session,mediaMatch[1]);
@@ -2486,25 +2512,57 @@ async function serveViewer(req,res){
  }catch(_){if(!res.headersSent)viewerJson(res,503,{error:"Viewer unavailable"});else res.destroy();}
 }
 function viewerStop(){
- const server=viewerServer;viewerServer=null;viewerSessions.clear();for(const stream of viewerStreams)stream.close();viewerStreams.clear();
+ const server=viewerServer;viewerServer=null;viewerBinding=null;viewerSessions.clear();for(const stream of viewerStreams)stream.close();viewerStreams.clear();
  if(server){server.close();server.closeAllConnections?.();}
 }
-async function viewerPreview(action){
- if(action==="stop"){viewerStop();return {running:false};}
- if(action==="status")return {running:!!viewerServer?.listening};
- if(action!=="open")throw Error("Invalid viewer action");
- if(!viewerServer?.listening){
-  if(!viewerOpening)viewerOpening=new Promise((resolve,reject)=>{
-   const server=netHTTP.createServer({maxHeaderSize:8192,requestTimeout:10000,headersTimeout:5000},(req,res)=>void serveViewer(req,res));
-   viewerServer=server;server.maxConnections=32;server.keepAliveTimeout=3000;
-   server.once("error",error=>{if(viewerServer===server)viewerServer=null;reject(error);});
-   server.listen(0,"127.0.0.1",()=>resolve());
-  }).finally(()=>{viewerOpening=null;});
-  await viewerOpening;
- }
- if(!viewerServer?.listening)throw Error("Viewer unavailable");
- await shell.openExternal("http://127.0.0.1:"+viewerServer.address().port+"/");
- return {running:true};
+function viewerStatus(){
+ const running=!!viewerServer?.listening&&!!viewerBinding;
+ return {running,mode:running?viewerBinding.mode:null,url:running?viewerURL(viewerBinding):null,interfaces:viewerInterfaces().map(x=>x.address)};
+}
+async function viewerChooseTLS(address){
+ const ru=readInterfaceLanguage("en")==="ru";
+ const cert=await dialog.showOpenDialog(home,{title:ru?"Выберите сертификат TLS (PEM)":"Choose TLS certificate (PEM)",properties:["openFile"]});
+ if(cert.canceled||!cert.filePaths[0])return null;
+ const key=await dialog.showOpenDialog(home,{title:ru?"Выберите закрытый ключ TLS (PEM)":"Choose TLS private key (PEM)",properties:["openFile"]});
+ if(key.canceled||!key.filePaths[0])return null;
+ const read=file=>{const stat=fs.statSync(file);if(!stat.isFile()||stat.size>256*1024)throw Error("Invalid TLS file");return fs.readFileSync(file);};
+ const certificate=read(cert.filePaths[0]),privateKey=read(key.filePaths[0]);
+ const x=new (require("node:crypto").X509Certificate)(certificate);
+ if(!x.checkIP(address)||Date.now()<Date.parse(x.validFrom)||Date.now()>=Date.parse(x.validTo))throw Error("Certificate must be current and cover the selected IP address");
+ const tls={cert:certificate,key:privateKey,minVersion:"TLSv1.2"};
+ require("node:tls").createSecureContext(tls);
+ return tls;
+}
+async function viewerPreview(action,address=null){
+ if(action==="status")return viewerStatus();
+ if(action==="stop"){viewerStop();return viewerStatus();}
+ if(!["open","lan"].includes(action))throw Error("Invalid viewer action");
+ if(viewerOpening)throw Error("Viewer is starting");
+ if(action==="open"&&viewerBinding?.mode==="local"&&viewerServer?.listening){await shell.openExternal(viewerURL(viewerBinding)+"/");return viewerStatus();}
+ if(viewerServer?.listening)throw Error("Stop the current viewer before switching modes");
+ const mode=action==="lan"?"lan":"local",selected=mode==="lan"?viewerInterfaces().find(x=>x.address===address):{address:"127.0.0.1",netmask:"255.0.0.0"};
+ if(!selected)throw Error("Select a private IPv4 address");
+ const binding={...selected,mode,port:0};
+ viewerOpening=(async()=>{
+  let tls=null;
+  if(mode==="lan"){
+   tls=await viewerChooseTLS(binding.address);if(!tls)return;
+   if(!viewerBindingValid(binding)||jfClosing)throw Error("Network interface changed");
+  }
+  if(jfClosing)throw Error("Application closing");
+  const options={maxHeaderSize:8192,requestTimeout:10000,headersTimeout:5000};
+  const server=mode==="lan"?netHTTPS.createServer({...options,...tls},(req,res)=>void serveViewer(req,res)):netHTTP.createServer(options,(req,res)=>void serveViewer(req,res));
+  viewerServer=server;viewerBinding=binding;server.maxConnections=32;server.keepAliveTimeout=3000;
+  try{await new Promise((resolve,reject)=>{
+   server.once("error",reject);server.listen(0,binding.address,()=>{binding.port=server.address().port;resolve();});
+  });}catch(error){if(viewerServer===server)viewerStop();throw error;}
+  server.on("error",()=>{if(viewerServer===server)viewerStop();});
+  const timer=setInterval(()=>{if(viewerServer!==server){clearInterval(timer);return;}if(!viewerBindingValid(binding))viewerStop();},3000);timer.unref();
+  server.once("close",()=>clearInterval(timer));
+ })().finally(()=>{viewerOpening=null;});
+ await viewerOpening;
+ if(mode==="local"&&viewerServer?.listening)await shell.openExternal(viewerURL(binding)+"/");
+ return viewerStatus();
 }
 function jfDirectory(dir){
   fs.mkdirSync(dir,{recursive:true,mode:0o700});
@@ -3967,7 +4025,7 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);
   });
-  ipcMain.handle("dk-library:viewer-preview",(event,action)=>{if(!allowed(event)||activePage!=="library")throw Error("Viewer request rejected");return viewerPreview(action);});
+  ipcMain.handle("dk-library:viewer-preview",(event,action,address)=>{if(!allowed(event)||activePage!=="library")throw Error("Viewer request rejected");return viewerPreview(action,address);});
   ipcMain.handle("dk-library:viewer-accounts",(event,action,value)=>{
     if(!allowed(event)||activePage!=="library"||!["list","create","update","password","remove"].includes(action))throw Error("Account request rejected");
     return viewerManage(action,value);

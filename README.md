@@ -241,3 +241,6 @@ Local Viewer preview: explicitly open a localhost-only browser viewer from Serve
 
 
 Local Viewer direct play: browser-supported MP4/M4V, WebM and Ogg video containers are eligible for direct playback with HTTP byte ranges, seeking and per-account resume positions. Actual codecs must be supported by the browser; MKV/AVI and incompatible codecs need future transcoding. Streams are checked against current account permissions, assigned roots, real file identity and the opened file descriptor, and closed on logout, account revocation or preview shutdown. No LAN or internet bind. Actual playback/security acceptance pending.
+
+
+Secure Home-Network Viewer (source preview): select one private IPv4 interface in Server Settings, provide a current PEM certificate covering that IP and its private key, then explicitly start HTTPS serving. The viewer uses the selected interface and same-subnet checks, TLS 1.2 or later, Secure session cookies, existing account and file-scope controls, interface-change shutdown and explicit stop. No auto-start, plain-HTTP LAN listener, router changes or public internet access. Viewing devices must trust the certificate; automatic certificate provisioning, device pairing, remote access and installed runtime/security verification remain pending.

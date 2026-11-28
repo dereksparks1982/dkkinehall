@@ -2301,15 +2301,33 @@ function connect(){
     }
     const accountPanel=create("section","dk-server-settings dk-viewer-accounts");accountPanel.hidden=true;dlg.append(accountPanel);
     const accountButton=cinemaButton("Viewer Accounts","Учётные записи зрителей",()=>chooseCategory("accounts"));accountButton.hidden=!nativeBridge.viewerAccounts;serverPanel.append(accountButton);
-    const previewStatus=create("p","helper");
+    const previewStatus=create("p","helper"),viewerAddress=create("select","select");
+    viewerAddress.setAttribute("aria-label",say("Home network interface","Интерфейс домашней сети"));
     const openPreview=cinemaButton("Open Local Viewer","Открыть локальный просмотр",()=>void viewerPreviewAction("open"));
-    const stopPreview=cinemaButton("Stop Local Viewer","Остановить локальный просмотр",()=>void viewerPreviewAction("stop"));
-    async function viewerPreviewAction(action){if(!nativeBridge.viewerPreview)return;try{const r=await nativeBridge.viewerPreview(action);stopPreview.disabled=!r.running;previewStatus.textContent=r.running?say("Local browser viewer running. LAN and internet access are disabled.","Локальный просмотр запущен. Доступ по сети и интернету отключён."):say("Local viewer stopped.","Локальный просмотр остановлен.");}catch(_){previewStatus.textContent=say("Local viewer unavailable.","Локальный просмотр недоступен.");}}
-    if(nativeBridge.viewerPreview)serverPanel.append(openPreview,stopPreview,previewStatus);
+    const openLAN=cinemaButton("Start Secure Home-Network Viewer","Запустить защищённый просмотр в домашней сети",()=>void viewerPreviewAction("lan"));
+    const stopPreview=cinemaButton("Stop Viewer","Остановить просмотр",()=>void viewerPreviewAction("stop"));
+    const copyURL=cinemaButton("Copy Viewer Address","Копировать адрес просмотра",async()=>{if(viewerAddressURL)try{await navigator.clipboard.writeText(viewerAddressURL);}catch(_){previewStatus.textContent=viewerAddressURL;}});
+    const tlsNote=create("p","helper",say("Home-network access requires a current TLS certificate and private key covering the selected IP address. Install trust for that certificate on your viewing devices. No router configuration or internet access is enabled.","Для доступа по домашней сети необходим действующий сертификат TLS и закрытый ключ для выбранного адреса. Настройте доверие к сертификату на устройствах просмотра. Настройки маршрутизатора и доступ из интернета не включаются."));
+    let viewerAddressURL=null,viewerControlBusy=false;
+    async function viewerPreviewAction(action){
+     if(!nativeBridge.viewerPreview||viewerControlBusy)return;viewerControlBusy=true;openPreview.disabled=true;openLAN.disabled=true;stopPreview.disabled=true;
+     try{
+      const r=await nativeBridge.viewerPreview(action,action==="lan"?viewerAddress.value:null);
+      viewerAddressURL=r.url||null;const prior=viewerAddress.value;
+      viewerAddress.replaceChildren(...(r.interfaces||[]).map(address=>{const opt=create("option",null,address);opt.value=address;return opt;}));
+      if((r.interfaces||[]).includes(prior))viewerAddress.value=prior;
+      viewerAddress.disabled=r.running;openLAN.disabled=r.running||!viewerAddress.options.length;openPreview.disabled=r.running&&r.mode!=="local";stopPreview.disabled=!r.running;copyURL.disabled=!r.url;
+      previewStatus.textContent=r.running?(r.mode==="lan"?say("Secure home-network viewer: ","Защищённый просмотр в домашней сети: "):say("Local viewer: ","Локальный просмотр: "))+r.url:say("Viewer stopped.","Просмотр остановлен.");
+     }catch(_){
+      previewStatus.textContent=say("Viewer could not start. Stop the current viewer first, and check the selected interface, certificate and private key.","Не удалось запустить просмотр. Остановите текущий просмотр и проверьте интерфейс, сертификат и закрытый ключ.");
+      try{const r=await nativeBridge.viewerPreview("status");openPreview.disabled=r.running&&r.mode!=="local";openLAN.disabled=r.running||!viewerAddress.options.length;stopPreview.disabled=!r.running;}catch(_){}
+     }finally{viewerControlBusy=false;}
+    }
+    if(nativeBridge.viewerPreview)serverPanel.append(openPreview,viewerAddress,openLAN,stopPreview,copyURL,tlsNote,previewStatus);
     let accountsEpoch=0,accountsBusy=false;
     const drawAccounts=async()=>{
      if(!nativeBridge.viewerAccounts)return;
-     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Local browser sign-in, watchlists and direct playback are available in the preview; network access remains planned. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Локальный вход, списки просмотра и прямое воспроизведение доступны в предварительной версии; сетевой доступ будет добавлен позже. Права владельца приложения не изменяются.")));
+     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Local browser sign-in, watchlists and direct playback are available in the preview; secure home-network access requires a trusted TLS certificate. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Локальный вход, списки просмотра и прямое воспроизведение доступны в предварительной версии; для защищённого доступа по домашней сети необходим доверенный сертификат TLS. Права владельца приложения не изменяются.")));
      const note=create("p","helper");note.setAttribute("role","status");accountPanel.append(note);
      const valid=()=>revision===accountsEpoch&&!accountPanel.hidden;
      const input=(parent,label,type="text",value="")=>{const wrap=create("label",null,label),node=create("input");node.type=type;node.value=value;node.required=true;node.maxLength=type==="password"?128:48;if(type==="password"){node.minLength=12;node.autocomplete="new-password";}wrap.append(node);parent.append(wrap);return node;};

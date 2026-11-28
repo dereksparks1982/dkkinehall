@@ -5,7 +5,7 @@ const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
 const {fileURLToPath,pathToFileURL}=require("node:url");
-const {randomBytes}=require("node:crypto");
+const {randomBytes,scrypt,timingSafeEqual}=require("node:crypto");
 const VERSION="0.9.3";
 // Native folder chooser is the only discovery configuration. Empty means
 // no scanning, never a fallback to home or attached drives.
@@ -2265,6 +2265,63 @@ function jfWrite(file,data){
   fs.writeFileSync(tmp,data,{mode:0o600,flag:"wx"});
   try{fs.renameSync(tmp,file);}finally{try{fs.unlinkSync(tmp);}catch(_){}}
 }
+// Separate Kinehall viewer accounts; never create users in or expose the
+// private Jellyfin metadata-admin service. Local desktop is the OS owner.
+const viewerAccountPath=()=>path.join(app.getPath("userData"),"viewer-accounts.json");
+const viewerId=value=>typeof value==="string"&&/^[a-f0-9]{32}$/.test(value);
+const viewerName=value=>typeof value==="string"?value.normalize("NFKC").trim().slice(0,48):"";
+const viewerNameKey=value=>viewerName(value).toLowerCase();
+const viewerPermissions=value=>({movies:value?.movies===true,tv:value?.tv===true});
+function viewerRead(){
+ const file=viewerAccountPath();let stat;
+ try{stat=fs.lstatSync(file);}catch(error){if(error.code==="ENOENT")return [];throw error;}
+ if(!stat.isFile()||stat.size>256*1024||stat.uid!==process.getuid()||(stat.mode&0o077))throw Error("Unsafe viewer account storage");
+ const data=JSON.parse(fs.readFileSync(file,"utf8"));
+ if(data?.schema!==1||!Array.isArray(data.accounts)||data.accounts.length>50)throw Error("Invalid viewer account storage");
+ return data.accounts;
+}
+function viewerWrite(rows){jfWrite(viewerAccountPath(),JSON.stringify({schema:1,accounts:rows}));}
+function viewerPublic(row){return {id:row.id,name:row.name,enabled:row.enabled===true,permissions:viewerPermissions(row.permissions),createdAt:row.createdAt};}
+function viewerPassword(password,salt){
+ if(typeof password!=="string"||password.length<12||password.length>128||typeof salt!=="string"||!/^[a-f0-9]{32}$/.test(salt))return Promise.reject(Error("Invalid password"));
+ return new Promise((resolve,reject)=>scrypt(password,Buffer.from(salt,"hex"),64,{N:32768,r:8,p:1,maxmem:64*1024*1024},(error,key)=>error?reject(error):resolve(key)));
+}
+async function viewerCredential(password){const salt=randomBytes(16).toString("hex");return {salt,hash:(await viewerPassword(password,salt)).toString("hex")};}
+async function viewerAuthenticate(name,password){
+ const key=viewerNameKey(name),row=viewerRead().find(x=>viewerNameKey(x.name)===key);
+ // Use a dummy verifier for unknown accounts; no password or hash in output.
+ const salt=row?.salt||"0".repeat(32),hash=row?.hash||"0".repeat(128);
+ if(!/^[a-f0-9]{128}$/.test(hash))return null;
+ let actual;try{actual=await viewerPassword(password,salt);}catch(_){return null;}
+ if(!timingSafeEqual(actual,Buffer.from(hash,"hex"))||!row?.enabled)return null;
+ // Password or permission changes during the KDF invalidate this attempt.
+ const current=viewerRead().find(x=>x.id===row.id);
+ return current?.enabled&&current.hash===row.hash&&current.salt===row.salt?viewerPublic(current):null;
+}
+let viewerAccountQueue=Promise.resolve();
+function viewerManage(action,value){
+ const work=viewerAccountQueue.catch(()=>{}).then(async()=>{
+  const rows=viewerRead();
+  if(action==="list")return rows.map(viewerPublic);
+  const id=value?.id,name=viewerName(value?.name);
+  if(action==="create"){
+   if(rows.length>=50||!name||rows.some(x=>viewerNameKey(x.name)===viewerNameKey(name)))throw Error("Invalid or duplicate account");
+   const credential=await viewerCredential(value.password);
+   rows.push({id:randomBytes(16).toString("hex"),name,enabled:true,permissions:viewerPermissions(value.permissions),createdAt:new Date().toISOString(),...credential});
+  }else{
+   if(!viewerId(id))throw Error("Invalid account");
+   const index=rows.findIndex(x=>x.id===id);if(index<0)throw Error("Unknown account");
+   if(action==="remove")rows.splice(index,1);
+   else if(action==="update"){
+    if(!name||rows.some(x=>x.id!==id&&viewerNameKey(x.name)===viewerNameKey(name)))throw Error("Invalid or duplicate account");
+    rows[index]={...rows[index],name,enabled:value.enabled===true,permissions:viewerPermissions(value.permissions)};
+   }else if(action==="password")rows[index]={...rows[index],...await viewerCredential(value.password)};
+   else throw Error("Unknown account operation");
+  }
+  viewerWrite(rows);return rows.map(viewerPublic);
+ });
+ viewerAccountQueue=work;return work;
+}
 function jfDirectory(dir){
   fs.mkdirSync(dir,{recursive:true,mode:0o700});
   const st=fs.lstatSync(dir);
@@ -3725,6 +3782,10 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:open-player",(event,id)=>{
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);
+  });
+  ipcMain.handle("dk-library:viewer-accounts",(event,action,value)=>{
+    if(!allowed(event)||activePage!=="library"||!["list","create","update","password","remove"].includes(action))throw Error("Account request rejected");
+    return viewerManage(action,value);
   });
   ipcMain.handle("dk-library:jellyfin-power",(event,enabled)=>{if(!allowed(event))throw Error("Server control rejected");return jfSetPower(enabled);});
   ipcMain.handle("dk-library:metadata-request",(event,url,kind)=>{

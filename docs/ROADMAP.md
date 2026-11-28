@@ -651,7 +651,7 @@ Work sequentially on main, no local installation updates until explicitly reques
 | 4 | English/Russian metadata language, original titles, localized descriptions/artwork | Partial: local text overrides; provider/artwork pending |
 | 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Source pass; external career history pending |
 | 6 | Settings → Server → Diagnostics, detailed server management, usage, scan scheduling, logs, connected devices, report export and support bundle | Partial: diagnostic centre and export; scheduling and support bundle pending |
-| 7 | Authenticated user profiles, separate permissions, watchlists and progress | Planned |
+| 7 | Authenticated user profiles, separate permissions, watchlists and progress | Partial: owner-managed account registry; sessions/history pending |
 | 8 | Explicitly enabled secure home-network viewing, paired clients and scoped media access | Planned |
 | 9 | Opt-in remote internet viewing over TLS/VPN or authenticated tunnel, no automatic port forwarding | Planned |
 | 10 | Remote adaptive streaming/transcoding, bandwidth, subtitles and synchronized history | Planned |
@@ -692,3 +692,5 @@ Build 4 partial source pass: independent English/Russian local metadata text, la
 Build 5 source pass: persistent bounded person profile/portrait cache, refresh and stale/offline indications, request coalescing, current-catalog filmography links. Full external career history and installed acceptance pending. Version unchanged.
 
 Build 6 source pass: dedicated Settings → Server → Diagnostic Centre; categorized actual runtime/ownership/listener/authenticated health/disk/memory/thread/catalog/scan/session/log aggregate checks, honest not-tested results, remediation hints, ten-report local history and TXT/JSON/copy export. Pending scheduled scans, lifecycle controls, measured uptime/CPU, redacted log support bundle and installed validation. No network exposure. Version unchanged.
+
+Build 7 partial source pass: separate native viewer account registry and owner management UI, salted scrypt credentials, safe public account projection and Movies/TV permission flags. No network listener or local desktop profile switch; authenticated sessions, per-viewer history/watchlists and stream enforcement pending. Version unchanged; installed verification required.

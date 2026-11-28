@@ -2299,13 +2299,40 @@ function connect(){
      if(reports.length)drawReport(reports[0]);else for(const b of [exportReport,exportText,copyReport,viewText])b.disabled=true;
      refreshReport.disabled=false;void updateReport();
     }
+    const accountPanel=create("section","dk-server-settings dk-viewer-accounts");accountPanel.hidden=true;dlg.append(accountPanel);
+    const accountButton=cinemaButton("Viewer Accounts","Учётные записи зрителей",()=>chooseCategory("accounts"));accountButton.hidden=!nativeBridge.viewerAccounts;serverPanel.append(accountButton);
+    let accountsEpoch=0,accountsBusy=false;
+    const drawAccounts=async()=>{
+     if(!nativeBridge.viewerAccounts)return;
+     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Network sign-in and separate playback history will be enabled by later builds. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Сетевой вход и отдельная история просмотра будут добавлены позже. Права владельца приложения не изменяются.")));
+     const note=create("p","helper");note.setAttribute("role","status");accountPanel.append(note);
+     const valid=()=>revision===accountsEpoch&&!accountPanel.hidden;
+     const input=(parent,label,type="text",value="")=>{const wrap=create("label",null,label),node=create("input");node.type=type;node.value=value;node.required=true;node.maxLength=type==="password"?128:48;if(type==="password"){node.minLength=12;node.autocomplete="new-password";}wrap.append(node);parent.append(wrap);return node;};
+     const check=(parent,label,value)=>{const wrap=create("label","dk-account-check"),node=create("input");node.type="checkbox";node.checked=value;wrap.append(node,create("span",null,label));parent.append(wrap);return node;};
+     const action=async(op,value)=>{if(accountsBusy)return;accountsBusy=true;note.textContent=say("Saving…","Сохранение…");try{await nativeBridge.viewerAccounts(op,value);if(valid())void drawAccounts();}catch(_){if(valid())note.textContent=say("Could not save. Check the name, password and account storage.","Не удалось сохранить. Проверьте имя, пароль и хранилище учётных записей.");}finally{accountsBusy=false;}};
+     try{
+      const rows=await nativeBridge.viewerAccounts("list");if(!valid())return;
+      for(const row of rows){
+       const box=create("form","dk-account-card"),name=input(box,say("Name","Имя"),"text",row.name);
+       const enabled=check(box,say("Enabled","Включена"),row.enabled),movies=check(box,say("Movies","Фильмы"),row.permissions.movies),tv=check(box,say("TV Shows","Сериалы"),row.permissions.tv);
+       const buttons=create("div","dk-server-report-actions"),save=create("button","btn",say("Save","Сохранить"));save.type="submit";
+       const reset=cinemaButton("Change Password","Изменить пароль",()=>{const field=input(box,say("New password (12+ characters)","Новый пароль (от 12 символов)"),"password");reset.disabled=true;const apply=cinemaButton("Set Password","Установить пароль",()=>{if(field.reportValidity()){const password=field.value;field.value="";void action("password",{id:row.id,password});}});box.append(apply);});
+       const remove=cinemaButton("Remove Account","Удалить учётную запись",()=>{if(confirm(say("Remove this viewer account?","Удалить эту учётную запись?")))void action("remove",{id:row.id});});
+       buttons.append(save,reset,remove);box.append(buttons);box.addEventListener("submit",event=>{event.preventDefault();void action("update",{id:row.id,name:name.value,enabled:enabled.checked,permissions:{movies:movies.checked,tv:tv.checked}});});accountPanel.append(box);
+      }
+      const form=create("form","dk-account-card");form.append(create("strong",null,say("New viewer account","Новая учётная запись")));
+      const name=input(form,say("Name","Имя")),password=input(form,say("Password (12+ characters)","Пароль (от 12 символов)"),"password");
+      const movies=check(form,say("Movies","Фильмы"),true),tv=check(form,say("TV Shows","Сериалы"),true),add=create("button","btn",say("Create Account","Создать учётную запись"));add.type="submit";form.append(add);
+      form.addEventListener("submit",event=>{event.preventDefault();const value=password.value;password.value="";void action("create",{name:name.value,password:value,permissions:{movies:movies.checked,tv:tv.checked}});});accountPanel.append(form);
+     }catch(_){if(valid())note.textContent=say("Account storage unavailable.","Хранилище учётных записей недоступно.");}
+    };
     const chooseCategory=id=>{
       selectedCategory=id;
-      title.textContent=id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
+      title.textContent=id==="accounts"?say("Viewer Accounts","Учётные записи зрителей"):id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
       back.hidden=!id;for(const [key,btn] of categoryButtons)btn.hidden=!!id;
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
-      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";
+      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";accountPanel.hidden=id!=="accounts";if(id==="accounts"){body.hidden=true;void drawAccounts();}else accountsEpoch++;
       if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();}
       if(id==="diagnostics"){body.hidden=true;enterDiagnostics();}else{reportEpoch++;refreshReport.disabled=false;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
@@ -2323,7 +2350,7 @@ function connect(){
       if(id==="general")extra.hidden=false;
       body.scrollTop=0;window.DKLocale?.apply();
     };
-    back.addEventListener("click",()=>chooseCategory(selectedCategory==="diagnostics"?"server":null));
+    back.addEventListener("click",()=>chooseCategory(["diagnostics","accounts"].includes(selectedCategory)?"server":null));
     for(const [key,label] of categories){const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",()=>chooseCategory(key));nav.append(btn);categoryButtons.set(key,btn);}
     chooseCategory(null);
     const setFeedback=message=>{feedback.textContent=message;window.DKLocale?.apply();};
@@ -2378,7 +2405,7 @@ function connect(){
     });
     close.addEventListener("click",()=>{if(!busy)dlg.close();});
     dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
-    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;body.replaceChildren();button.focus();});
+    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;accountPanel.hidden=true;accountsEpoch++;accountPanel.replaceChildren();body.replaceChildren();button.focus();});
     openCinemaSettings=async(category=null)=>{
       if(dlg.open){chooseCategory(category);return;}
       const ticket=++epoch;dlg.showModal();chooseCategory(category);setFeedback(category==="server"?"":"Loading settings…");body.inert=true;busy=true;

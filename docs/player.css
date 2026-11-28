@@ -358,7 +358,7 @@ body {
 .queue .item-play{align-items:center}
 .queue .queue-artwork{
   position:relative;display:flex;align-items:center;justify-content:center;
-  width:90px;height:54px;flex:0 0 90px;overflow:hidden;
+  width:90px;height:auto;aspect-ratio:2/3;box-sizing:border-box;flex:0 0 90px;overflow:hidden;
   background:#09090f;border:1px solid rgba(255,255,255,.14);
   border-radius:7px;color:var(--dk-russian-red-muted,#e79090);font-size:1.25rem;
 }
@@ -369,7 +369,7 @@ body {
 .queue .queue-hover-video{z-index:2;pointer-events:none;background:#08090a}
 .queue .item-title{max-width:100%;line-height:1.35}
 @media(max-width:640px){
- .queue .queue-artwork{width:76px;height:46px;flex-basis:76px}
+ .queue .queue-artwork{width:76px;height:auto;flex-basis:76px}
 }
 
 /* Add Files is the playlist's primary action. Leave its existing position,
@@ -453,17 +453,17 @@ body {
    Preserve the existing sidebar and artwork widths. Each queue entry
    takes roughly twice its previous vertical space without changing the
    queue's ordering, artwork source, scroll behavior or click targets. */
-.queue li:not(.queue-empty) { min-height:132px; align-items:center; }
-.queue .item-play { min-height:120px; align-items:center; }
+.queue li:not(.queue-empty) { min-height:151px; align-items:center; }
+.queue .item-play { min-height:135px; align-items:center; }
 .queue .queue-artwork {
-  width:90px; height:108px; flex:0 0 90px;
+  width:90px; height:auto; aspect-ratio:2/3; flex:0 0 90px;
 }
 .queue .queue-artwork-image, .queue .queue-hover-video { object-fit:cover; }
 .queue .item-title { max-width:100%; }
 @media(max-width:640px) {
-  .queue li:not(.queue-empty) { min-height:118px; }
-  .queue .item-play { min-height:108px; }
-  .queue .queue-artwork { width:76px; height:96px; flex-basis:76px; }
+  .queue li:not(.queue-empty) { min-height:130px; }
+  .queue .item-play { min-height:114px; }
+  .queue .queue-artwork { width:76px; height:auto; aspect-ratio:2/3; flex-basis:76px; }
 }
 /* All six transport controls use an identical 42px square hit area.
    The red play/pause key remains red but is no larger than its neighbors. */
@@ -1629,3 +1629,7 @@ html.dk-standalone .queue .item-play .queue-item-labels :is(.item-title,.item-me
 }
 
 .dk-screen-recorder{position:fixed;inset:auto 12px 12px auto;margin:0;z-index:10000;width:min(440px,calc(100vw - 24px));max-height:85vh;overflow:auto;padding:16px;background:#462a25;color:#fff;border:1px solid #e2b956;border-radius:8px;box-shadow:0 10px 40px #0009}.dk-screen-recorder h2{color:#e2b956;margin:0 0 10px}.dk-screen-recorder label{display:grid;gap:5px;margin:8px 0}.dk-screen-recorder select{width:100%;min-width:0}.dk-screen-record-actions{display:flex;flex-wrap:wrap;gap:8px}.dk-screen-recorder p{overflow-wrap:anywhere}
+
+/* Up Next artwork follows the same permanent portrait geometry. */
+.queue .queue-artwork{box-sizing:border-box;aspect-ratio:2/3!important;height:auto!important;min-height:0!important;max-height:none!important;align-self:center;}
+.queue .queue-artwork-image,.queue .queue-hover-video{object-fit:contain!important;object-position:center!important;}

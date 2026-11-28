@@ -254,3 +254,6 @@ Browser-compatible streaming: the existing automatically started HTTP server use
 
 
 Screen Recording (standalone): Player → Video or Tools → Screen Recording; also Library → Settings → Tools → Screen Recording. Choose a screen/window, 15/30/60 FPS, up to 720p/1080p/2160p, and a new WebM destination. Start, stop/save or discard using the modeless recorder. Chromium MediaRecorder writes video-only chunks directly to a temporary output file; normal completion installs the recording without overwriting an existing file. Actual resolution/frame rate depends on the selected display and capture backend. X11/Wayland capture compatibility and recorded output require installed verification; microphone/system audio and MP4 export are future work. Abrupt exit may leave a partial file. Normal playback/server operation unchanged.
+
+
+Permanent media card design: all media artwork/card surfaces use the standard 2:3 portrait proportions, including episode and special cards, Continue Watching, Movies, TV, Watchlist, Collections, search, Up Next artwork, Live TV and browser catalog tiles. Episode grids follow the same responsive column count as movie posters. Images preserve their original proportions inside portrait frames. The packaging check rejects conflicting card aspect-ratio declarations. Installed visual acceptance pending.

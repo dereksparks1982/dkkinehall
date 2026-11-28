@@ -142,12 +142,11 @@ function needsContinue(row){
   if(nativeBridge)return Number.isFinite(row.watchedSeconds)?row.watchedSeconds>=10:value>=10;
   return !row.missing&&!row.unavailable&&value>2&&(!length||value<length);
 }
-function coverShell(landscape){
+function coverShell(){
   const shell=create("span","library-poster");
   const fallback=create("span","library-poster-placeholder");
-  const mark=create("span",null,landscape?"▶":"▣");
-  const label=create("small",null,landscape?"":
-    say("DK KINEHALL","ДК КИНЕХОЛЛ"));
+  const mark=create("span",null,"▣");
+  const label=create("small",null,say("DK KINEHALL","ДК КИНЕХОЛЛ"));
   fallback.append(mark,label);
   shell.append(fallback);
   return shell;
@@ -205,24 +204,24 @@ function refreshWatchedCards(){
   }
   refreshSeasonWatched();
 }
-function createCard(row,{landscape=false,series=false}={}){
+function createCard(row,{resume=false,series=false}={}){
   // Separate native buttons for playback and watched status. A button
   // inside another button is invalid and can trigger the wrong action.
   const card=create(nativeBridge?"div":"button","library-card"+((row.missing||row.unavailable)?" library-unavailable":""));
   if(!nativeBridge)card.type="button";
   card.dataset.libraryId=row.id;
-  card.dataset.displayRole=series?"series":landscape?"resume":"entry";
-  const box=coverShell(landscape&&!nativeBridge);
+  card.dataset.displayRole=series?"series":resume?"resume":"entry";
+  const box=coverShell();
   const title=create("span","library-card-title",
     series?displaySeriesName(row):row.kind==="tv"?
-      (landscape?displaySeriesName(row)+" · "+formatCode(row):formatCode(row)):
+      (resume?displaySeriesName(row)+" · "+formatCode(row):formatCode(row)):
       (nativeBridge?localized(row,"title",row.title):mediaName(row)));
   const detail=create("span","library-card-detail",
     series?"":row.kind==="tv"?localized(row,"title",row.episodeTitle||""):row.year||"");
   if(row.kind==="movie"&&window.DKCollections){const version=window.DKCollections.edition(row);if(version)detail.textContent=[row.year,editionName(version)].filter(Boolean).join(" · ");}
   if(row.classificationReview||row.kind==="tv"&&!Number(row.episode)&&!series){detail.textContent=[detail.textContent,say("Check classification","Проверить категорию")].filter(Boolean).join(" · ");}
   card.append(box,title,detail);
-  if(cinema&&homePage==="home"&&!landscape){card.classList.add("dk-cinema-overlay-card");box.append(title);}
+  if(cinema&&homePage==="home"&&!resume){card.classList.add("dk-cinema-overlay-card");box.append(title);}
   if(nativeBridge){
     const open=create("button","dk-library-open-card");
     open.type="button";
@@ -232,7 +231,7 @@ function createCard(row,{landscape=false,series=false}={}){
   }
   if(window.DKCollections?.has(row))box.append(create("span","dk-watchlist-mark","★"));
   if(nativeBridge)paintWatchedCard(card,row,series);
-  else if(landscape){
+  else if(resume){
     const bar=create("span","library-progress");
     const fill=create("span");
     const duration=Number(row.duration)||0;
@@ -253,7 +252,7 @@ function createCard(row,{landscape=false,series=false}={}){
         "Откройте сериал и выберите серию для удаления.");
       return;
     }
-    showContextMenu(all.find(item=>item.id===row.id)||row,event.clientX,event.clientY,landscape);
+    showContextMenu(all.find(item=>item.id===row.id)||row,event.clientX,event.clientY,resume);
   });
   card.addEventListener("click",()=>{
     if(series){
@@ -266,7 +265,7 @@ function createCard(row,{landscape=false,series=false}={}){
   });
   // Artwork requests are on-demand and bounded; never fetch every poster
   // or hold all image data in memory when a 25,000-file library opens.
-  const posterSeries=series||!!(cinema&&landscape&&row.kind==="tv");
+  const posterSeries=series||!!(cinema&&resume&&row.kind==="tv");
   imageQueue.push({id:artId(row,posterSeries),row,series:posterSeries,box,epoch:renderEpoch});
   return card;
 }
@@ -968,7 +967,7 @@ function paintContinueWatching(){
   }
   rows.forEach((row,i)=>{
     let card=existing.get(row.id);
-    if(!card)card=createCard(row,{landscape:true});
+    if(!card)card=createCard(row,{resume:true});
     const fill=card.querySelector(".library-progress>span");
     const duration=Number(row.duration)||0;
     if(fill)fill.style.width=duration>0?Math.max(3,Math.min(100,100*currentProgress(row)/duration))+"%":"10%";
@@ -1099,7 +1098,7 @@ async function render(){
   const resumeCandidates=unfiltered.filter(needsContinue).sort((a,b)=>b.lastPlayed-a.lastPlayed);
   const resume=nativeBridge?resumeCandidates:resumeCandidates.slice(0,30);
   const continueList=$("continueWatching");
-  continueList.replaceChildren(...resume.map(row=>createCard(row,{landscape:true})));
+  continueList.replaceChildren(...resume.map(row=>createCard(row,{resume:true})));
   const list=$("libraryCollection");
   const detail=$("seriesDetail");
   detail.hidden=!selectedSeries||!tv;
@@ -2055,7 +2054,7 @@ function renderCollections(){
   collectionBrowseId=null;$("collectionTitle").textContent=say("Your Collections","Ваши коллекции");$("collectionCount").textContent=say(groups.length+" collections",groups.length+" коллекций");
   for(const group of groups.slice(0,700)){
    const card=create("button","library-card dk-boxset-card");card.type="button";
-   const box=coverShell(false);card.append(box,create("span","library-card-title",group.name),create("span","library-card-detail",say(group.rows.length+" movies",group.rows.length+" фильмов")));
+   const box=coverShell();card.append(box,create("span","library-card-title",group.name),create("span","library-card-detail",say(group.rows.length+" movies",group.rows.length+" фильмов")));
    card.addEventListener("click",()=>{collectionBrowseId=seriesKey(group.name);void render();});list.append(card);
    void paintCollectionArt(box,group,group.rows[0],renderEpoch);
   }
@@ -2076,7 +2075,7 @@ function renderHome(){
   if(items.length>count){const more=cinemaButton("Show more","Показать ещё",()=>{for(const r of items.slice(count,count+24))s.list.insertBefore(createCard(r,{series}),more);count+=24;if(count>=items.length)more.remove();pumpArtwork();});s.list.append(more);}
  }
  $("libraryCollection").replaceChildren();
- if(home){const resume=$("continueWatching"),scroll=resume.scrollLeft;resume.replaceChildren(...all.filter(r=>cinemaEligible(r)&&needsContinue(r)).sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).map(r=>createCard(r,{landscape:true})));resume.scrollLeft=scroll;if(!featureTimer&&!externalBusy)nextLocal();}
+ if(home){const resume=$("continueWatching"),scroll=resume.scrollLeft;resume.replaceChildren(...all.filter(r=>cinemaEligible(r)&&needsContinue(r)).sort((a,b)=>(b.lastPlayed||0)-(a.lastPlayed||0)).map(r=>createCard(r,{resume:true})));resume.scrollLeft=scroll;if(!featureTimer&&!externalBusy)nextLocal();}
  else $("continueWatching").replaceChildren();
  if(!scanning)status("Library loaded from local cache.","Медиатека загружена из локального хранилища.");
  $("folderSummary").textContent=say("Assigned folders: "+assignedSources.length+" · Manual scans only","Выбранные папки: "+assignedSources.length+" · Только ручная проверка");

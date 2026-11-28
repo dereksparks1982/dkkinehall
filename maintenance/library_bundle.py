@@ -5,6 +5,7 @@ The original BrowserWindow hosts a persistent internal Player view.
 """
 from pathlib import Path
 import io
+import re
 import os
 import tarfile
 import shutil
@@ -30,10 +31,35 @@ class LibraryBundle:
         missing=[str(p) for p in (self.host,self.preload,self.indexer)
                  if not p.is_file()]
         if missing:raise RuntimeError("Library Home runtime sources missing: "+", ".join(missing))
+        self.assert_portrait_cards()
         self.dvb_binary=None
         self.dvb_temp=None
         self.main_count=0
         self.preload_count=0
+
+    def assert_portrait_cards(self):
+        """Reject non-portrait aspect-ratio declarations on media card artwork."""
+        targets = {
+            "library-home.css": (".library-poster", ".dk-online-art-card img", ".dk-person-card img"),
+            "player.css": (".queue-artwork",),
+            "live-tv.css": (".dk-live-art", ".dk-live-card"),
+        }
+        for name, selectors in targets.items():
+            css = (self.root / "docs" / name).read_text(encoding="utf-8")
+            css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+            found = set()
+            for selector, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+                ratios = re.findall(r"(?:^|;)\s*aspect-ratio\s*:\s*([^;]+)", body)
+                for target in selectors:
+                    if not re.search(re.escape(target) + r"(?![\w-])", selector):
+                        continue
+                    for ratio in ratios:
+                        normalized = re.sub(r"\s+|!important", "", ratio)
+                        if normalized != "2/3":
+                            raise RuntimeError("Non-portrait media card in " + name + ": " + selector.strip())
+                        found.add(target)
+            if found != set(selectors):
+                raise RuntimeError("Missing portrait media-card invariant in " + name)
 
     def patch_main(self,data):
         self.main_count+=1

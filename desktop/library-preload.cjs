@@ -121,7 +121,7 @@ const nativeLibrary=Object.freeze({
   screenRecordSources:()=>libIpc.invoke("dk-library:screen-record-sources"),
   screenRecordBegin:(id,format="webm",videoCodec="h264",audioCodec="aac",encoding={})=>libIpc.invoke("dk-library:screen-record-begin",String(id),String(format),String(videoCodec),String(audioCodec),{quality:Number(encoding.quality??0),videoKbps:Number(encoding.videoKbps??0),audioKbps:Number(encoding.audioKbps??0)}),
   screenRecordAction:(action,token,chunk=null)=>libIpc.invoke("dk-library:screen-record-action",String(action),String(token),chunk),
-  extractAudio:format=>libIpc.invoke("dk-library:extract-audio",String(format)),
+  extractAudio:(format,profile={})=>libIpc.invoke("dk-library:extract-audio",String(format),{height:Number(profile.height??0),quality:String(profile.quality??"standard"),bitrate:Number(profile.bitrate??0)}),
   openMediaTool:kind=>libIpc.invoke("dk-library:open-media-tool",String(kind)),
   onOpenMediaTool:callback=>subscribe("dk-library:open-media-tool",callback),
   changeSharedSetting:(id,action,value)=>libIpc.invoke("dk-library:settings-change",String(id),String(action),value),

@@ -3237,6 +3237,85 @@ async function extractAudio(event,format,profile={}){
   return batch?{batch:true,results,total:jobs.length}:results[0];
  }finally{audioExtractChild=null;audioExtractBusy=false;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
 }
+let editSelection=null;
+const editInputFormats="mov,matroska,webm,avi,asf,mpeg,mpegts,flv,ogg,mxf,rm,dv,mp3,wav,flac";
+async function pickEditFiles(event,mode){
+ if(!["trim","join"].includes(mode)||audioExtractBusy||jfClosing)throw Error("Editing unavailable");
+ const ru=readInterfaceLanguage("en")==="ru";
+ const picked=await dialog.showOpenDialog(home,{title:mode==="trim"?(ru?"Выберите видео":"Choose video"):(ru?"Выберите видеоклипы":"Choose video clips"),properties:mode==="trim"?["openFile"]:["openFile","multiSelections"]});
+ if(picked.canceled||!picked.filePaths.length)return null;
+ if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Player unavailable");
+ const files=picked.filePaths.map(p=>fs.realpathSync(p));
+ if(files.some(p=>!fs.statSync(p).isFile()))throw Error("Invalid source");
+ const token=randomBytes(24).toString("hex");
+ editSelection={owner:event.sender.id,token,mode,files};
+ return {token,files:files.map((p,i)=>({id:i,name:path.basename(p)}))};
+}
+function editProbe(file){
+ return new Promise((resolve,reject)=>{
+  require("node:child_process").execFile(path.join(app.getAppPath(),"bin","ffprobe"),["-v","error","-protocol_whitelist","file","-format_whitelist",editInputFormats,"-show_streams","-show_data_hash","sha256","-show_format","-of","json",file],{env:tvCodecEnv(),timeout:30000,maxBuffer:4*1024*1024},(error,stdout)=>{
+   if(error)return reject(Error("Cannot inspect source media"));
+   try{const data=JSON.parse(stdout);if(!data.streams?.some(x=>x.codec_type==="video"&&!x.disposition?.attached_pic))throw Error("No video stream");resolve(data);}catch(e){reject(e);}
+  });
+ });
+}
+function editRun(args){
+ return new Promise((resolve,reject)=>{
+  const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n",...args],{env:tvCodecEnv(),stdio:["ignore","ignore","pipe"],shell:false});
+  audioExtractChild=child;let errorText="";
+  child.stderr.on("data",buf=>{errorText=(errorText+String(buf)).slice(-1800);});
+  child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media edit failed"+(errorText?": "+errorText.split("\n").filter(Boolean).slice(-1)[0]:""))));
+ });
+}
+async function editMedia(event,token,order,opts){
+ const selection=editSelection;
+ if(!selection||selection.owner!==event.sender.id||selection.token!==token||audioExtractBusy||jfClosing)throw Error("Choose source files first");
+ const mode=selection.mode,copy=opts?.copy===true,start=Number(opts?.start),end=Number(opts?.end),height=Number(opts?.height??1080),fps=Number(opts?.fps??24);
+ if(!Array.isArray(order)||order.length!==selection.files.length||new Set(order).size!==order.length||order.some(i=>!Number.isInteger(i)||i<0||i>=selection.files.length))throw Error("Invalid clip order");
+ if(mode==="trim"&&(order.length!==1||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start))throw Error("Invalid trim interval");
+ if(mode==="join"&&(order.length<2||![480,720,1080,2160].includes(height)||![24,25,30,50,60].includes(fps)))throw Error("Invalid join settings");
+ const files=order.map(i=>selection.files[i]);audioExtractBusy=true;let folder=null;
+ try{
+  fs.accessSync(tvDecoder(),fs.constants.X_OK);
+  const ru=readInterfaceLanguage("en")==="ru",format=copy?"mkv":"mp4";
+  const picked=await dialog.showSaveDialog(home,{title:ru?"Сохранить видео":"Save edited video",defaultPath:path.join(path.dirname(files[0]),path.parse(files[0]).name+(mode==="trim"?"-trimmed.":"-joined.")+format),filters:[{name:format.toUpperCase(),extensions:[format]}]});
+  if(picked.canceled||!picked.filePath)return {cancelled:true};
+  if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Player unavailable");
+  const dest=path.extname(picked.filePath).toLowerCase()==="."+format?picked.filePath:picked.filePath+"."+format;
+  if(fs.existsSync(dest))throw Error("Choose a new output filename");
+  folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-media-edit-"));
+  const output=path.join(folder,"output."+format),inputArgs=file=>["-protocol_whitelist","file","-format_whitelist",editInputFormats,"-i",file];
+  const maps=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-map_chapters","-1"];
+  const encode=["-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p","-c:a","aac","-b:a","192k"];
+  if(mode==="trim"){
+   const info=await editProbe(files[0]),duration=Number(info.format?.duration);
+   if(Number.isFinite(duration)&&(start>=duration||end>duration+0.05))throw Error("Trim interval exceeds source duration");
+   await editRun([...(copy?["-ss",String(start)]:[]),...inputArgs(files[0]),...(!copy?["-ss",String(start)]:[]),"-t",String(end-start),...maps,...(copy?["-c","copy","-avoid_negative_ts","make_zero"]:["-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2",...encode,"-movflags","+faststart"]),"-f",copy?"matroska":"mp4",output]);
+  }else{
+   const clips=[];
+   let signature=null;
+   for(let i=0;i<files.length;i++){
+    if(jfClosing)throw Error("Player closing");
+    const file=files[i],info=await editProbe(file),name="clip-"+String(i).padStart(5,"0")+(copy?".mkv":".mp4"),clip=path.join(folder,name);
+    if(copy){
+     const fields=["codec_type","codec_name","codec_tag_string","profile","level","width","height","pix_fmt","sample_aspect_ratio","time_base","sample_fmt","sample_rate","channels","channel_layout","extradata_hash"];
+     const sig=JSON.stringify(info.streams.map(st=>fields.map(k=>st[k]??null)));
+     if(signature!==null&&sig!==signature)throw Error("Clip streams differ; use re-encoding mode");
+     signature=sig;fs.symlinkSync(file,clip);
+    }else{
+     const w=Math.round(height*16/9/2)*2,hasAudio=info.streams.some(x=>x.codec_type==="audio");
+     const filter="scale="+w+":"+height+":force_original_aspect_ratio=decrease:force_divisible_by=2,pad="+w+":"+height+":(ow-iw)/2:(oh-ih)/2,setsar=1,fps="+fps;
+     await editRun([...inputArgs(file),...(!hasAudio?["-f","lavfi","-i","anullsrc=r=48000:cl=stereo"]:[]),"-map","0:V:0","-map",hasAudio?"0:a:0":"1:a:0","-sn","-dn","-map_metadata","-1","-map_chapters","-1","-vf",filter,"-af","apad","-shortest",...encode,"-ar","48000","-ac","2","-f","mp4",clip]);
+    }
+    clips.push(name);
+   }
+   const list=path.join(folder,"clips.txt");fs.writeFileSync(list,clips.map(n=>"file '"+n+"'").join("\n")+"\n",{flag:"wx"});
+   await editRun(["-f","concat","-safe","1","-protocol_whitelist","file","-i",list,...maps,"-c","copy",...(!copy?["-movflags","+faststart"]:[]),"-f",copy?"matroska":"mp4",output]);
+  }
+  const bytes=fs.statSync(output).size;if(!bytes||jfClosing)throw Error("No output");
+  fs.linkSync(output,dest);return {name:path.basename(dest),bytes};
+ }finally{audioExtractChild=null;audioExtractBusy=false;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
+}
 function onlyPlayer(event){
   return player&&!player.webContents.isDestroyed()&&
     event.sender===player.webContents&&
@@ -4017,9 +4096,11 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:screen-record-sources",event=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordSources();});
   ipcMain.handle("dk-library:screen-record-begin",(event,id,format,videoCodec,audioCodec,encoding)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format,videoCodec,audioCodec,encoding);});
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
+  ipcMain.handle("dk-library:edit-pick",(event,mode)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Edit request rejected");return pickEditFiles(event,mode);});
+  ipcMain.handle("dk-library:edit-media",(event,token,order,opts)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Edit request rejected");return editMedia(event,token,order,opts);});
   ipcMain.handle("dk-library:extract-audio",(event,format,profile)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Audio extraction request rejected");return extractAudio(event,format,profile);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
-    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording","audio-extraction","video-conversion"].includes(kind))throw Error("Media tool request rejected");
+    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording","audio-extraction","video-conversion","trim-video","join-videos"].includes(kind))throw Error("Media tool request rejected");
     await openPlayer(null,false,true);
     if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
     showPage("player");

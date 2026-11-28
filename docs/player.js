@@ -4838,14 +4838,20 @@
     for(const value of ["15","30","60"]){const o=node("option",value+" FPS");o.value=value;rate.append(o);}rate.value="30";
     for(const value of ["720","1080","2160"]){const o=node("option",value+"p");o.value=value;resolution.append(o);}resolution.value="1080";
     const mic=node("input"),micLabel=node("label"),micText=node("span");mic.type="checkbox";micLabel.append(mic,micText);
-    dialog.append(title,hint,sourceLabel,rateLabel,sizeLabel,micLabel,message,controls);document.body.append(dialog);
+    const cameraDevice=node("select"),audioDevice=node("select"),cameraLabel=node("label"),audioLabel=node("label"),cameraText=node("span"),audioText=node("span");cameraLabel.append(cameraText,cameraDevice);audioLabel.append(audioText,audioDevice);
+    dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,sizeLabel,micLabel,audioLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
       title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen, window, camera or microphone. Record to WebM.","Выберите экран, окно, камеру или микрофон. Запись в формате WebM.");
-      micText.textContent=t("Include microphone","Записывать микрофон");
+      micText.textContent=t("Include microphone","Записывать микрофон");cameraText.textContent=t("Camera device","Видеокамера");audioText.textContent=t("Microphone device","Микрофон");
+      cameraLabel.hidden=source.value!=="dk-camera";audioLabel.hidden=source.value!=="dk-microphone"&&!mic.checked;
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
       refresh.textContent=t("Refresh sources","Обновить источники");start.textContent=t("Start recording","Начать запись");stop.textContent=t("Stop and save","Остановить и сохранить");discard.textContent=t("Discard recording","Удалить запись");close.textContent=t("Close","Закрыть");
-      const locked=!!recording||opening;source.disabled=refresh.disabled=locked||refreshing;rate.disabled=resolution.disabled=mic.disabled=locked||refreshing||source.value==="dk-microphone";start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;pause.disabled=stop.disabled;pause.textContent=recording?.recorder.state==="paused"?t("Resume recording","Продолжить запись"):t("Pause recording","Приостановить запись");discard.disabled=stop.disabled;close.disabled=opening||!!recording;
+      const locked=!!recording||opening;source.disabled=refresh.disabled=cameraDevice.disabled=audioDevice.disabled=locked||refreshing;rate.disabled=resolution.disabled=mic.disabled=locked||refreshing||source.value==="dk-microphone";start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;pause.disabled=stop.disabled;pause.textContent=recording?.recorder.state==="paused"?t("Resume recording","Продолжить запись"):t("Pause recording","Приостановить запись");discard.disabled=stop.disabled;close.disabled=opening||!!recording;
+    }
+    async function refreshDevices(){
+      let devices=[];try{devices=await navigator.mediaDevices.enumerateDevices();}catch(_){}
+      for(const [select,kind,en,ru] of [[cameraDevice,"videoinput","Camera","Камера"],[audioDevice,"audioinput","Microphone","Микрофон"]]){const old=select.value,def=node("option",t("System default","Системное устройство"));def.value="";select.replaceChildren(def);let n=0;for(const d of devices){if(d.kind!==kind||!d.deviceId||["default","communications"].includes(d.deviceId))continue;const o=node("option",d.label||t(en,ru)+" "+(++n));o.value=d.deviceId;select.append(o);}if([...select.options].some(o=>o.value===old))select.value=old;}
     }
     async function sources(){
       if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
@@ -4855,7 +4861,7 @@
         for(const row of rows){const o=node("option",row.name||row.id);o.value=row.id;source.append(o);}if(old==="dk-camera"||old==="dk-microphone"||rows.some(r=>r.id===old))source.value=old;else if(rows.length)source.value=rows[0].id;
         message.textContent=rows.length?"":t("No screen or window sources found. Camera recording may still work.","Экраны и окна не найдены. Запись камеры может быть доступна.");
       }catch(_){message.textContent=t("Could not list capture sources.","Не удалось получить список источников.");}
-      finally{refreshing=false;labels();}
+      finally{await refreshDevices();refreshing=false;labels();}
     }
     function elapsed(r){const s=Math.max(0,Math.floor(((r.pausedAt||Date.now())-r.started-r.pausedMs)/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
     function progress(r){message.textContent=(r.recorder.state==="paused"?t("Paused","Пауза"):t("Recording","Идёт запись"))+" · "+elapsed(r)+" · "+(r.bytes/1048576).toFixed(1)+t(" MB"," МБ");}
@@ -4883,8 +4889,9 @@
         if(!mime)throw Error("WebM recording unavailable");
         grant=await bridge.screenRecordBegin(source.value);if(!grant)return;
         const height=Number(resolution.value),fps=Number(rate.value);
-        stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:true,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{width:{ideal:Math.round(height*16/9)},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
-        if(!audioOnly&&mic.checked){const audio=await navigator.mediaDevices.getUserMedia({audio:true,video:false});for(const track of audio.getAudioTracks())stream.addTrack(track);}
+        const audioConstraint=audioDevice.value?{deviceId:{exact:audioDevice.value}}:true;
+        stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{...(cameraDevice.value?{deviceId:{exact:cameraDevice.value}}:{}),width:{ideal:Math.round(height*16/9)},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
+        if(!audioOnly&&mic.checked){const audio=await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false});for(const track of audio.getAudioTracks())stream.addTrack(track);}
         const recorder=new MediaRecorder(stream,audioOnly?{mimeType:mime,audioBitsPerSecond:128000}:{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
         const r={token:grant.token,stream,recorder,started:Date.now(),pausedAt:0,pausedMs:0,bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
         recording=r;
@@ -4913,7 +4920,7 @@
         message.textContent=t("Capture could not start. Check device availability, permissions and output filename.","Не удалось начать запись. Проверьте доступность устройства, разрешения и имя файла.");
       }finally{opening=false;labels();}
     }
-    refresh.onclick=()=>void sources();source.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);
+    refresh.onclick=()=>void sources();source.onchange=mic.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);
     pause.onclick=()=>{const r=recording;if(!r||r.stopping)return;try{if(r.recorder.state==="recording")r.recorder.pause();else if(r.recorder.state==="paused")r.recorder.resume();}catch(_){message.textContent=t("Recording state could not be changed.","Не удалось изменить состояние записи.");}labels();};
     discard.onclick=()=>{if(confirm(t("Discard this recording?","Удалить эту запись?")))stopNow(recording,true);};
     close.onclick=()=>{if(!recording&&!opening)dialog.close();};

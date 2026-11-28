@@ -14,6 +14,8 @@ DK Kinehall aims to match VLC's practical playback and media tools, exceed them 
 
 ## Features
 
+- Reuse built-in conversion profiles or save named custom presets for video resolution, encoding quality and audio bitrate.
+
 - Convert local videos to MP4, MKV, WebM, AVI, MOV or MPEG-TS through Tools → Convert Video. The first video and optional first audio track are encoded into a separate file without subtitles; the original remains unchanged.
 
 - Extract the first audio track from a local media file to MP3, FLAC, AAC or WAV through Tools → Extract Audio. The original file is preserved.

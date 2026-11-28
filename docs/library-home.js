@@ -2217,7 +2217,7 @@ function connect(){
     const body=create("div","playback-settings-panel dk-library-settings-content");
     header.append(title,close);dlg.append(header,feedback,body);document.body.append(dlg);
     let epoch=0,busy=false,selectedCategory=null;
-    const categories=[["playback","Playback"],["picture","Picture Settings"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["server",say("Server","Сервер")],["general","General"]];
+    const categories=[["playback","Playback"],["picture","Picture Settings"],["audio","Audio"],["subtitles","Subtitles"],["disc","DVD & Disc"],["network","Network"],["library","Library"],["server",say("Server","Сервер")],["tools",say("Tools","Инструменты")],["general","General"]];
     const nav=create("div","dk-settings-category-nav");dlg.insertBefore(nav,body);
     const back=create("button","btn small","Back to settings");back.type="button";nav.append(back);
     const categoryButtons=new Map();
@@ -2371,6 +2371,7 @@ function connect(){
         if(nativeBridge.openMediaTool)toolButton(id==="network"?"Network media…":"Open DVD…",async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool(id);dlg.close();}catch(_){setFeedback("Could not open media tool.");}finally{busy=false;}});
         extra.append(create("p","helper",id==="network"?"Discover DLNA servers and open compatible local network streams.":"Open DVD drives, ISO images and DVD folders with a compatible decoder."));
       }
+      if(id==="tools"&&nativeBridge.screenRecordSources)toolButton(say("Screen Recording","Запись экрана"),async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool("screen-recording");dlg.close();}catch(_){setFeedback(say("Could not open screen recording.","Не удалось открыть запись экрана."));}finally{busy=false;}});
       if(id==="library"){
         if(nativeBridge.librarySources)toolButton(say("Library Management","Управление медиатекой"),()=>{dlg.close();void openLibraryManagement();});
         toolButton("Scan Library",()=>{dlg.close();void scan(true);});

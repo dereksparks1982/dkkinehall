@@ -4824,6 +4824,97 @@
     }catch(_){status("Could not capture this video frame.");}
     finally{if(url)URL.revokeObjectURL(url);if(canvas){canvas.width=0;canvas.height=0;}snapshotBusy=false;}
   };
+  // Modeless capture controls remain usable while ordinary playback continues.
+  let openScreenRecorder=()=>{};
+  if(window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"){
+    const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
+    const node=(tag,label="")=>{const el=document.createElement(tag);el.textContent=label;return el;};
+    const dialog=node("dialog");dialog.className="dk-screen-recorder";
+    const title=node("h2"),hint=node("p"),source=node("select"),rate=node("select"),resolution=node("select"),message=node("p");message.setAttribute("role","status");
+    const button=()=>{const b=node("button");b.type="button";b.className="btn";return b;};
+    const refresh=button(),start=button(),stop=button(),discard=button(),close=button(),controls=node("div");controls.className="dk-screen-record-actions";controls.append(refresh,start,stop,discard,close);
+    const sourceLabel=node("label"),rateLabel=node("label"),sizeLabel=node("label"),sourceText=node("span"),rateText=node("span"),sizeText=node("span");
+    sourceLabel.append(sourceText,source);rateLabel.append(rateText,rate);sizeLabel.append(sizeText,resolution);
+    for(const value of ["15","30","60"]){const o=node("option",value+" FPS");o.value=value;rate.append(o);}rate.value="30";
+    for(const value of ["720","1080","2160"]){const o=node("option",value+"p");o.value=value;resolution.append(o);}resolution.value="1080";
+    dialog.append(title,hint,sourceLabel,rateLabel,sizeLabel,message,controls);document.body.append(dialog);
+    let recording=null,opening=false,refreshing=false,notice="";
+    function labels(){
+      title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen or window. Video only; recording is saved as WebM.","Выберите экран или окно. Записывается только видео в формате WebM.");
+      sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
+      refresh.textContent=t("Refresh sources","Обновить источники");start.textContent=t("Start recording","Начать запись");stop.textContent=t("Stop and save","Остановить и сохранить");discard.textContent=t("Discard recording","Удалить запись");close.textContent=t("Close","Закрыть");
+      const locked=!!recording||opening;source.disabled=rate.disabled=resolution.disabled=refresh.disabled=locked||refreshing;start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;discard.disabled=stop.disabled;close.disabled=opening||!!recording;
+    }
+    async function sources(){
+      if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
+      try{
+        const rows=await bridge.screenRecordSources(),old=source.value;source.replaceChildren();
+        for(const row of rows){const o=node("option",row.name||row.id);o.value=row.id;source.append(o);}if(rows.some(r=>r.id===old))source.value=old;
+        message.textContent=rows.length?"":t("No capture sources found. The desktop session may require a system screen-sharing portal.","Источники не найдены. Возможно, требуется системный портал захвата экрана.");
+      }catch(_){message.textContent=t("Could not list capture sources.","Не удалось получить список источников.");}
+      finally{refreshing=false;labels();}
+    }
+    function elapsed(r){const s=Math.floor((Date.now()-r.started)/1000);return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
+    function progress(r){message.textContent=t("Recording","Идёт запись")+" · "+elapsed(r)+" · "+(r.bytes/1048576).toFixed(1)+t(" MB"," МБ");}
+    async function finalize(r){
+      if(r.finalizing)return;r.finalizing=true;clearInterval(r.timer);
+      for(const track of r.stream.getTracks())track.stop();
+      await r.writes.catch(()=>{});
+      try{
+        if(r.discard||r.failed){await bridge.screenRecordAction("cancel",r.token);message.textContent=r.failed?t("Recording failed and was discarded.","Ошибка записи. Файл удалён."):t("Recording discarded.","Запись удалена.");}
+        else{const result=await bridge.screenRecordAction("finish",r.token);message.textContent=t("Saved: ","Сохранено: ")+result.name;}
+      }catch(_){message.textContent=t("Could not finalize the recording. Check the destination for a partial file.","Не удалось завершить запись. Проверьте папку назначения на наличие частичного файла.");}
+      finally{if(recording===r)recording=null;labels();}
+    }
+    function stopNow(r,remove=false){
+      if(!r||r.stopping)return;r.stopping=true;r.discard=remove;labels();
+      message.textContent=t("Finishing recording…","Завершение записи…");
+      try{if(r.recorder.state!=="inactive")r.recorder.stop();else void finalize(r);}catch(_){void finalize(r);}
+    }
+    async function begin(){
+      if(opening||recording||!source.value)return;opening=true;labels();
+      let grant=null,stream=null;
+      try{
+        const mime=["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"].find(x=>MediaRecorder.isTypeSupported(x));
+        if(!mime)throw Error("WebM recording unavailable");
+        grant=await bridge.screenRecordBegin(source.value);if(!grant)return;
+        const height=Number(resolution.value),fps=Number(rate.value);
+        stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
+        const recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
+        const r={token:grant.token,stream,recorder,started:Date.now(),bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
+        recording=r;
+        recorder.ondataavailable=e=>{
+          if(!e.data.size||r.discard||r.failed)return;
+          r.pending+=e.data.size;
+          if(r.pending>64*1024*1024){r.failed=true;stopNow(r);return;}
+          r.writes=r.writes.then(async()=>{
+            for(let at=0;at<e.data.size;at+=4*1024*1024){
+              if(r.discard||r.failed)return;
+              const bytes=new Uint8Array(await e.data.slice(at,at+4*1024*1024).arrayBuffer());
+              r.bytes=await bridge.screenRecordAction("append",r.token,bytes);
+            }
+          }).catch(()=>{r.failed=true;stopNow(r);}).finally(()=>{r.pending-=e.data.size;});
+        };
+        recorder.onerror=()=>{r.failed=true;stopNow(r);};
+        recorder.onstop=()=>void finalize(r);
+        for(const track of stream.getVideoTracks())track.addEventListener("ended",()=>stopNow(r),{once:true});
+        recorder.start(1000);r.timer=setInterval(()=>{if(!r.stopping)progress(r);},1000);progress(r);grant=null;stream=null;
+      }catch(_){
+        if(stream)for(const track of stream.getTracks())track.stop();
+        if(grant)try{await bridge.screenRecordAction("cancel",grant.token);}catch(_){}
+        if(recording){clearInterval(recording.timer);recording=null;}
+        message.textContent=t("Screen capture could not start. Check desktop capture support and select a new output filename.","Не удалось начать захват экрана. Проверьте поддержку захвата и выберите новое имя файла.");
+      }finally{opening=false;labels();}
+    }
+    refresh.onclick=()=>void sources();source.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);
+    discard.onclick=()=>{if(confirm(t("Discard this recording?","Удалить эту запись?")))stopNow(recording,true);};
+    close.onclick=()=>{if(!recording&&!opening)dialog.close();};
+    dialog.addEventListener("cancel",event=>{if(recording||opening)event.preventDefault();});
+    openScreenRecorder=()=>{
+      settingsDetails.open=false;labels();if(!dialog.open)dialog.show();if(!recording)void sources();
+    };
+    bridge.onOpenMediaTool?.(kind=>{if(kind==="screen-recording")openScreenRecorder();});
+  }
   const canJumpToTime=()=>{
     const item=current(),length=playbackDuration();
     return Boolean(item&&!state.stopped&&!item.liveChannel&&Number.isFinite(length)&&length>0);
@@ -6320,6 +6411,7 @@
       ]],
       ["Video",[
         ["Take video snapshot",()=>void takeVideoSnapshot(),canTakeSnapshot],
+        [window.DKLocale?.get()==="ru"?"Запись экрана":"Screen Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
         ["Picture Settings",()=>settings("picture"),()=>categoryAvailable("picture")],
         ["Fullscreen",()=>void toggleFullscreen()],
         ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
@@ -6333,6 +6425,7 @@
         ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
       ]],
       ["Tools",[
+        [window.DKLocale?.get()==="ru"?"Запись экрана":"Screen Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
         ["Effects and filters",()=>settings("audio"),()=>categoryAvailable("audio")],
         ["Media information",openMediaInfo,hasMedia],
         ["Settings",()=>settings(null)],

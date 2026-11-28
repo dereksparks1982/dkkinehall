@@ -1,6 +1,6 @@
 "use strict";
 /* One native window, persistent Library and Player views. */
-const {ipcMain,WebContentsView,app,dialog,shell}=require("electron");
+const {ipcMain,WebContentsView,app,dialog,shell,desktopCapturer}=require("electron");
 const native=require("./library-indexer.cjs");
 const path=require("node:path");
 const fs=require("node:fs");
@@ -3084,6 +3084,56 @@ async function metadataRequest(raw,kind){
   }catch(_){return {ok:false,status:502};}
   finally{metadataBusy--;}
 }
+// User-initiated desktop capture. The renderer receives source IDs and
+// one recording grant, not an arbitrary filesystem write API.
+let screenRecord=null,screenRecordOpening=false;
+async function screenRecordSources(){
+ const sources=await desktopCapturer.getSources({types:["screen","window"],thumbnailSize:{width:0,height:0},fetchWindowIcons:false});
+ return sources.map(s=>({id:s.id,name:String(s.name||"").slice(0,240)}));
+}
+function screenRecordDispose(remove=false){
+ const r=screenRecord;if(!r)return;
+ screenRecord=null;
+ try{fs.closeSync(r.fd);}catch(_){}
+ if(remove)try{fs.unlinkSync(r.temp);}catch(_){}
+}
+async function screenRecordBegin(event,sourceId){
+ if(screenRecord||screenRecordOpening||typeof sourceId!=="string"||sourceId.length>200)throw Error("Recorder unavailable");
+ screenRecordOpening=true;
+ try{
+  const sources=await screenRecordSources();
+  if(!sources.some(s=>s.id===sourceId))throw Error("Capture source unavailable");
+  const ru=readInterfaceLanguage("en")==="ru";
+  const picked=await dialog.showSaveDialog(home,{title:ru?"Сохранить запись экрана":"Save screen recording",defaultPath:path.join(app.getPath("videos"),"DK-Kinehall-Screen-"+Date.now()+".webm"),filters:[{name:"WebM",extensions:["webm"]}]});
+  if(picked.canceled||!picked.filePath)return null;
+  if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Capture window changed");
+  const dest=path.extname(picked.filePath).toLowerCase()===".webm"?picked.filePath:picked.filePath+".webm";
+  if(fs.existsSync(dest))throw Error("Choose a new output filename");
+  const token=randomBytes(24).toString("hex"),temp=dest+".partial-"+token.slice(0,10);
+  const fd=fs.openSync(temp,"wx",0o600);
+  screenRecord={fd,temp,dest,token,owner:event.sender.id,bytes:0};
+  return {token,sourceId,name:path.basename(dest)};
+ }finally{screenRecordOpening=false;}
+}
+function screenRecordAction(event,action,token,chunk){
+ const r=screenRecord;
+ if(!r||r.token!==token||r.owner!==event.sender.id)throw Error("Recording unavailable");
+ if(action==="append"){
+  if(!(chunk instanceof Uint8Array)&&!Buffer.isBuffer(chunk))throw Error("Invalid recording chunk");
+  const bytes=Buffer.from(chunk);
+  if(!bytes.length||bytes.length>16*1024*1024)throw Error("Invalid recording chunk size");
+  let at=0;while(at<bytes.length){const n=fs.writeSync(r.fd,bytes,at,bytes.length-at,null);if(n<1)throw Error("Recording write failed");at+=n;}
+  r.bytes+=bytes.length;return r.bytes;
+ }
+ if(action==="cancel"){screenRecordDispose(true);return true;}
+ if(action!=="finish")throw Error("Invalid recording action");
+ if(!r.bytes){screenRecordDispose(true);throw Error("Recording empty");}
+ fs.fsyncSync(r.fd);screenRecordDispose(false);
+ // Hard-link installation is atomic and refuses to overwrite an existing
+ // destination. The partial stays available if finalization fails.
+ fs.linkSync(r.temp,r.dest);fs.unlinkSync(r.temp);
+ return {name:path.basename(r.dest),bytes:r.bytes};
+}
 function onlyPlayer(event){
   return player&&!player.webContents.isDestroyed()&&
     event.sender===player.webContents&&
@@ -3447,7 +3497,7 @@ function install(originalWindow,originalPlayer){
   // Every new desktop session requests the private server by default.
   // A deliberate Stop remains effective until the next app launch.
   try{jfWrite(jfPowerFile(),JSON.stringify({enabled:true}));}catch(_){}
-  void jfStart();app.once("before-quit",()=>{jfClosing=true;});
+  void jfStart();app.once("before-quit",()=>{jfClosing=true;screenRecordDispose(false);});
   // Chromium owns the PNG transfer; only this Player view's named Blob
   // snapshots receive the localized native save prompt. No arbitrary paths
   // or filesystem API are exposed to the renderer.
@@ -3860,8 +3910,11 @@ function install(originalWindow,originalPlayer){
   // Use the existing persistent Player renderer as the sole settings owner.
   // Library requests are limited to its explicit shared settings API, never
   // renderer-provided JavaScript, selectors or localStorage keys.
+  ipcMain.handle("dk-library:screen-record-sources",event=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordSources();});
+  ipcMain.handle("dk-library:screen-record-begin",(event,id)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id);});
+  ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
-    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv"].includes(kind))throw Error("Media tool request rejected");
+    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording"].includes(kind))throw Error("Media tool request rejected");
     await openPlayer(null,false,true);
     if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
     showPage("player");

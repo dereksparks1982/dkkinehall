@@ -1627,3 +1627,5 @@ html.dk-standalone .queue .item-play .queue-item-labels,
 html.dk-standalone .queue .item-play .queue-item-labels :is(.item-title,.item-meta,.item-episode-name){
   color:#462a25!important;opacity:1;text-shadow:none
 }
+
+.dk-screen-recorder{position:fixed;inset:auto 12px 12px auto;margin:0;z-index:10000;width:min(440px,calc(100vw - 24px));max-height:85vh;overflow:auto;padding:16px;background:#462a25;color:#fff;border:1px solid #e2b956;border-radius:8px;box-shadow:0 10px 40px #0009}.dk-screen-recorder h2{color:#e2b956;margin:0 0 10px}.dk-screen-recorder label{display:grid;gap:5px;margin:8px 0}.dk-screen-recorder select{width:100%;min-width:0}.dk-screen-record-actions{display:flex;flex-wrap:wrap;gap:8px}.dk-screen-recorder p{overflow-wrap:anywhere}

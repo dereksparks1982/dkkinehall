@@ -28,6 +28,8 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 ## Library controls
 
+The Your Movies and Your TV Shows section headings use plain gold text with fully visible expand/collapse arrows, without button boxes.
+
 Movies, TV Shows and Live TV are the three standalone library navigation buttons. All action buttons use antique gold with dark brown text and icons throughout the Player, Library, Live TV, settings, menus and dialogs.
 
 - **Ctrl + mouse wheel:** Enlarge or shrink the library.

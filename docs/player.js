@@ -4842,7 +4842,7 @@
     dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,sizeLabel,micLabel,audioLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
-      title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen, window, camera or microphone. Record to WebM.","Выберите экран, окно, камеру или микрофон. Запись в формате WebM.");
+      title.textContent=t("Media Recording","Запись медиа");hint.textContent=t("Choose a screen, window, camera or microphone. Record to WebM.","Выберите экран, окно, камеру или микрофон. Запись в формате WebM.");
       micText.textContent=t("Include microphone","Записывать микрофон");cameraText.textContent=t("Camera device","Видеокамера");audioText.textContent=t("Microphone device","Микрофон");
       cameraLabel.hidden=source.value!=="dk-camera";audioLabel.hidden=source.value!=="dk-microphone"&&!mic.checked;
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
@@ -6426,7 +6426,7 @@
       ]],
       ["Video",[
         ["Take video snapshot",()=>void takeVideoSnapshot(),canTakeSnapshot],
-        [window.DKLocale?.get()==="ru"?"Запись экрана":"Screen Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
+        [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
         ["Picture Settings",()=>settings("picture"),()=>categoryAvailable("picture")],
         ["Fullscreen",()=>void toggleFullscreen()],
         ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
@@ -6440,7 +6440,7 @@
         ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
       ]],
       ["Tools",[
-        [window.DKLocale?.get()==="ru"?"Запись экрана":"Screen Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
+        [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
         ["Effects and filters",()=>settings("audio"),()=>categoryAvailable("audio")],
         ["Media information",openMediaInfo,hasMedia],
         ["Settings",()=>settings(null)],

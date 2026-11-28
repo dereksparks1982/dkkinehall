@@ -450,3 +450,9 @@ html.dk-standalone body .dk-cinema-collapsed #dkCinemaSidebar :is(.dk-cinema-nav
 .library-card .library-poster{box-sizing:border-box;width:100%;height:auto!important;min-height:0!important;max-height:none!important;flex:none!important;aspect-ratio:2/3!important;}
 .library-card .library-poster img{object-fit:contain!important;object-position:center!important;}
 html.dk-standalone .dk-cinema .library-posters{grid-template-columns:repeat(var(--dk-poster-columns,6),minmax(0,1fr));}
+
+/* Match the active queue's red hover outline on Library navigation actions.
+   Shelf titles remain plain text and media cards retain their own styling. */
+html.dk-standalone body #dkCinemaSidebar :is(.dk-cinema-nav-button,#dkSidebarServer,.dk-cinema-collapse):not(:disabled):is(:hover,:focus-visible){
+ outline:2px solid var(--dk-russian-red,#D52B1E)!important;outline-offset:-3px!important;
+}

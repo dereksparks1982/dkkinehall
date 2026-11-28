@@ -4832,7 +4832,7 @@
     const dialog=node("dialog");dialog.className="dk-screen-recorder";
     const title=node("h2"),hint=node("p"),source=node("select"),rate=node("select"),resolution=node("select"),message=node("p");message.setAttribute("role","status");
     const button=()=>{const b=node("button");b.type="button";b.className="btn";return b;};
-    const refresh=button(),start=button(),stop=button(),discard=button(),close=button(),controls=node("div");controls.className="dk-screen-record-actions";controls.append(refresh,start,stop,discard,close);
+    const refresh=button(),start=button(),pause=button(),stop=button(),discard=button(),close=button(),controls=node("div");controls.className="dk-screen-record-actions";controls.append(refresh,start,pause,stop,discard,close);
     const sourceLabel=node("label"),rateLabel=node("label"),sizeLabel=node("label"),sourceText=node("span"),rateText=node("span"),sizeText=node("span");
     sourceLabel.append(sourceText,source);rateLabel.append(rateText,rate);sizeLabel.append(sizeText,resolution);
     for(const value of ["15","30","60"]){const o=node("option",value+" FPS");o.value=value;rate.append(o);}rate.value="30";
@@ -4845,7 +4845,7 @@
       micText.textContent=t("Include microphone","Записывать микрофон");
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
       refresh.textContent=t("Refresh sources","Обновить источники");start.textContent=t("Start recording","Начать запись");stop.textContent=t("Stop and save","Остановить и сохранить");discard.textContent=t("Discard recording","Удалить запись");close.textContent=t("Close","Закрыть");
-      const locked=!!recording||opening;source.disabled=refresh.disabled=locked||refreshing;rate.disabled=resolution.disabled=mic.disabled=locked||refreshing||source.value==="dk-microphone";start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;discard.disabled=stop.disabled;close.disabled=opening||!!recording;
+      const locked=!!recording||opening;source.disabled=refresh.disabled=locked||refreshing;rate.disabled=resolution.disabled=mic.disabled=locked||refreshing||source.value==="dk-microphone";start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;pause.disabled=stop.disabled;pause.textContent=recording?.recorder.state==="paused"?t("Resume recording","Продолжить запись"):t("Pause recording","Приостановить запись");discard.disabled=stop.disabled;close.disabled=opening||!!recording;
     }
     async function sources(){
       if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
@@ -4857,8 +4857,8 @@
       }catch(_){message.textContent=t("Could not list capture sources.","Не удалось получить список источников.");}
       finally{refreshing=false;labels();}
     }
-    function elapsed(r){const s=Math.floor((Date.now()-r.started)/1000);return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
-    function progress(r){message.textContent=t("Recording","Идёт запись")+" · "+elapsed(r)+" · "+(r.bytes/1048576).toFixed(1)+t(" MB"," МБ");}
+    function elapsed(r){const s=Math.max(0,Math.floor(((r.pausedAt||Date.now())-r.started-r.pausedMs)/1000));return Math.floor(s/60)+":"+String(s%60).padStart(2,"0");}
+    function progress(r){message.textContent=(r.recorder.state==="paused"?t("Paused","Пауза"):t("Recording","Идёт запись"))+" · "+elapsed(r)+" · "+(r.bytes/1048576).toFixed(1)+t(" MB"," МБ");}
     async function finalize(r){
       if(r.finalizing)return;r.finalizing=true;clearInterval(r.timer);
       for(const track of r.stream.getTracks())track.stop();
@@ -4886,7 +4886,7 @@
         stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:true,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{width:{ideal:Math.round(height*16/9)},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
         if(!audioOnly&&mic.checked){const audio=await navigator.mediaDevices.getUserMedia({audio:true,video:false});for(const track of audio.getAudioTracks())stream.addTrack(track);}
         const recorder=new MediaRecorder(stream,audioOnly?{mimeType:mime,audioBitsPerSecond:128000}:{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
-        const r={token:grant.token,stream,recorder,started:Date.now(),bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
+        const r={token:grant.token,stream,recorder,started:Date.now(),pausedAt:0,pausedMs:0,bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
         recording=r;
         recorder.ondataavailable=e=>{
           if(!e.data.size||r.discard||r.failed)return;
@@ -4900,6 +4900,8 @@
             }
           }).catch(()=>{r.failed=true;stopNow(r);}).finally(()=>{r.pending-=e.data.size;});
         };
+        recorder.onpause=()=>{r.pausedAt=Date.now();labels();progress(r);};
+        recorder.onresume=()=>{if(r.pausedAt)r.pausedMs+=Date.now()-r.pausedAt;r.pausedAt=0;labels();progress(r);};
         recorder.onerror=()=>{r.failed=true;stopNow(r);};
         recorder.onstop=()=>void finalize(r);
         for(const track of (audioOnly?stream.getAudioTracks():stream.getVideoTracks()))track.addEventListener("ended",()=>stopNow(r),{once:true});
@@ -4912,6 +4914,7 @@
       }finally{opening=false;labels();}
     }
     refresh.onclick=()=>void sources();source.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);
+    pause.onclick=()=>{const r=recording;if(!r||r.stopping)return;try{if(r.recorder.state==="recording")r.recorder.pause();else if(r.recorder.state==="paused")r.recorder.resume();}catch(_){message.textContent=t("Recording state could not be changed.","Не удалось изменить состояние записи.");}labels();};
     discard.onclick=()=>{if(confirm(t("Discard this recording?","Удалить эту запись?")))stopNow(recording,true);};
     close.onclick=()=>{if(!recording&&!opening)dialog.close();};
     dialog.addEventListener("cancel",event=>{if(recording||opening)event.preventDefault();});

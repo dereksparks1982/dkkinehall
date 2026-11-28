@@ -651,8 +651,8 @@ Work sequentially on main, no local installation updates until explicitly reques
 | 4 | English/Russian metadata language, original titles, localized descriptions/artwork | Partial: local text overrides; provider/artwork pending |
 | 5 | Persistent person profiles, photos, biographies and filmographies with bounded cache | Source pass; external career history pending |
 | 6 | Settings → Server → Diagnostics, detailed server management, usage, scan scheduling, logs, connected devices, report export and support bundle | Partial: diagnostic centre and export; scheduling and support bundle pending |
-| 7 | Authenticated user profiles, separate permissions, watchlists and progress | Partial: owner-managed account registry; sessions/history pending |
-| 8 | Explicitly enabled secure home-network viewing, paired clients and scoped media access | Partial: TLS LAN viewer; pairing and installed validation pending |
+| 7 | Account-free browser watchlists and resume | Source implemented; per-browser storage, installed validation pending |
+| 8 | Account-free HTTP home-network viewing of assigned library | Source implemented; installed validation pending |
 | 9 | Opt-in remote internet viewing over TLS/VPN or authenticated tunnel, no automatic port forwarding | Planned |
 | 10 | Remote adaptive streaming/transcoding, bandwidth, subtitles and synchronized history | Planned |
 
@@ -700,3 +700,5 @@ Build 7 continuation / local serving foundation: opt-in loopback browser preview
 Local serving continuation: authenticated direct-play endpoint and browser controls, HTTP byte ranges, file descriptor and root validation, stream limits, revocation and per-viewer resume/completion. Loopback-only preview; browser-compatible containers only. LAN/TLS, WAN, adaptive transcoding, audio/subtitle selection and installed verification remain pending. Version unchanged.
 
 Build 8 partial source pass: explicit TLS-only home-network viewer bound to one private IPv4 interface, same-subnet and Host/Origin checks, native PEM certificate/key selection with IP and validity validation, secure cookies, stop and interface-change shutdown. No router changes/WAN exposure or automatic LAN startup. Requires user-supplied trusted certificate, installed security/playback validation and device pairing/session UI. Version unchanged.
+
+Owner-directed correction (2026-11-28): supersedes account registry, login, permission profiles, pairing and TLS-only viewer work in prior Build 7/8 entries. Remove viewer accounts, credentials, sessions, TLS certificate prompts and authentication endpoints from runtime/UI; retain anonymous HTTP serving with one start/stop control, stable port 8097, automatic interface selection (optional selection when multiple), browser-local watchlists/resume, and original-file streaming regardless of container. Assigned-root and file identity checks remain; private metadata server is separate. Existing experimental account files are not read or deleted. Remote internet serving and transcoding remain separate future work. Actual installed browser/LAN playback pending. Version unchanged.

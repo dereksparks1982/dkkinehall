@@ -2248,7 +2248,7 @@ function connect(){
     const stateWords={off:["Off","Выключен"],starting:["Starting","Запускается"],stopping:["Stopping","Останавливается"],ready:["Running","Работает"],scanning:["Scanning","Сканирование"],external:["External server","Внешний сервер"],unavailable:["Unavailable","Недоступен"],unknown:["Unknown","Неизвестно"]};
     const updateServerLabels=()=>{
       lifecycle.textContent=say("The power choice is remembered for automatic startup. The private server is designed to remain running after the app closes.","Выбранное состояние питания сохраняется для автоматического запуска. Частный сервер может продолжать работу после закрытия приложения.");
-      networkInfo.textContent=say("The integrated private server is local-only. Remote access is not enabled.","Встроенный частный сервер доступен только локально. Удалённый доступ не включён.");
+      networkInfo.textContent=say("The private metadata server stays local. The home-network viewer below shares your media library.","Частный сервер метаданных работает локально. Просмотр в домашней сети предоставляет доступ к медиатеке.");
       openDiagnostics.textContent=say("Diagnostic Centre","Центр диагностики");scanServer.textContent=say("Scan Library","Проверить медиатеку");
     };
     function valueText(check){
@@ -2299,63 +2299,38 @@ function connect(){
      if(reports.length)drawReport(reports[0]);else for(const b of [exportReport,exportText,copyReport,viewText])b.disabled=true;
      refreshReport.disabled=false;void updateReport();
     }
-    const accountPanel=create("section","dk-server-settings dk-viewer-accounts");accountPanel.hidden=true;dlg.append(accountPanel);
-    const accountButton=cinemaButton("Viewer Accounts","Учётные записи зрителей",()=>chooseCategory("accounts"));accountButton.hidden=!nativeBridge.viewerAccounts;serverPanel.append(accountButton);
     const previewStatus=create("p","helper"),viewerAddress=create("select","select");
     viewerAddress.setAttribute("aria-label",say("Home network interface","Интерфейс домашней сети"));
-    const openPreview=cinemaButton("Open Local Viewer","Открыть локальный просмотр",()=>void viewerPreviewAction("open"));
-    const openLAN=cinemaButton("Start Secure Home-Network Viewer","Запустить защищённый просмотр в домашней сети",()=>void viewerPreviewAction("lan"));
-    const stopPreview=cinemaButton("Stop Viewer","Остановить просмотр",()=>void viewerPreviewAction("stop"));
+    let viewerAddressURL=null,viewerRunning=false,viewerControlBusy=false;
+    const toggleViewer=cinemaButton("Start Home-Network Viewer","Запустить просмотр в домашней сети",()=>void viewerPreviewAction(viewerRunning?"stop":"start"));
+    const openPreview=cinemaButton("Open Viewer","Открыть просмотр",()=>void viewerPreviewAction("open"));
     const copyURL=cinemaButton("Copy Viewer Address","Копировать адрес просмотра",async()=>{if(viewerAddressURL)try{await navigator.clipboard.writeText(viewerAddressURL);}catch(_){previewStatus.textContent=viewerAddressURL;}});
-    const tlsNote=create("p","helper",say("Home-network access requires a current TLS certificate and private key covering the selected IP address. Install trust for that certificate on your viewing devices. No router configuration or internet access is enabled.","Для доступа по домашней сети необходим действующий сертификат TLS и закрытый ключ для выбранного адреса. Настройте доверие к сертификату на устройствах просмотра. Настройки маршрутизатора и доступ из интернета не включаются."));
-    let viewerAddressURL=null,viewerControlBusy=false;
+    const note=create("p","helper",say("Open the displayed HTTP address on any device on your home network. Everyone on that network can view the shared library. No account or encryption.","Откройте указанный адрес на любом устройстве домашней сети. Все устройства в этой сети могут просматривать общую медиатеку. Учётные записи и шифрование не используются."));
+    function drawViewer(r){
+     viewerRunning=!!r.running;viewerAddressURL=r.url||null;const prior=viewerAddress.value;
+     viewerAddress.replaceChildren(...(r.interfaces||[]).map(address=>{const opt=create("option",null,address);opt.value=address;return opt;}));
+     if((r.interfaces||[]).includes(prior))viewerAddress.value=prior;
+     viewerAddress.hidden=viewerAddress.options.length<2;viewerAddress.disabled=viewerRunning;
+     toggleViewer.textContent=viewerRunning?say("Stop Home-Network Viewer","Остановить просмотр в домашней сети"):say("Start Home-Network Viewer","Запустить просмотр в домашней сети");
+     toggleViewer.disabled=false;openPreview.disabled=!viewerRunning;copyURL.disabled=!viewerAddressURL;
+     previewStatus.textContent=viewerRunning?(r.mode==="local"?say("Local only: ","Только локально: "):say("Viewer address: ","Адрес просмотра: "))+r.url:say("Viewer stopped.","Просмотр остановлен.");
+    }
     async function viewerPreviewAction(action){
-     if(!nativeBridge.viewerPreview||viewerControlBusy)return;viewerControlBusy=true;openPreview.disabled=true;openLAN.disabled=true;stopPreview.disabled=true;
-     try{
-      const r=await nativeBridge.viewerPreview(action,action==="lan"?viewerAddress.value:null);
-      viewerAddressURL=r.url||null;const prior=viewerAddress.value;
-      viewerAddress.replaceChildren(...(r.interfaces||[]).map(address=>{const opt=create("option",null,address);opt.value=address;return opt;}));
-      if((r.interfaces||[]).includes(prior))viewerAddress.value=prior;
-      viewerAddress.disabled=r.running;openLAN.disabled=r.running||!viewerAddress.options.length;openPreview.disabled=r.running&&r.mode!=="local";stopPreview.disabled=!r.running;copyURL.disabled=!r.url;
-      previewStatus.textContent=r.running?(r.mode==="lan"?say("Secure home-network viewer: ","Защищённый просмотр в домашней сети: "):say("Local viewer: ","Локальный просмотр: "))+r.url:say("Viewer stopped.","Просмотр остановлен.");
-     }catch(_){
-      previewStatus.textContent=say("Viewer could not start. Stop the current viewer first, and check the selected interface, certificate and private key.","Не удалось запустить просмотр. Остановите текущий просмотр и проверьте интерфейс, сертификат и закрытый ключ.");
-      try{const r=await nativeBridge.viewerPreview("status");openPreview.disabled=r.running&&r.mode!=="local";openLAN.disabled=r.running||!viewerAddress.options.length;stopPreview.disabled=!r.running;}catch(_){}
+     if(!nativeBridge.viewerPreview||viewerControlBusy)return;viewerControlBusy=true;toggleViewer.disabled=true;openPreview.disabled=true;
+     try{drawViewer(await nativeBridge.viewerPreview(action,action==="start"?viewerAddress.value:null));}
+     catch(_){
+      try{drawViewer(await nativeBridge.viewerPreview("status"));}catch(_){toggleViewer.disabled=false;}
+      previewStatus.textContent=say("Viewer unavailable. Check the network connection and whether port 8097 is already in use.","Просмотр недоступен. Проверьте подключение к сети и доступность порта 8097.");
      }finally{viewerControlBusy=false;}
     }
-    if(nativeBridge.viewerPreview)serverPanel.append(openPreview,viewerAddress,openLAN,stopPreview,copyURL,tlsNote,previewStatus);
-    let accountsEpoch=0,accountsBusy=false;
-    const drawAccounts=async()=>{
-     if(!nativeBridge.viewerAccounts)return;
-     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Local browser sign-in, watchlists and direct playback are available in the preview; secure home-network access requires a trusted TLS certificate. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Локальный вход, списки просмотра и прямое воспроизведение доступны в предварительной версии; для защищённого доступа по домашней сети необходим доверенный сертификат TLS. Права владельца приложения не изменяются.")));
-     const note=create("p","helper");note.setAttribute("role","status");accountPanel.append(note);
-     const valid=()=>revision===accountsEpoch&&!accountPanel.hidden;
-     const input=(parent,label,type="text",value="")=>{const wrap=create("label",null,label),node=create("input");node.type=type;node.value=value;node.required=true;node.maxLength=type==="password"?128:48;if(type==="password"){node.minLength=12;node.autocomplete="new-password";}wrap.append(node);parent.append(wrap);return node;};
-     const check=(parent,label,value)=>{const wrap=create("label","dk-account-check"),node=create("input");node.type="checkbox";node.checked=value;wrap.append(node,create("span",null,label));parent.append(wrap);return node;};
-     const action=async(op,value)=>{if(accountsBusy)return;accountsBusy=true;note.textContent=say("Saving…","Сохранение…");try{await nativeBridge.viewerAccounts(op,value);if(valid())void drawAccounts();}catch(_){if(valid())note.textContent=say("Could not save. Check the name, password and account storage.","Не удалось сохранить. Проверьте имя, пароль и хранилище учётных записей.");}finally{accountsBusy=false;}};
-     try{
-      const rows=await nativeBridge.viewerAccounts("list");if(!valid())return;
-      for(const row of rows){
-       const box=create("form","dk-account-card"),name=input(box,say("Name","Имя"),"text",row.name);
-       const enabled=check(box,say("Enabled","Включена"),row.enabled),movies=check(box,say("Movies","Фильмы"),row.permissions.movies),tv=check(box,say("TV Shows","Сериалы"),row.permissions.tv);
-       const buttons=create("div","dk-server-report-actions"),save=create("button","btn",say("Save","Сохранить"));save.type="submit";
-       const reset=cinemaButton("Change Password","Изменить пароль",()=>{const field=input(box,say("New password (12+ characters)","Новый пароль (от 12 символов)"),"password");reset.disabled=true;const apply=cinemaButton("Set Password","Установить пароль",()=>{if(field.reportValidity()){const password=field.value;field.value="";void action("password",{id:row.id,password});}});box.append(apply);});
-       const remove=cinemaButton("Remove Account","Удалить учётную запись",()=>{if(confirm(say("Remove this viewer account?","Удалить эту учётную запись?")))void action("remove",{id:row.id});});
-       buttons.append(save,reset,remove);box.append(buttons);box.addEventListener("submit",event=>{event.preventDefault();void action("update",{id:row.id,name:name.value,enabled:enabled.checked,permissions:{movies:movies.checked,tv:tv.checked}});});accountPanel.append(box);
-      }
-      const form=create("form","dk-account-card");form.append(create("strong",null,say("New viewer account","Новая учётная запись")));
-      const name=input(form,say("Name","Имя")),password=input(form,say("Password (12+ characters)","Пароль (от 12 символов)"),"password");
-      const movies=check(form,say("Movies","Фильмы"),true),tv=check(form,say("TV Shows","Сериалы"),true),add=create("button","btn",say("Create Account","Создать учётную запись"));add.type="submit";form.append(add);
-      form.addEventListener("submit",event=>{event.preventDefault();const value=password.value;password.value="";void action("create",{name:name.value,password:value,permissions:{movies:movies.checked,tv:tv.checked}});});accountPanel.append(form);
-     }catch(_){if(valid())note.textContent=say("Account storage unavailable.","Хранилище учётных записей недоступно.");}
-    };
+    if(nativeBridge.viewerPreview)serverPanel.append(viewerAddress,toggleViewer,openPreview,copyURL,note,previewStatus);
     const chooseCategory=id=>{
       selectedCategory=id;
-      title.textContent=id==="accounts"?say("Viewer Accounts","Учётные записи зрителей"):id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
+      title.textContent=id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
       back.hidden=!id;for(const [key,btn] of categoryButtons)btn.hidden=!!id;
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
-      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";accountPanel.hidden=id!=="accounts";if(id==="accounts"){body.hidden=true;void drawAccounts();}else accountsEpoch++;
+      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";
       if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();void viewerPreviewAction("status");}
       if(id==="diagnostics"){body.hidden=true;enterDiagnostics();}else{reportEpoch++;refreshReport.disabled=false;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
@@ -2373,7 +2348,7 @@ function connect(){
       if(id==="general")extra.hidden=false;
       body.scrollTop=0;window.DKLocale?.apply();
     };
-    back.addEventListener("click",()=>chooseCategory(["diagnostics","accounts"].includes(selectedCategory)?"server":null));
+    back.addEventListener("click",()=>chooseCategory(selectedCategory==="diagnostics"?"server":null));
     for(const [key,label] of categories){const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",()=>chooseCategory(key));nav.append(btn);categoryButtons.set(key,btn);}
     chooseCategory(null);
     const setFeedback=message=>{feedback.textContent=message;window.DKLocale?.apply();};
@@ -2428,7 +2403,7 @@ function connect(){
     });
     close.addEventListener("click",()=>{if(!busy)dlg.close();});
     dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
-    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;accountPanel.hidden=true;accountsEpoch++;accountPanel.replaceChildren();body.replaceChildren();button.focus();});
+    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;body.replaceChildren();button.focus();});
     openCinemaSettings=async(category=null)=>{
       if(dlg.open){chooseCategory(category);return;}
       const ticket=++epoch;dlg.showModal();chooseCategory(category);setFeedback(category==="server"?"":"Loading settings…");body.inert=true;busy=true;

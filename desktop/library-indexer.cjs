@@ -354,20 +354,10 @@ function runKinehallViewer(dataDir,codecBase){
 }
 
 
- const viewerIPv4=value=>{
- if(typeof value!=="string")return null;
- const a=value.split(".");if(a.length!==4||a.some(x=>!/^(0|[1-9]\d{0,2})$/.test(x)||Number(x)>255))return null;
- return a.reduce((n,x)=>(n*256+Number(x))>>>0,0);
-};
-const viewerPrivate=value=>{const n=viewerIPv4(value);return n!==null&&((n>>>24)===10||(n>>>20)===0xac1||(n>>>16)===0xc0a8);};
-
- const localAddresses=()=>Object.values(os.networkInterfaces()).flat().filter(r=>r?.family==="IPv4"&&viewerPrivate(r.address)).map(r=>r.address);
- const allowed=req=>{
-  const remote=String(req.socket.remoteAddress||"").replace(/^::ffff:/,"");
-  const local=String(req.socket.localAddress||"").replace(/^::ffff:/,"");
-  const host=req.headers.host;
-  return enabled()&&(remote==="127.0.0.1"||viewerPrivate(remote))&&(local==="127.0.0.1"||localAddresses().includes(local))&&(host===local+":"+PORT||local==="127.0.0.1"&&host==="localhost:"+PORT);
- };
+ // The owner uses the same anonymous HTTP viewer on LAN and forwarded
+ // internet connections. NAT may rewrite the destination, so neither
+ // the client's address nor the HTTP Host must equal a LAN address.
+ const allowed=req=>enabled();
  let cached=null,cachedStamp=null,stopping=false;
  const catalog=()=>{
   const selected=roots();setSelectedRoots(selected);

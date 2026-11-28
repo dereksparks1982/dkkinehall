@@ -4839,19 +4839,24 @@
     for(const value of ["720","1080","2160"]){const o=node("option",value+"p");o.value=value;resolution.append(o);}resolution.value="1080";
     const mic=node("input"),micLabel=node("label"),micText=node("span");mic.type="checkbox";micLabel.append(mic,micText);
     const cameraDevice=node("select"),audioDevice=node("select"),cameraLabel=node("label"),audioLabel=node("label"),cameraText=node("span"),audioText=node("span");cameraLabel.append(cameraText,cameraDevice);audioLabel.append(audioText,audioDevice);
-    dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,sizeLabel,micLabel,audioLabel,message,controls);document.body.append(dialog);
+    const systemDevice=node("select"),systemLabel=node("label"),systemText=node("span"),systemHint=node("small");systemLabel.append(systemText,systemDevice,systemHint);
+    dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,sizeLabel,micLabel,audioLabel,systemLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
       title.textContent=t("Media Recording","Запись медиа");hint.textContent=t("Choose a screen, window, camera or microphone. Record to WebM.","Выберите экран, окно, камеру или микрофон. Запись в формате WebM.");
       micText.textContent=t("Include microphone","Записывать микрофон");cameraText.textContent=t("Camera device","Видеокамера");audioText.textContent=t("Microphone device","Микрофон");
       cameraLabel.hidden=source.value!=="dk-camera";audioLabel.hidden=source.value!=="dk-microphone"&&!mic.checked;
+      systemText.textContent=t("System audio source","Источник системного звука");systemHint.textContent=t("Choose an audio-output monitor exposed by Linux. If none appears, enable or expose a monitor in your sound settings and refresh.","Выберите доступный в Linux монитор аудиовыхода. Если его нет, включите монитор в настройках звука и обновите список.");systemLabel.hidden=source.value==="dk-microphone";
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
       refresh.textContent=t("Refresh sources","Обновить источники");start.textContent=t("Start recording","Начать запись");stop.textContent=t("Stop and save","Остановить и сохранить");discard.textContent=t("Discard recording","Удалить запись");close.textContent=t("Close","Закрыть");
-      const locked=!!recording||opening;source.disabled=refresh.disabled=cameraDevice.disabled=audioDevice.disabled=locked||refreshing;rate.disabled=resolution.disabled=mic.disabled=locked||refreshing||source.value==="dk-microphone";start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;pause.disabled=stop.disabled;pause.textContent=recording?.recorder.state==="paused"?t("Resume recording","Продолжить запись"):t("Pause recording","Приостановить запись");discard.disabled=stop.disabled;close.disabled=opening||!!recording;
+      const locked=!!recording||opening;source.disabled=refresh.disabled=cameraDevice.disabled=audioDevice.disabled=systemDevice.disabled=locked||refreshing;rate.disabled=resolution.disabled=mic.disabled=locked||refreshing||source.value==="dk-microphone";start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;pause.disabled=stop.disabled;pause.textContent=recording?.recorder.state==="paused"?t("Resume recording","Продолжить запись"):t("Pause recording","Приостановить запись");discard.disabled=stop.disabled;close.disabled=opening||!!recording;
     }
     async function refreshDevices(){
       let devices=[];try{devices=await navigator.mediaDevices.enumerateDevices();}catch(_){}
       for(const [select,kind,en,ru] of [[cameraDevice,"videoinput","Camera","Камера"],[audioDevice,"audioinput","Microphone","Микрофон"]]){const old=select.value,def=node("option",t("System default","Системное устройство"));def.value="";select.replaceChildren(def);let n=0;for(const d of devices){if(d.kind!==kind||!d.deviceId||["default","communications"].includes(d.deviceId))continue;const o=node("option",d.label||t(en,ru)+" "+(++n));o.value=d.deviceId;select.append(o);}if([...select.options].some(o=>o.value===old))select.value=old;}
+      const oldSystem=systemDevice.value,off=node("option",t("Off","Выключено"));off.value="";systemDevice.replaceChildren(off);
+      for(const d of devices){if(d.kind!=="audioinput"||!d.deviceId||["default","communications"].includes(d.deviceId)||!/(monitor|loopback|stereo mix|монитор|стереомикшер)/i.test(d.label||""))continue;const o=node("option",d.label);o.value=d.deviceId;systemDevice.append(o);}
+      if([...systemDevice.options].some(o=>o.value===oldSystem))systemDevice.value=oldSystem;
     }
     async function sources(){
       if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
@@ -4868,6 +4873,8 @@
     async function finalize(r){
       if(r.finalizing)return;r.finalizing=true;clearInterval(r.timer);
       for(const track of r.stream.getTracks())track.stop();
+      for(const input of r.audioInputs||[])for(const track of input.getTracks())track.stop();
+      if(r.mix)await r.mix.close().catch(()=>{});
       await r.writes.catch(()=>{});
       try{
         if(r.discard||r.failed){await bridge.screenRecordAction("cancel",r.token);message.textContent=r.failed?t("Recording failed and was discarded.","Ошибка записи. Файл удалён."):t("Recording discarded.","Запись удалена.");}
@@ -4882,18 +4889,27 @@
     }
     async function begin(){
       if(opening||recording||!source.value)return;opening=true;labels();
-      let grant=null,stream=null;
+      let grant=null,stream=null,mix=null,audioInputs=[];
       try{
-        const audioOnly=source.value==="dk-microphone";
-        const mime=(audioOnly?["audio/webm;codecs=opus","audio/webm"]:mic.checked?["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"]:["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"]).find(x=>MediaRecorder.isTypeSupported(x));
+        const audioOnly=source.value==="dk-microphone",systemId=audioOnly?"":systemDevice.value;
+        const mime=(audioOnly?["audio/webm;codecs=opus","audio/webm"]:(mic.checked||systemId)?["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"]:["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"]).find(x=>MediaRecorder.isTypeSupported(x));
         if(!mime)throw Error("WebM recording unavailable");
         grant=await bridge.screenRecordBegin(source.value);if(!grant)return;
         const height=Number(resolution.value),fps=Number(rate.value);
         const audioConstraint=audioDevice.value?{deviceId:{exact:audioDevice.value}}:true;
         stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{...(cameraDevice.value?{deviceId:{exact:cameraDevice.value}}:{}),width:{ideal:Math.round(height*16/9)},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
-        if(!audioOnly&&mic.checked){const audio=await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false});for(const track of audio.getAudioTracks())stream.addTrack(track);}
+        if(!audioOnly&&mic.checked)audioInputs.push(await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}));
+        if(systemId)audioInputs.push(await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:systemId},echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false}));
+        if(audioInputs.some(input=>!input.getAudioTracks().length))throw Error("Audio input unavailable");
+        if(audioInputs.length===1){for(const track of audioInputs[0].getAudioTracks())stream.addTrack(track);}
+        if(audioInputs.length>1){
+          mix=new AudioContext();await mix.resume();
+          const dest=mix.createMediaStreamDestination();
+          for(const input of audioInputs){const gain=mix.createGain();gain.gain.value=0.5;mix.createMediaStreamSource(input).connect(gain).connect(dest);}
+          for(const track of dest.stream.getAudioTracks())stream.addTrack(track);
+        }
         const recorder=new MediaRecorder(stream,audioOnly?{mimeType:mime,audioBitsPerSecond:128000}:{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
-        const r={token:grant.token,stream,recorder,started:Date.now(),pausedAt:0,pausedMs:0,bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
+        const r={token:grant.token,stream,recorder,mix,audioInputs,started:Date.now(),pausedAt:0,pausedMs:0,bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
         recording=r;
         recorder.ondataavailable=e=>{
           if(!e.data.size||r.discard||r.failed)return;
@@ -4911,10 +4927,12 @@
         recorder.onresume=()=>{if(r.pausedAt)r.pausedMs+=Date.now()-r.pausedAt;r.pausedAt=0;labels();progress(r);};
         recorder.onerror=()=>{r.failed=true;stopNow(r);};
         recorder.onstop=()=>void finalize(r);
-        for(const track of (audioOnly?stream.getAudioTracks():stream.getVideoTracks()))track.addEventListener("ended",()=>stopNow(r),{once:true});
-        recorder.start(1000);r.timer=setInterval(()=>{if(!r.stopping)progress(r);},1000);progress(r);grant=null;stream=null;
+        for(const track of new Set([...stream.getTracks(),...audioInputs.flatMap(input=>input.getAudioTracks())]))track.addEventListener("ended",()=>stopNow(r),{once:true});
+        recorder.start(1000);r.timer=setInterval(()=>{if(!r.stopping)progress(r);},1000);progress(r);grant=null;stream=null;mix=null;audioInputs=[];
       }catch(_){
         if(stream)for(const track of stream.getTracks())track.stop();
+        for(const input of audioInputs)for(const track of input.getTracks())track.stop();
+        if(mix)await mix.close().catch(()=>{});
         if(grant)try{await bridge.screenRecordAction("cancel",grant.token);}catch(_){}
         if(recording){clearInterval(recording.timer);recording=null;}
         message.textContent=t("Capture could not start. Check device availability, permissions and output filename.","Не удалось начать запись. Проверьте доступность устройства, разрешения и имя файла.");

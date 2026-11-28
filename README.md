@@ -14,6 +14,8 @@ DK Kinehall aims to match VLC's practical playback and media tools, exceed them 
 
 ## Features
 
+- Recordings are automatically saved with dated filenames in the Recordings folder inside Videos. The recording panel displays its actual path; interrupted recordings retain any captured data as a partial WebM file.
+
 - Convert multiple local media files sequentially with a shared preset, choose a destination folder, and review individual results. Recording defaults to 24 FPS with automatic, cinema, broadcast and custom frame rate choices.
 
 - Reuse built-in conversion profiles or save named custom presets for video resolution, encoding quality and audio bitrate.

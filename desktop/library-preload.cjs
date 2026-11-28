@@ -118,6 +118,7 @@ const nativeLibrary=Object.freeze({
   showLibrary:()=>libIpc.invoke("dk-library:show-home"),
   showPlayer:()=>libIpc.invoke("dk-library:show-player"),
   openSharedSettings:language=>libIpc.invoke("dk-library:settings-open",language==="ru"?"ru":"en"),
+  recordingsFolder:()=>libIpc.invoke("dk-library:recordings-folder"),
   screenRecordSources:()=>libIpc.invoke("dk-library:screen-record-sources"),
   screenRecordBegin:(id,format="webm",videoCodec="h264",audioCodec="aac",encoding={})=>libIpc.invoke("dk-library:screen-record-begin",String(id),String(format),String(videoCodec),String(audioCodec),{quality:Number(encoding.quality??0),videoKbps:Number(encoding.videoKbps??0),audioKbps:Number(encoding.audioKbps??0)}),
   screenRecordAction:(action,token,chunk=null)=>libIpc.invoke("dk-library:screen-record-action",String(action),String(token),chunk),

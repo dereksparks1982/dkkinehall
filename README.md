@@ -14,7 +14,7 @@ DK Kinehall aims to match VLC's practical playback and media tools, exceed them 
 
 ## Features
 
-- Media Recording: capture a screen, window, camera or microphone to WebM; select available capture devices, include microphone audio with video, pause, resume, save or discard. Actual device support depends on the installed desktop runtime.
+- Media Recording: capture a screen, window, camera or microphone to WebM; select available capture devices, include microphone audio and available Linux output-monitor audio with video, pause, resume, save or discard. Actual device support depends on the installed desktop runtime.
 
 - Play movies, TV shows and music.
 - Organize your local media with posters, titles and movie information.

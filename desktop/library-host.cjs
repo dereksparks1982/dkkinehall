@@ -3164,7 +3164,7 @@ async function screenRecordAction(event,action,token,chunk){
  return {name:path.basename(r.dest),bytes:r.bytes};
 }
 let audioExtractBusy=false,audioExtractChild=null;
-async function extractAudio(event,format){
+async function extractAudio(event,format,profile={}){
  const formats={mp3:["libmp3lame","mp3",["-b:a","192k"]],flac:["flac","flac",[]],aac:["aac","adts",["-b:a","192k"]],wav:["pcm_s16le","wav",[]]};
  const videoFormats={
  mp4:["mp4",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k","-movflags","+faststart"]],
@@ -3175,6 +3175,8 @@ async function extractAudio(event,format){
  ts:["mpegts",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k"]]
  };
  const video=Object.hasOwn(videoFormats,format);
+ const height=Number(profile?.height??0),quality=String(profile?.quality??"standard"),bitrate=Number(profile?.bitrate??0);
+ if(![0,480,720,1080,1440,2160].includes(height)||!["high","standard","small"].includes(quality)||![0,64,96,128,192,256,320].includes(bitrate))throw Error("Invalid conversion profile");
  if((!video&&!Object.hasOwn(formats,format))||audioExtractBusy||jfClosing)throw Error("Conversion unavailable");
  audioExtractBusy=true;let folder=null;
  try{
@@ -3191,8 +3193,15 @@ async function extractAudio(event,format){
   folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-audio-extract-"));
   const output=path.join(folder,"output."+format);
   let options;
-  if(video){const [muxer,args]=videoFormats[format];options=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2","-pix_fmt","yuv420p",...args,"-f",muxer];}
-  else{const [codec,muxer,args]=formats[format];options=["-map","0:a:0","-vn","-sn","-dn","-map_metadata","-1","-c:a",codec,...args,"-f",muxer];}
+  const applyBitrate=args=>{const result=[...args],at=result.indexOf("-b:a");if(bitrate&&at>=0)result[at+1]=bitrate+"k";return result;};
+  if(video){
+   const [muxer,defaults]=videoFormats[format],args=applyBitrate(defaults);
+   const crf=args.indexOf("-crf"),q=args.indexOf("-q:v");
+   if(crf>=0)args[crf+1]=String((format==="webm"?{high:22,standard:32,small:40}:{high:18,standard:23,small:30})[quality]);
+   if(q>=0)args[q+1]=String({high:2,standard:4,small:8}[quality]);
+   const filter=(height?"scale=-2:min(ih\\,"+height+"),":"")+"pad=ceil(iw/2)*2:ceil(ih/2)*2";
+   options=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-vf",filter,"-pix_fmt","yuv420p",...args,"-f",muxer];
+  }else{const [codec,muxer,args]=formats[format];options=["-map","0:a:0","-vn","-sn","-dn","-map_metadata","-1","-c:a",codec,...applyBitrate(args),"-f",muxer];}
   await new Promise((resolve,reject)=>{
    const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-i",source,...options,output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
    audioExtractChild=child;child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media conversion failed")));
@@ -3981,7 +3990,7 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:screen-record-sources",event=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordSources();});
   ipcMain.handle("dk-library:screen-record-begin",(event,id,format,videoCodec,audioCodec,encoding)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format,videoCodec,audioCodec,encoding);});
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
-  ipcMain.handle("dk-library:extract-audio",(event,format)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Audio extraction request rejected");return extractAudio(event,format);});
+  ipcMain.handle("dk-library:extract-audio",(event,format,profile)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Audio extraction request rejected");return extractAudio(event,format,profile);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
     if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording","audio-extraction","video-conversion"].includes(kind))throw Error("Media tool request rejected");
     await openPlayer(null,false,true);

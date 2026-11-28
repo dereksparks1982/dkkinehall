@@ -3165,6 +3165,7 @@ async function screenRecordAction(event,action,token,chunk){
 }
 let audioExtractBusy=false,audioExtractChild=null;
 async function extractAudio(event,format,profile={}){
+ const batch=profile?.batch===true;
  const formats={mp3:["libmp3lame","mp3",["-b:a","192k"]],flac:["flac","flac",[]],aac:["aac","adts",["-b:a","192k"]],wav:["pcm_s16le","wav",[]]};
  const videoFormats={
  mp4:["mp4",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k","-movflags","+faststart"]],
@@ -3182,16 +3183,29 @@ async function extractAudio(event,format,profile={}){
  try{
   fs.accessSync(tvDecoder(),fs.constants.X_OK);
   const ru=readInterfaceLanguage("en")==="ru";
-  const input=await dialog.showOpenDialog(home,{title:ru?"Выберите исходный медиафайл":"Choose source media",properties:["openFile"]});
-  if(input.canceled||!input.filePaths[0])return {cancelled:true};
-  const source=fs.realpathSync(input.filePaths[0]);if(!fs.statSync(source).isFile())throw Error("Invalid source");
-  const save=await dialog.showSaveDialog(home,{title:video?(ru?"Сохранить преобразованное видео":"Save converted video"):(ru?"Сохранить звуковой файл":"Save extracted audio"),defaultPath:path.join(path.dirname(source),path.parse(source).name+(video?"-converted.":"-audio.")+format),filters:[{name:format.toUpperCase(),extensions:[format]}]});
-  if(save.canceled||!save.filePath)return {cancelled:true};
+  const input=await dialog.showOpenDialog(home,{title:batch?(ru?"Выберите медиафайлы":"Choose media files"):(ru?"Выберите исходный медиафайл":"Choose source media"),properties:batch?["openFile","multiSelections"]:["openFile"]});
+  if(input.canceled||!input.filePaths.length)return {cancelled:true};
+  let jobs=[];
+  if(batch){
+   const picked=await dialog.showOpenDialog(home,{title:ru?"Выберите папку назначения":"Choose output folder",properties:["openDirectory","createDirectory"]});
+   if(picked.canceled||!picked.filePaths[0])return {cancelled:true};
+   const target=fs.realpathSync(picked.filePaths[0]);
+   const planned=new Set();
+   for(const source of [...new Set(input.filePaths)]){
+    const base=path.parse(source).name+(video?"-converted":"-audio");
+    let dest=path.join(target,base+"."+format),n=2;
+    while(planned.has(dest)||fs.existsSync(dest))dest=path.join(target,base+"-"+n++ +"."+format);
+    planned.add(dest);jobs.push({source,dest});
+   }
+  }else{
+   const source=fs.realpathSync(input.filePaths[0]);if(!fs.statSync(source).isFile())throw Error("Invalid source");
+   const save=await dialog.showSaveDialog(home,{title:video?(ru?"Сохранить преобразованное видео":"Save converted video"):(ru?"Сохранить звуковой файл":"Save extracted audio"),defaultPath:path.join(path.dirname(source),path.parse(source).name+(video?"-converted.":"-audio.")+format),filters:[{name:format.toUpperCase(),extensions:[format]}]});
+   if(save.canceled||!save.filePath)return {cancelled:true};
+   const dest=path.extname(save.filePath).toLowerCase()==="."+format?save.filePath:save.filePath+"."+format;
+   if(fs.existsSync(dest))throw Error("Choose a new output filename");
+   jobs=[{source,dest}];
+  }
   if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Player unavailable");
-  const dest=path.extname(save.filePath).toLowerCase()==="."+format?save.filePath:save.filePath+"."+format;
-  if(fs.existsSync(dest))throw Error("Choose a new output filename");
-  folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-audio-extract-"));
-  const output=path.join(folder,"output."+format);
   let options;
   const applyBitrate=args=>{const result=[...args],at=result.indexOf("-b:a");if(bitrate&&at>=0)result[at+1]=bitrate+"k";return result;};
   if(video){
@@ -3202,13 +3216,24 @@ async function extractAudio(event,format,profile={}){
    const filter=(height?"scale=-2:min(ih\\,"+height+"),":"")+"pad=ceil(iw/2)*2:ceil(ih/2)*2";
    options=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-vf",filter,"-pix_fmt","yuv420p",...args,"-f",muxer];
   }else{const [codec,muxer,args]=formats[format];options=["-map","0:a:0","-vn","-sn","-dn","-map_metadata","-1","-c:a",codec,...applyBitrate(args),"-f",muxer];}
-  await new Promise((resolve,reject)=>{
-   const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-i",source,...options,output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
-   audioExtractChild=child;child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media conversion failed")));
-  });
-  const bytes=fs.statSync(output).size;if(!bytes||jfClosing)throw Error("No audio output");
-  fs.linkSync(output,dest);
-  return {name:path.basename(dest),bytes};
+  const results=[];
+  for(const job of jobs){
+   if(jfClosing)break;
+   try{
+    const source=fs.realpathSync(job.source),dest=job.dest;
+    if(!fs.statSync(source).isFile()||fs.existsSync(dest))throw Error("Invalid source or destination");
+    folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-media-convert-"));
+    const output=path.join(folder,"output."+format);
+    await new Promise((resolve,reject)=>{
+     const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-i",source,...options,output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
+     audioExtractChild=child;child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media conversion failed")));
+    });
+    const bytes=fs.statSync(output).size;if(!bytes||jfClosing)throw Error("No media output");
+    fs.linkSync(output,dest);results.push({name:path.basename(dest),bytes,ok:true});
+   }catch(error){if(!batch)throw error;results.push({name:path.basename(job.source),ok:false});}
+   finally{audioExtractChild=null;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}folder=null;}
+  }
+  return batch?{batch:true,results,total:jobs.length}:results[0];
  }finally{audioExtractChild=null;audioExtractBusy=false;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
 }
 function onlyPlayer(event){

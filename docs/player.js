@@ -4836,13 +4836,17 @@
     const sourceLabel=node("label"),rateLabel=node("label"),sizeLabel=node("label"),sourceText=node("span"),rateText=node("span"),sizeText=node("span");
     sourceLabel.append(sourceText,source);rateLabel.append(rateText,rate);sizeLabel.append(sizeText,resolution);
     for(const value of ["15","30","60"]){const o=node("option",value+" FPS");o.value=value;rate.append(o);}rate.value="30";
-    for(const value of ["720","1080","2160"]){const o=node("option",value+"p");o.value=value;resolution.append(o);}resolution.value="1080";
+    for(const value of ["480","720","1080","1440","2160","custom"]){const o=node("option",value==="custom"?t("Custom","Свои размеры"):value+"p");o.value=value;resolution.append(o);}resolution.value="1080";
     const mic=node("input"),micLabel=node("label"),micText=node("span");mic.type="checkbox";micLabel.append(mic,micText);
     const cameraDevice=node("select"),audioDevice=node("select"),cameraLabel=node("label"),audioLabel=node("label"),cameraText=node("span"),audioText=node("span");cameraLabel.append(cameraText,cameraDevice);audioLabel.append(audioText,audioDevice);
     const systemDevice=node("select"),systemLabel=node("label"),systemText=node("span"),systemHint=node("small");systemLabel.append(systemText,systemDevice,systemHint);
     const format=node("select"),formatLabel=node("label"),formatText=node("span");for(const value of ["webm","mp4"]){const option=node("option",value.toUpperCase());option.value=value;format.append(option);}formatLabel.append(formatText,format);
     const videoCodec=node("select"),audioCodec=node("select"),videoCodecLabel=node("label"),audioCodecLabel=node("label"),videoCodecText=node("span"),audioCodecText=node("span");videoCodecLabel.append(videoCodecText,videoCodec);audioCodecLabel.append(audioCodecText,audioCodec);
-    dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,sizeLabel,formatLabel,videoCodecLabel,audioCodecLabel,micLabel,audioLabel,systemLabel,message,controls);document.body.append(dialog);
+    const numberField=(min,max,value)=>{const el=node("input");el.type="number";el.min=String(min);el.max=String(max);el.step="1";el.value=String(value);return el;};
+    const widthInput=numberField(160,7680,1920),heightInput=numberField(120,4320,1080),qualityInput=numberField(0,100,0),videoRate=numberField(0,100000,0),audioRate=numberField(0,320,0);
+    const field=(input)=>{const label=node("label"),text=node("span");label.append(text,input);return {label,text};};
+    const widthField=field(widthInput),heightField=field(heightInput),qualityField=field(qualityInput),videoRateField=field(videoRate),audioRateField=field(audioRate);
+    dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,sizeLabel,widthField.label,heightField.label,formatLabel,videoCodecLabel,audioCodecLabel,qualityField.label,videoRateField.label,audioRateField.label,micLabel,audioLabel,systemLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
       title.textContent=t("Media Recording","Запись медиа");hint.textContent=t("Choose a capture source and output format. MP4 is encoded after recording stops.","Выберите источник и формат записи. Кодирование MP4 выполняется после остановки записи.");
@@ -4853,6 +4857,11 @@
       const setOptions=(select,choices)=>{const old=select.value;select.replaceChildren();for(const [value,label] of choices){const o=node("option",label);o.value=value;select.append(o);}if(choices.some(x=>x[0]===old))select.value=old;};
       setOptions(videoCodec,mp4?[["h264","H.264 / AVC"],["hevc","H.265 / HEVC"],["mpeg4","MPEG-4 Part 2"]]:[["auto",t("Automatic","Автоматически")],["vp8","VP8"],["vp9","VP9"]]);
       setOptions(audioCodec,mp4?[["aac","AAC"],["alac","ALAC"],["none",t("No audio","Без звука")]]:[["opus","Opus"]]);videoCodecLabel.hidden=audioOnly;
+      resolution.options[resolution.options.length-1].textContent=t("Custom","Свои размеры");
+      widthField.text.textContent=t("Maximum width (pixels)","Максимальная ширина (пиксели)");heightField.text.textContent=t("Maximum height (pixels)","Максимальная высота (пиксели)");
+      qualityField.text.textContent=t("MP4 quality: 1–100 (0 = automatic)","Качество MP4: 1–100 (0 = автоматически)");videoRateField.text.textContent=t("Video bitrate, kbps (0 = automatic)","Битрейт видео, кбит/с (0 = автоматически)");audioRateField.text.textContent=t("Audio bitrate, kbps (0 = automatic)","Битрейт звука, кбит/с (0 = автоматически)");
+      widthField.label.hidden=heightField.label.hidden=audioOnly||resolution.value!=="custom";qualityField.label.hidden=audioOnly||!mp4;videoRateField.label.hidden=audioOnly;audioRateField.label.hidden=mp4&&audioCodec.value!=="aac";
+      const controlsLocked=!!recording||opening||refreshing;widthInput.disabled=heightInput.disabled=videoRate.disabled=audioRate.disabled=controlsLocked;qualityInput.disabled=controlsLocked||Number(videoRate.value)>0;
       cameraLabel.hidden=source.value!=="dk-camera";audioLabel.hidden=source.value!=="dk-microphone"&&!mic.checked;
       systemText.textContent=t("System audio source","Источник системного звука");systemHint.textContent=t("Choose an audio-output monitor exposed by Linux. If none appears, enable or expose a monitor in your sound settings and refresh.","Выберите доступный в Linux монитор аудиовыхода. Если его нет, включите монитор в настройках звука и обновите список.");systemLabel.hidden=source.value==="dk-microphone";
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
@@ -4903,10 +4912,12 @@
         const explicitWebm=format.value==="webm"&&!audioOnly&&["vp8","vp9"].includes(videoCodec.value);
         const mime=(explicitWebm?[`video/webm;codecs=${videoCodec.value}${mic.checked||systemId?",opus":""}`]:audioOnly?["audio/webm;codecs=opus","audio/webm"]:(mic.checked||systemId)?["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"]:["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"]).find(x=>MediaRecorder.isTypeSupported(x));
         if(!mime)throw Error("WebM recording unavailable");
-        grant=await bridge.screenRecordBegin(source.value,format.value,videoCodec.value,audioCodec.value);if(!grant)return;
-        const height=Number(resolution.value),fps=Number(rate.value);
+        const custom=resolution.value==="custom",height=custom?Number(heightInput.value):Number(resolution.value),width=custom?Number(widthInput.value):Math.round(height*16/9),fps=Number(rate.value);
+        const videoKbps=audioOnly?0:Number(videoRate.value),audioKbps=Number(audioRate.value),quality=format.value==="mp4"?Number(qualityInput.value):0;
+        if((!audioOnly&&(!Number.isInteger(width)||width<160||width>7680||!Number.isInteger(height)||height<120||height>4320))||!Number.isInteger(videoKbps)||(videoKbps!==0&&(videoKbps<250||videoKbps>100000))||!Number.isInteger(audioKbps)||(audioKbps!==0&&(audioKbps<32||audioKbps>320))||!Number.isInteger(quality)||quality<0||quality>100){message.textContent=t("Check resolution and bitrate values: video 250–100000 kbps, audio 32–320 kbps, or 0 for automatic.","Проверьте разрешение и битрейт: видео 250–100000 кбит/с, звук 32–320 кбит/с или 0 для автоматического выбора.");return;}
+        grant=await bridge.screenRecordBegin(source.value,format.value,videoCodec.value,audioCodec.value,{quality,videoKbps,audioKbps});if(!grant)return;
         const audioConstraint=audioDevice.value?{deviceId:{exact:audioDevice.value}}:true;
-        stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{...(cameraDevice.value?{deviceId:{exact:cameraDevice.value}}:{}),width:{ideal:Math.round(height*16/9)},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
+        stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{...(cameraDevice.value?{deviceId:{exact:cameraDevice.value}}:{}),width:{ideal:width,max:width},height:{ideal:height,max:height},frameRate:{ideal:fps,max:fps}}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:width,maxHeight:height,maxFrameRate:fps}}});
         if(!audioOnly&&mic.checked)audioInputs.push(await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}));
         if(systemId)audioInputs.push(await navigator.mediaDevices.getUserMedia({audio:{deviceId:{exact:systemId},echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false}));
         if(audioInputs.some(input=>!input.getAudioTracks().length))throw Error("Audio input unavailable");
@@ -4917,7 +4928,9 @@
           for(const input of audioInputs){const gain=mix.createGain();gain.gain.value=0.5;mix.createMediaStreamSource(input).connect(gain).connect(dest);}
           for(const track of dest.stream.getAudioTracks())stream.addTrack(track);
         }
-        const recorder=new MediaRecorder(stream,audioOnly?{mimeType:mime,audioBitsPerSecond:128000}:{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
+        const captureVideoRate=format.value==="webm"&&videoKbps?videoKbps*1000:height>=2160?12000000:height>=1080?6000000:3000000;
+        const captureAudioRate=format.value==="webm"&&audioKbps?audioKbps*1000:128000;
+        const recorder=new MediaRecorder(stream,audioOnly?{mimeType:mime,audioBitsPerSecond:captureAudioRate}:{mimeType:mime,videoBitsPerSecond:captureVideoRate,...(stream.getAudioTracks().length?{audioBitsPerSecond:captureAudioRate}:{})});
         const r={token:grant.token,format:format.value,stream,recorder,mix,audioInputs,started:Date.now(),pausedAt:0,pausedMs:0,bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
         recording=r;
         recorder.ondataavailable=e=>{
@@ -4947,7 +4960,7 @@
         message.textContent=t("Capture could not start. Check device availability, permissions and output filename.","Не удалось начать запись. Проверьте доступность устройства, разрешения и имя файла.");
       }finally{opening=false;labels();}
     }
-    refresh.onclick=()=>void sources();source.onchange=mic.onchange=format.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);
+    refresh.onclick=()=>void sources();source.onchange=mic.onchange=format.onchange=resolution.onchange=audioCodec.onchange=videoRate.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);
     pause.onclick=()=>{const r=recording;if(!r||r.stopping)return;try{if(r.recorder.state==="recording")r.recorder.pause();else if(r.recorder.state==="paused")r.recorder.resume();}catch(_){message.textContent=t("Recording state could not be changed.","Не удалось изменить состояние записи.");}labels();};
     discard.onclick=()=>{if(confirm(t("Discard this recording?","Удалить эту запись?")))stopNow(recording,true);};
     close.onclick=()=>{if(!recording&&!opening)dialog.close();};

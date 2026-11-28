@@ -4837,13 +4837,15 @@
     sourceLabel.append(sourceText,source);rateLabel.append(rateText,rate);sizeLabel.append(sizeText,resolution);
     for(const value of ["15","30","60"]){const o=node("option",value+" FPS");o.value=value;rate.append(o);}rate.value="30";
     for(const value of ["720","1080","2160"]){const o=node("option",value+"p");o.value=value;resolution.append(o);}resolution.value="1080";
-    dialog.append(title,hint,sourceLabel,rateLabel,sizeLabel,message,controls);document.body.append(dialog);
+    const mic=node("input"),micLabel=node("label"),micText=node("span");mic.type="checkbox";micLabel.append(mic,micText);
+    dialog.append(title,hint,sourceLabel,rateLabel,sizeLabel,micLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
-      title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen or window. Video only; recording is saved as WebM.","Выберите экран или окно. Записывается только видео в формате WebM.");
+      title.textContent=t("Screen Recording","Запись экрана");hint.textContent=t("Choose a screen or window. Record video with optional microphone audio as WebM.","Выберите экран или окно. Запись видео в формате WebM со звуком микрофона по желанию.");
+      micText.textContent=t("Include microphone","Записывать микрофон");
       sourceText.textContent=t("Capture source","Источник записи");rateText.textContent=t("Frame rate","Частота кадров");sizeText.textContent=t("Maximum resolution","Максимальное разрешение");
       refresh.textContent=t("Refresh sources","Обновить источники");start.textContent=t("Start recording","Начать запись");stop.textContent=t("Stop and save","Остановить и сохранить");discard.textContent=t("Discard recording","Удалить запись");close.textContent=t("Close","Закрыть");
-      const locked=!!recording||opening;source.disabled=rate.disabled=resolution.disabled=refresh.disabled=locked||refreshing;start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;discard.disabled=stop.disabled;close.disabled=opening||!!recording;
+      const locked=!!recording||opening;source.disabled=rate.disabled=resolution.disabled=refresh.disabled=mic.disabled=locked||refreshing;start.disabled=locked||refreshing||!source.value;stop.disabled=!recording||recording.stopping;discard.disabled=stop.disabled;close.disabled=opening||!!recording;
     }
     async function sources(){
       if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
@@ -4875,11 +4877,12 @@
       if(opening||recording||!source.value)return;opening=true;labels();
       let grant=null,stream=null;
       try{
-        const mime=["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"].find(x=>MediaRecorder.isTypeSupported(x));
+        const mime=(mic.checked?["video/webm;codecs=vp8,opus","video/webm;codecs=vp9,opus","video/webm"]:["video/webm;codecs=vp8","video/webm;codecs=vp9","video/webm"]).find(x=>MediaRecorder.isTypeSupported(x));
         if(!mime)throw Error("WebM recording unavailable");
         grant=await bridge.screenRecordBegin(source.value);if(!grant)return;
         const height=Number(resolution.value),fps=Number(rate.value);
         stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:Math.round(height*16/9),maxHeight:height,maxFrameRate:fps}}});
+        if(mic.checked){const audio=await navigator.mediaDevices.getUserMedia({audio:true,video:false});for(const track of audio.getAudioTracks())stream.addTrack(track);}
         const recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:height>=2160?12000000:height>=1080?6000000:3000000});
         const r={token:grant.token,stream,recorder,started:Date.now(),bytes:0,writes:Promise.resolve(),pending:0,stopping:false,failed:false,discard:false};
         recording=r;

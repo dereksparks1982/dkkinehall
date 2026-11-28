@@ -238,3 +238,6 @@ Viewer Accounts (Settings → Server): local owner-managed non-admin account reg
 
 
 Local Viewer preview: explicitly open a localhost-only browser viewer from Server Settings. Accounts authenticate through the separate Kinehall account registry; session cookies are HTTP-only/SameSite Strict with expiration, login throttling and revocation on account changes. Catalog results are permission-filtered against selected local Jellyfin roots and omit paths and tokens. Watchlists and progress records are separately persisted per viewer; the preview currently browses and edits watchlists, with progress storage reserved for playback. No media streaming, LAN bind, WAN exposure or private metadata-admin UI. The preview stops on application exit. Installed security and functional testing pending.
+
+
+Local Viewer direct play: browser-supported MP4/M4V, WebM and Ogg video containers are eligible for direct playback with HTTP byte ranges, seeking and per-account resume positions. Actual codecs must be supported by the browser; MKV/AVI and incompatible codecs need future transcoding. Streams are checked against current account permissions, assigned roots, real file identity and the opened file descriptor, and closed on logout, account revocation or preview shutdown. No LAN or internet bind. Actual playback/security acceptance pending.

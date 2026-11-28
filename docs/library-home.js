@@ -2309,7 +2309,7 @@ function connect(){
     let accountsEpoch=0,accountsBusy=false;
     const drawAccounts=async()=>{
      if(!nativeBridge.viewerAccounts)return;
-     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Local browser sign-in and separate watchlists are available in the preview; network streaming remains planned. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Локальный вход и отдельные списки просмотра доступны в предварительной версии; сетевое воспроизведение будет добавлено позже. Права владельца приложения не изменяются.")));
+     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Local browser sign-in, watchlists and direct playback are available in the preview; network access remains planned. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Локальный вход, списки просмотра и прямое воспроизведение доступны в предварительной версии; сетевой доступ будет добавлен позже. Права владельца приложения не изменяются.")));
      const note=create("p","helper");note.setAttribute("role","status");accountPanel.append(note);
      const valid=()=>revision===accountsEpoch&&!accountPanel.hidden;
      const input=(parent,label,type="text",value="")=>{const wrap=create("label",null,label),node=create("input");node.type=type;node.value=value;node.required=true;node.maxLength=type==="password"?128:48;if(type==="password"){node.minLength=12;node.autocomplete="new-password";}wrap.append(node);parent.append(wrap);return node;};

@@ -3164,8 +3164,32 @@ async function screenRecordAction(event,action,token,chunk){
  fs.linkSync(r.temp,r.dest);fs.unlinkSync(r.temp);
  return {name:path.basename(r.dest),bytes:r.bytes};
 }
-let audioExtractBusy=false,audioExtractChild=null;
-async function extractAudio(event,format,profile={}){
+let audioExtractBusy=false,audioExtractChild=null,conversionJob=null;
+function conversionBegin(event,id){
+ if(typeof id!=="string"||!/^[a-zA-Z0-9-]{1,100}$/.test(id))throw Error("Invalid conversion identifier");
+ conversionJob={owner:event.sender.id,id,phase:"selecting",index:0,total:1,seconds:0,duration:0,speed:"",cancelled:false};
+}
+function conversionCheck(){if(conversionJob?.cancelled||jfClosing)throw Error("Conversion cancelled");}
+function conversionStage(index,total,duration=0){conversionCheck();Object.assign(conversionJob,{phase:"processing",index,total,seconds:0,duration:Number.isFinite(duration)&&duration>0?duration:0,speed:""});}
+function conversionStatus(event,id){const j=conversionJob;if(!j||j.owner!==event.sender.id||j.id!==id)return null;const {phase,index,total,seconds,duration,speed,cancelled}=j;return {phase,index,total,seconds,duration,speed,cancelled};}
+function conversionCancel(event,id){const j=conversionJob;if(!j||j.owner!==event.sender.id||j.id!==id||j.phase!=="processing")return false;j.cancelled=true;j.phase="cancelling";const child=audioExtractChild;if(child){try{child.kill("SIGTERM");}catch(_){}const timer=setTimeout(()=>{if(audioExtractChild===child&&child.exitCode===null)try{child.kill("SIGKILL");}catch(_){}},2000);timer.unref?.();}return true;}
+function conversionDuration(file){
+ return new Promise(resolve=>{
+  const child=require("node:child_process").execFile(path.join(app.getAppPath(),"bin","ffprobe"),["-v","error","-protocol_whitelist","file","-format_whitelist",editInputFormats,"-show_entries","format=duration","-of","default=noprint_wrappers=1:nokey=1",file],{env:tvCodecEnv(),timeout:15000,maxBuffer:65536},(error,stdout)=>resolve(error?0:Number(String(stdout).trim())||0));
+  audioExtractChild=child;
+ });
+}
+function conversionRun(args){
+ conversionCheck();
+ return new Promise((resolve,reject)=>{
+  const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-progress","pipe:1","-nostats",...args],{env:tvCodecEnv(),stdio:["ignore","pipe","pipe"],shell:false});
+  audioExtractChild=child;let pending="",errorText="";
+  child.stdout.on("data",buf=>{pending+=String(buf);const lines=pending.split(/\r?\n/);pending=lines.pop();for(const line of lines){const at=line.indexOf("=");if(at<0||!conversionJob)continue;const key=line.slice(0,at),value=line.slice(at+1);if(key==="out_time_us"){const n=Number(value)/1000000;if(Number.isFinite(n))conversionJob.seconds=Math.max(0,n);}else if(key==="speed")conversionJob.speed=value.trim().slice(0,24);}});
+  child.stderr.on("data",buf=>{errorText=(errorText+String(buf)).slice(-1800);});
+  child.once("error",reject);child.once("close",code=>code===0&&!conversionJob?.cancelled?resolve():reject(Error(conversionJob?.cancelled?"Conversion cancelled":"Media processing failed"+(errorText?": "+errorText.split("\n").filter(Boolean).slice(-1)[0]:""))));
+ });
+}
+async function extractAudio(event,format,profile={},id){
  const batch=profile?.batch===true;
  const formats={mp3:["libmp3lame","mp3",["-b:a","192k"]],flac:["flac","flac",[]],aac:["aac","adts",["-b:a","192k"]],wav:["pcm_s16le","wav",[]]};
  const videoFormats={
@@ -3180,7 +3204,7 @@ async function extractAudio(event,format,profile={}){
  const height=Number(profile?.height??0),quality=String(profile?.quality??"standard"),bitrate=Number(profile?.bitrate??0);
  if(![0,480,720,1080,1440,2160].includes(height)||!["high","standard","small"].includes(quality)||![0,64,96,128,192,256,320].includes(bitrate))throw Error("Invalid conversion profile");
  if((!video&&!Object.hasOwn(formats,format))||audioExtractBusy||jfClosing)throw Error("Conversion unavailable");
- audioExtractBusy=true;let folder=null;
+ conversionBegin(event,id);audioExtractBusy=true;let folder=null;
  try{
   fs.accessSync(tvDecoder(),fs.constants.X_OK);
   const ru=readInterfaceLanguage("en")==="ru";
@@ -3218,24 +3242,24 @@ async function extractAudio(event,format,profile={}){
    options=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-vf",filter,"-pix_fmt","yuv420p",...args,"-f",muxer];
   }else{const [codec,muxer,args]=formats[format];options=["-map","0:a:0","-vn","-sn","-dn","-map_metadata","-1","-c:a",codec,...applyBitrate(args),"-f",muxer];}
   const results=[];
-  for(const job of jobs){
-   if(jfClosing)break;
+  for(const [index,job] of jobs.entries()){
+   if(jfClosing||conversionJob.cancelled)break;
+   conversionStage(index+1,jobs.length);
    try{
     const source=fs.realpathSync(job.source),dest=job.dest;
     if(!fs.statSync(source).isFile()||fs.existsSync(dest))throw Error("Invalid source or destination");
     folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-media-convert-"));
     const output=path.join(folder,"output."+format);
-    await new Promise((resolve,reject)=>{
-     const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-i",source,...options,output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
-     audioExtractChild=child;child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media conversion failed")));
-    });
-    const bytes=fs.statSync(output).size;if(!bytes||jfClosing)throw Error("No media output");
+    const duration=await conversionDuration(source);conversionCheck();conversionJob.duration=duration>0?duration:0;
+    await conversionRun(["-protocol_whitelist","file","-format_whitelist",editInputFormats,"-i",source,...options,output]);
+    conversionCheck();const bytes=fs.statSync(output).size;if(!bytes)throw Error("No media output");
     fs.linkSync(output,dest);results.push({name:path.basename(dest),bytes,ok:true});
-   }catch(error){if(!batch)throw error;results.push({name:path.basename(job.source),ok:false});}
+   }catch(error){if(conversionJob.cancelled)break;if(!batch)throw error;results.push({name:path.basename(job.source),ok:false});}
    finally{audioExtractChild=null;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}folder=null;}
   }
+  if(conversionJob.cancelled)return {cancelled:true,batch,results,total:jobs.length};
   return batch?{batch:true,results,total:jobs.length}:results[0];
- }finally{audioExtractChild=null;audioExtractBusy=false;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
+ }finally{audioExtractChild=null;audioExtractBusy=false;conversionJob=null;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
 }
 let editSelection=null;
 const editInputFormats="mov,matroska,webm,avi,asf,mpeg,mpegts,flv,ogg,mxf,rm,dv,mp3,wav,flac";
@@ -3253,28 +3277,20 @@ async function pickEditFiles(event,mode){
 }
 function editProbe(file){
  return new Promise((resolve,reject)=>{
-  require("node:child_process").execFile(path.join(app.getAppPath(),"bin","ffprobe"),["-v","error","-protocol_whitelist","file","-format_whitelist",editInputFormats,"-show_streams","-show_data_hash","sha256","-show_format","-of","json",file],{env:tvCodecEnv(),timeout:30000,maxBuffer:4*1024*1024},(error,stdout)=>{
+  audioExtractChild=require("node:child_process").execFile(path.join(app.getAppPath(),"bin","ffprobe"),["-v","error","-protocol_whitelist","file","-format_whitelist",editInputFormats,"-show_streams","-show_data_hash","sha256","-show_format","-of","json",file],{env:tvCodecEnv(),timeout:30000,maxBuffer:4*1024*1024},(error,stdout)=>{
    if(error)return reject(Error("Cannot inspect source media"));
    try{const data=JSON.parse(stdout);if(!data.streams?.some(x=>x.codec_type==="video"&&!x.disposition?.attached_pic))throw Error("No video stream");resolve(data);}catch(e){reject(e);}
   });
  });
 }
-function editRun(args){
- return new Promise((resolve,reject)=>{
-  const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n",...args],{env:tvCodecEnv(),stdio:["ignore","ignore","pipe"],shell:false});
-  audioExtractChild=child;let errorText="";
-  child.stderr.on("data",buf=>{errorText=(errorText+String(buf)).slice(-1800);});
-  child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media edit failed"+(errorText?": "+errorText.split("\n").filter(Boolean).slice(-1)[0]:""))));
- });
-}
-async function editMedia(event,token,order,opts){
+async function editMedia(event,token,order,opts,id){
  const selection=editSelection;
  if(!selection||selection.owner!==event.sender.id||selection.token!==token||audioExtractBusy||jfClosing)throw Error("Choose source files first");
  const mode=selection.mode,copy=opts?.copy===true,start=Number(opts?.start),end=Number(opts?.end),height=Number(opts?.height??1080),fps=Number(opts?.fps??24);
  if(!Array.isArray(order)||order.length!==selection.files.length||new Set(order).size!==order.length||order.some(i=>!Number.isInteger(i)||i<0||i>=selection.files.length))throw Error("Invalid clip order");
  if(mode==="trim"&&(order.length!==1||!Number.isFinite(start)||!Number.isFinite(end)||start<0||end<=start))throw Error("Invalid trim interval");
  if(mode==="join"&&(order.length<2||![480,720,1080,2160].includes(height)||![24,25,30,50,60].includes(fps)))throw Error("Invalid join settings");
- const files=order.map(i=>selection.files[i]);audioExtractBusy=true;let folder=null;
+ const files=order.map(i=>selection.files[i]);conversionBegin(event,id);audioExtractBusy=true;let folder=null;
  try{
   fs.accessSync(tvDecoder(),fs.constants.X_OK);
   const ru=readInterfaceLanguage("en")==="ru",format=copy?"mkv":"mp4";
@@ -3288,15 +3304,17 @@ async function editMedia(event,token,order,opts){
   const maps=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-map_chapters","-1"];
   const encode=["-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p","-c:a","aac","-b:a","192k"];
   if(mode==="trim"){
-   const info=await editProbe(files[0]),duration=Number(info.format?.duration);
+   conversionStage(1,1,end-start);
+   const info=await editProbe(files[0]),duration=Number(info.format?.duration);conversionCheck();
    if(Number.isFinite(duration)&&(start>=duration||end>duration+0.05))throw Error("Trim interval exceeds source duration");
-   await editRun([...(copy?["-ss",String(start)]:[]),...inputArgs(files[0]),...(!copy?["-ss",String(start)]:[]),"-t",String(end-start),...maps,...(copy?["-c","copy","-avoid_negative_ts","make_zero"]:["-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2",...encode,"-movflags","+faststart"]),"-f",copy?"matroska":"mp4",output]);
+   await conversionRun([...(copy?["-ss",String(start)]:[]),...inputArgs(files[0]),...(!copy?["-ss",String(start)]:[]),"-t",String(end-start),...maps,...(copy?["-c","copy","-avoid_negative_ts","make_zero"]:["-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2",...encode,"-movflags","+faststart"]),"-f",copy?"matroska":"mp4",output]);
   }else{
    const clips=[];
-   let signature=null;
+   let signature=null,totalDuration=0,knownDuration=true;
    for(let i=0;i<files.length;i++){
-    if(jfClosing)throw Error("Player closing");
+    conversionStage(i+1,files.length+1);
     const file=files[i],info=await editProbe(file),name="clip-"+String(i).padStart(5,"0")+(copy?".mkv":".mp4"),clip=path.join(folder,name);
+    conversionCheck();const duration=Number(info.format?.duration);if(Number.isFinite(duration)&&duration>0){conversionJob.duration=duration;totalDuration+=duration;}else knownDuration=false;
     if(copy){
      const fields=["codec_type","codec_name","codec_tag_string","profile","level","width","height","pix_fmt","sample_aspect_ratio","time_base","sample_fmt","sample_rate","channels","channel_layout","extradata_hash"];
      const sig=JSON.stringify(info.streams.map(st=>fields.map(k=>st[k]??null)));
@@ -3305,16 +3323,17 @@ async function editMedia(event,token,order,opts){
     }else{
      const w=Math.round(height*16/9/2)*2,hasAudio=info.streams.some(x=>x.codec_type==="audio");
      const filter="scale="+w+":"+height+":force_original_aspect_ratio=decrease:force_divisible_by=2,pad="+w+":"+height+":(ow-iw)/2:(oh-ih)/2,setsar=1,fps="+fps;
-     await editRun([...inputArgs(file),...(!hasAudio?["-f","lavfi","-i","anullsrc=r=48000:cl=stereo"]:[]),"-map","0:V:0","-map",hasAudio?"0:a:0":"1:a:0","-sn","-dn","-map_metadata","-1","-map_chapters","-1","-vf",filter,"-af","apad","-shortest",...encode,"-ar","48000","-ac","2","-f","mp4",clip]);
+     await conversionRun([...inputArgs(file),...(!hasAudio?["-f","lavfi","-i","anullsrc=r=48000:cl=stereo"]:[]),"-map","0:V:0","-map",hasAudio?"0:a:0":"1:a:0","-sn","-dn","-map_metadata","-1","-map_chapters","-1","-vf",filter,"-af","apad","-shortest",...encode,"-ar","48000","-ac","2","-f","mp4",clip]);
     }
     clips.push(name);
    }
+   conversionStage(files.length+1,files.length+1,knownDuration?totalDuration:0);
    const list=path.join(folder,"clips.txt");fs.writeFileSync(list,clips.map(n=>"file '"+n+"'").join("\n")+"\n",{flag:"wx"});
-   await editRun(["-f","concat","-safe","1","-protocol_whitelist","file","-i",list,...maps,"-c","copy",...(!copy?["-movflags","+faststart"]:[]),"-f",copy?"matroska":"mp4",output]);
+   await conversionRun(["-f","concat","-safe","1","-protocol_whitelist","file","-i",list,...maps,"-c","copy",...(!copy?["-movflags","+faststart"]:[]),"-f",copy?"matroska":"mp4",output]);
   }
-  const bytes=fs.statSync(output).size;if(!bytes||jfClosing)throw Error("No output");
+  conversionCheck();const bytes=fs.statSync(output).size;if(!bytes)throw Error("No output");
   fs.linkSync(output,dest);return {name:path.basename(dest),bytes};
- }finally{audioExtractChild=null;audioExtractBusy=false;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
+ }catch(error){if(conversionJob?.cancelled)return {cancelled:true};throw error;}finally{audioExtractChild=null;audioExtractBusy=false;conversionJob=null;if(folder)try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
 }
 function onlyPlayer(event){
   return player&&!player.webContents.isDestroyed()&&
@@ -4097,8 +4116,10 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:screen-record-begin",(event,id,format,videoCodec,audioCodec,encoding)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format,videoCodec,audioCodec,encoding);});
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
   ipcMain.handle("dk-library:edit-pick",(event,mode)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Edit request rejected");return pickEditFiles(event,mode);});
-  ipcMain.handle("dk-library:edit-media",(event,token,order,opts)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Edit request rejected");return editMedia(event,token,order,opts);});
-  ipcMain.handle("dk-library:extract-audio",(event,format,profile)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Audio extraction request rejected");return extractAudio(event,format,profile);});
+  ipcMain.handle("dk-library:conversion-status",(event,id)=>onlyPlayer(event)?conversionStatus(event,id):null);
+  ipcMain.handle("dk-library:conversion-cancel",(event,id)=>onlyPlayer(event)?conversionCancel(event,id):false);
+  ipcMain.handle("dk-library:edit-media",(event,token,order,opts,id)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Edit request rejected");return editMedia(event,token,order,opts,id);});
+  ipcMain.handle("dk-library:extract-audio",(event,format,profile,id)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Audio extraction request rejected");return extractAudio(event,format,profile,id);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
     if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording","audio-extraction","video-conversion","trim-video","join-videos"].includes(kind))throw Error("Media tool request rejected");
     await openPlayer(null,false,true);

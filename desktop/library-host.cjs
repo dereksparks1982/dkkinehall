@@ -3086,9 +3086,11 @@ async function metadataRequest(raw,kind){
 }
 // User-initiated desktop capture. The renderer receives source IDs and
 // one recording grant, not an arbitrary filesystem write API.
-let screenRecord=null,screenRecordOpening=false,screenRecordExport=null;
+let screenRecord=null,screenRecordOpening=false,screenRecordExport=null,screenRecordSourceIds=new Set();
+function recordingsFolder(){const folder=path.join(app.getPath("videos"),"Recordings");fs.mkdirSync(folder,{recursive:true});return folder;}
 async function screenRecordSources(){
  const sources=await desktopCapturer.getSources({types:["screen","window"],thumbnailSize:{width:0,height:0},fetchWindowIcons:false});
+ screenRecordSourceIds=new Set(sources.map(s=>s.id));
  return sources.map(s=>({id:s.id,name:String(s.name||"").slice(0,240)}));
 }
 function screenRecordDispose(remove=false){
@@ -3103,8 +3105,7 @@ async function screenRecordBegin(event,sourceId,format="webm",videoCodec="h264",
  screenRecordOpening=true;
  try{
   const camera=sourceId==="dk-camera",microphone=sourceId==="dk-microphone";
-  if(!camera&&!microphone){const sources=await screenRecordSources();if(!sources.some(s=>s.id===sourceId))throw Error("Capture source unavailable");}
-  const ru=readInterfaceLanguage("en")==="ru";
+  if(!camera&&!microphone&&!screenRecordSourceIds.has(sourceId))throw Error("Capture source unavailable; refresh sources");
   if(microphone)format="webm";
   const quality=Number(encoding?.quality??0),videoKbps=Number(encoding?.videoKbps??0),audioKbps=Number(encoding?.audioKbps??0);
   if(!Number.isInteger(quality)||quality<0||quality>100||!Number.isInteger(videoKbps)||(videoKbps!==0&&(videoKbps<250||videoKbps>100000))||!Number.isInteger(audioKbps)||(audioKbps!==0&&(audioKbps<32||audioKbps>320)))throw Error("Invalid encoding settings");
@@ -3112,28 +3113,28 @@ async function screenRecordBegin(event,sourceId,format="webm",videoCodec="h264",
    if(!["h264","hevc","mpeg4"].includes(videoCodec)||!["aac","alac","none"].includes(audioCodec))throw Error("Invalid export codec");
    fs.accessSync(tvDecoder(),fs.constants.X_OK);
   }
-  const picked=await dialog.showSaveDialog(home,{title:microphone?(ru?"Сохранить запись микрофона":"Save microphone recording"):camera?(ru?"Сохранить запись камеры":"Save camera recording"):(ru?"Сохранить запись экрана":"Save screen recording"),defaultPath:path.join(microphone?app.getPath("music"):app.getPath("videos"),"DK-Kinehall-"+(microphone?"Microphone":camera?"Camera":"Screen")+"-"+Date.now()+"."+format),filters:[{name:format==="mp4"?"MP4":"WebM",extensions:[format]}]});
-  if(picked.canceled||!picked.filePath)return null;
   if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Capture window changed");
-  const dest=path.extname(picked.filePath).toLowerCase()==="."+format?picked.filePath:picked.filePath+"."+format;
-  if(fs.existsSync(dest))throw Error("Choose a new output filename");
-  const token=randomBytes(24).toString("hex"),temp=dest+".partial-"+token.slice(0,10)+(format==="mp4"?".webm":"");
+  const folder=recordingsFolder(),stamp=new Date().toISOString().replace(/[:.]/g,"-"),base=(microphone?"Microphone":camera?"Camera":"Screen")+"-"+stamp;
+  let dest=path.join(folder,base+"."+format),n=2;
+  while(fs.existsSync(dest))dest=path.join(folder,base+"-"+n++ +"."+format);
+  const token=randomBytes(24).toString("hex"),temp=dest+".partial-"+token.slice(0,10)+".webm";
   const fd=fs.openSync(temp,"wx",0o600);
   screenRecord={fd,temp,dest,format,videoCodec,audioCodec,quality,videoKbps,audioKbps,token,owner:event.sender.id,bytes:0};
-  return {token,sourceId,name:path.basename(dest)};
+  return {token,sourceId,name:path.basename(dest),folder:path.dirname(dest)};
  }finally{screenRecordOpening=false;}
 }
 async function screenRecordAction(event,action,token,chunk){
  const r=screenRecord;
  if(!r||r.token!==token||r.owner!==event.sender.id)throw Error("Recording unavailable");
  if(action==="append"){
-  if(!(chunk instanceof Uint8Array)&&!Buffer.isBuffer(chunk))throw Error("Invalid recording chunk");
-  const bytes=Buffer.from(chunk);
+  if(!ArrayBuffer.isView(chunk)||chunk.BYTES_PER_ELEMENT!==1)throw Error("Invalid recording chunk");
+  const bytes=Buffer.from(chunk.buffer,chunk.byteOffset,chunk.byteLength);
   if(!bytes.length||bytes.length>16*1024*1024)throw Error("Invalid recording chunk size");
   let at=0;while(at<bytes.length){const n=fs.writeSync(r.fd,bytes,at,bytes.length-at,null);if(n<1)throw Error("Recording write failed");at+=n;}
   r.bytes+=bytes.length;return r.bytes;
  }
  if(action==="cancel"){screenRecordDispose(true);return true;}
+ if(action==="recover"){const size=fs.fstatSync(r.fd).size;screenRecordDispose(size===0);return {name:size?path.basename(r.temp):"",bytes:size};}
  if(action!=="finish")throw Error("Invalid recording action");
  if(!r.bytes){screenRecordDispose(true);throw Error("Recording empty");}
  fs.fsyncSync(r.fd);screenRecordDispose(false);
@@ -4012,6 +4013,7 @@ function install(originalWindow,originalPlayer){
   // Use the existing persistent Player renderer as the sole settings owner.
   // Library requests are limited to its explicit shared settings API, never
   // renderer-provided JavaScript, selectors or localStorage keys.
+  ipcMain.handle("dk-library:recordings-folder",event=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return recordingsFolder();});
   ipcMain.handle("dk-library:screen-record-sources",event=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordSources();});
   ipcMain.handle("dk-library:screen-record-begin",(event,id,format,videoCodec,audioCodec,encoding)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format,videoCodec,audioCodec,encoding);});
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});

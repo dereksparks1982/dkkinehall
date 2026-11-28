@@ -42,6 +42,8 @@ The standalone Linux edition also offers library scanning, file information, lib
 
 ## Library controls
 
+The Player header menus group each action by purpose: Media opens sources, Playback controls transport, Audio handles sound and voiceover, Video handles picture and snapshots, Subtitle handles caption tracks, Tools handles recording/conversion and diagnostics, and View handles display modes. Library scanning and metadata refresh remain in the library controls.
+
 The Your Movies and Your TV Shows section headings use plain gold text with fully visible expand/collapse arrows, without button boxes.
 
 Movies, TV Shows and Live TV are the three standalone library navigation buttons. All action buttons use antique gold with dark brown text and icons throughout the Player, Library, Live TV, settings, menus and dialogs.

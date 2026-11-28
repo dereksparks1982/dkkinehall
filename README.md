@@ -16,7 +16,7 @@ DK Kinehall aims to match VLC's practical playback and media tools, exceed them 
 
 - Player notifications appear at the top left, leaving the top right clear for the volume indicator.
 
-- Media Recording: capture a screen, window, camera or microphone to WebM; select available capture devices, include microphone audio and available Linux output-monitor audio with video, pause, resume, save or discard. Actual device support depends on the installed desktop runtime.
+- Media Recording: capture a screen, window, camera or microphone to WebM, or export video recordings to H.264/AAC MP4; select available capture devices, include microphone audio and available Linux output-monitor audio with video, pause, resume, save or discard. Actual device support depends on the installed desktop runtime.
 
 - Play movies, TV shows and music.
 - Organize your local media with posters, titles and movie information.

@@ -3086,7 +3086,7 @@ async function metadataRequest(raw,kind){
 }
 // User-initiated desktop capture. The renderer receives source IDs and
 // one recording grant, not an arbitrary filesystem write API.
-let screenRecord=null,screenRecordOpening=false;
+let screenRecord=null,screenRecordOpening=false,screenRecordExport=null;
 async function screenRecordSources(){
  const sources=await desktopCapturer.getSources({types:["screen","window"],thumbnailSize:{width:0,height:0},fetchWindowIcons:false});
  return sources.map(s=>({id:s.id,name:String(s.name||"").slice(0,240)}));
@@ -3097,25 +3097,28 @@ function screenRecordDispose(remove=false){
  try{fs.closeSync(r.fd);}catch(_){}
  if(remove)try{fs.unlinkSync(r.temp);}catch(_){}
 }
-async function screenRecordBegin(event,sourceId){
- if(screenRecord||screenRecordOpening||typeof sourceId!=="string"||sourceId.length>200)throw Error("Recorder unavailable");
+async function screenRecordBegin(event,sourceId,format="webm"){
+ if(!["webm","mp4"].includes(format))throw Error("Invalid recording format");
+ if(screenRecord||screenRecordOpening||screenRecordExport||typeof sourceId!=="string"||sourceId.length>200)throw Error("Recorder unavailable");
  screenRecordOpening=true;
  try{
   const camera=sourceId==="dk-camera",microphone=sourceId==="dk-microphone";
   if(!camera&&!microphone){const sources=await screenRecordSources();if(!sources.some(s=>s.id===sourceId))throw Error("Capture source unavailable");}
   const ru=readInterfaceLanguage("en")==="ru";
-  const picked=await dialog.showSaveDialog(home,{title:microphone?(ru?"Сохранить запись микрофона":"Save microphone recording"):camera?(ru?"Сохранить запись камеры":"Save camera recording"):(ru?"Сохранить запись экрана":"Save screen recording"),defaultPath:path.join(microphone?app.getPath("music"):app.getPath("videos"),"DK-Kinehall-"+(microphone?"Microphone":camera?"Camera":"Screen")+"-"+Date.now()+".webm"),filters:[{name:"WebM",extensions:["webm"]}]});
+  if(microphone)format="webm";
+  if(format==="mp4")fs.accessSync(tvDecoder(),fs.constants.X_OK);
+  const picked=await dialog.showSaveDialog(home,{title:microphone?(ru?"Сохранить запись микрофона":"Save microphone recording"):camera?(ru?"Сохранить запись камеры":"Save camera recording"):(ru?"Сохранить запись экрана":"Save screen recording"),defaultPath:path.join(microphone?app.getPath("music"):app.getPath("videos"),"DK-Kinehall-"+(microphone?"Microphone":camera?"Camera":"Screen")+"-"+Date.now()+"."+format),filters:[{name:format==="mp4"?"MP4":"WebM",extensions:[format]}]});
   if(picked.canceled||!picked.filePath)return null;
   if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Capture window changed");
-  const dest=path.extname(picked.filePath).toLowerCase()===".webm"?picked.filePath:picked.filePath+".webm";
+  const dest=path.extname(picked.filePath).toLowerCase()==="."+format?picked.filePath:picked.filePath+"."+format;
   if(fs.existsSync(dest))throw Error("Choose a new output filename");
-  const token=randomBytes(24).toString("hex"),temp=dest+".partial-"+token.slice(0,10);
+  const token=randomBytes(24).toString("hex"),temp=dest+".partial-"+token.slice(0,10)+(format==="mp4"?".webm":"");
   const fd=fs.openSync(temp,"wx",0o600);
-  screenRecord={fd,temp,dest,token,owner:event.sender.id,bytes:0};
+  screenRecord={fd,temp,dest,format,token,owner:event.sender.id,bytes:0};
   return {token,sourceId,name:path.basename(dest)};
  }finally{screenRecordOpening=false;}
 }
-function screenRecordAction(event,action,token,chunk){
+async function screenRecordAction(event,action,token,chunk){
  const r=screenRecord;
  if(!r||r.token!==token||r.owner!==event.sender.id)throw Error("Recording unavailable");
  if(action==="append"){
@@ -3131,6 +3134,21 @@ function screenRecordAction(event,action,token,chunk){
  fs.fsyncSync(r.fd);screenRecordDispose(false);
  // Hard-link installation is atomic and refuses to overwrite an existing
  // destination. The partial stays available if finalization fails.
+ if(r.format==="mp4"){
+  const folder=fs.mkdtempSync(path.join(path.dirname(r.dest),".dk-record-export-")),output=path.join(folder,"output.mp4");
+  try{
+   await new Promise((resolve,reject)=>{
+    const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-f","matroska","-i",r.temp,"-map","0:v:0","-map","0:a:0?","-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2","-c:v","libx264","-preset","fast","-crf","23","-pix_fmt","yuv420p","-c:a","aac","-b:a","192k","-movflags","+faststart","-f","mp4",output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
+    screenRecordExport=child;
+    child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("MP4 export failed")));
+   });
+   if(!fs.statSync(output).size)throw Error("Empty MP4");
+   const bytes=fs.statSync(output).size;fs.linkSync(output,r.dest);fs.unlinkSync(r.temp);
+   return {name:path.basename(r.dest),bytes};
+  }catch(_){
+   return {name:path.basename(r.temp),bytes:r.bytes,exportFailed:true};
+  }finally{screenRecordExport=null;try{fs.rmSync(folder,{recursive:true,force:true});}catch(_){}}
+ }
  fs.linkSync(r.temp,r.dest);fs.unlinkSync(r.temp);
  return {name:path.basename(r.dest),bytes:r.bytes};
 }
@@ -3497,7 +3515,7 @@ function install(originalWindow,originalPlayer){
   // Every new desktop session requests the private server by default.
   // A deliberate Stop remains effective until the next app launch.
   try{jfWrite(jfPowerFile(),JSON.stringify({enabled:true}));}catch(_){}
-  void jfStart();app.once("before-quit",()=>{jfClosing=true;screenRecordDispose(false);});
+  void jfStart();app.once("before-quit",()=>{jfClosing=true;screenRecordDispose(false);if(screenRecordExport)try{screenRecordExport.kill("SIGTERM");}catch(_){}});
   // Chromium owns the PNG transfer; only this Player view's named Blob
   // snapshots receive the localized native save prompt. No arbitrary paths
   // or filesystem API are exposed to the renderer.
@@ -3911,7 +3929,7 @@ function install(originalWindow,originalPlayer){
   // Library requests are limited to its explicit shared settings API, never
   // renderer-provided JavaScript, selectors or localStorage keys.
   ipcMain.handle("dk-library:screen-record-sources",event=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordSources();});
-  ipcMain.handle("dk-library:screen-record-begin",(event,id)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id);});
+  ipcMain.handle("dk-library:screen-record-begin",(event,id,format)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format);});
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
     if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording"].includes(kind))throw Error("Media tool request rejected");

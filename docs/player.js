@@ -4825,24 +4825,25 @@
     finally{if(url)URL.revokeObjectURL(url);if(canvas){canvas.width=0;canvas.height=0;}snapshotBusy=false;}
   };
   // Modeless capture controls remain usable while ordinary playback continues.
-  let openAudioExtractor=()=>{};
+  let openAudioExtractor=()=>{},openVideoConverter=()=>{};
   if(window.DKLibraryBridge?.extractAudio){
     const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
     const d=document.createElement("dialog");d.className="dk-screen-recorder";
     const title=document.createElement("h2"),hint=document.createElement("p"),label=document.createElement("label"),formatText=document.createElement("span"),format=document.createElement("select"),message=document.createElement("p");
-    for(const value of ["mp3","flac","aac","wav"]){const o=document.createElement("option");o.value=value;o.textContent=value.toUpperCase();format.append(o);}
+    function populate(video){format.replaceChildren();for(const value of video?["mp4","mkv","webm","avi","mov","ts"]:["mp3","flac","aac","wav"]){const o=document.createElement("option");o.value=value;o.textContent=value==="ts"?"MPEG-TS":value.toUpperCase();format.append(o);}}populate(false);
     const controls=document.createElement("div");controls.className="dk-screen-record-actions";
     const start=document.createElement("button"),close=document.createElement("button");for(const b of [start,close]){b.type="button";b.className="btn";controls.append(b);}
     label.append(formatText,format);message.setAttribute("role","status");d.append(title,hint,label,message,controls);document.body.append(d);
-    let busy=false;
+    let busy=false,videoMode=false;
     function draw(){
-      title.textContent=t("Extract Audio","Извлечение звука");hint.textContent=t("Choose an output format, then select a local media file and a new destination. The first audio track is extracted; the original file stays unchanged.","Выберите формат, затем исходный медиафайл и новое место сохранения. Извлекается первая звуковая дорожка; исходный файл не изменяется.");
-      formatText.textContent=t("Audio format","Формат звука");start.textContent=t("Choose file and extract","Выбрать файл и извлечь звук");close.textContent=t("Close","Закрыть");format.disabled=start.disabled=close.disabled=busy;
+      title.textContent=videoMode?t("Convert Video","Преобразование видео"):t("Extract Audio","Извлечение звука");hint.textContent=videoMode?t("Choose a format and local source. The first video and optional first audio track are encoded into a new file; subtitles are not copied. The source stays unchanged.","Выберите формат и исходный файл. Первая видеодорожка и первая звуковая дорожка при её наличии преобразуются в новый файл без субтитров. Исходный файл не изменяется."):t("Choose an output format, then select a local media file and a new destination. The first audio track is extracted; the original file stays unchanged.","Выберите формат, затем исходный медиафайл и новое место сохранения. Извлекается первая звуковая дорожка; исходный файл не изменяется.");
+      formatText.textContent=videoMode?t("Video format","Формат видео"):t("Audio format","Формат звука");start.textContent=videoMode?t("Choose file and convert","Выбрать файл и преобразовать"):t("Choose file and extract","Выбрать файл и извлечь звук");close.textContent=t("Close","Закрыть");format.disabled=start.disabled=close.disabled=busy;
     }
-    start.onclick=async()=>{if(busy)return;busy=true;draw();message.textContent=t("Selecting file or extracting audio…","Выбор файла или извлечение звука…");try{const result=await bridge.extractAudio(format.value);message.textContent=result.cancelled?t("Cancelled.","Отменено."):t("Saved: ","Сохранено: ")+result.name;}catch(_){message.textContent=t("Extraction failed. Check that the file contains audio, the destination is new, and the included encoder supports this format.","Не удалось извлечь звук. Проверьте наличие звуковой дорожки, новое имя файла и поддержку формата встроенным кодировщиком.");}finally{busy=false;draw();}};
+    start.onclick=async()=>{if(busy)return;busy=true;draw();message.textContent=videoMode?t("Selecting file or converting video…","Выбор файла или преобразование видео…"):t("Selecting file or extracting audio…","Выбор файла или извлечение звука…");try{const result=await bridge.extractAudio(format.value);message.textContent=result.cancelled?t("Cancelled.","Отменено."):t("Saved: ","Сохранено: ")+result.name;}catch(_){message.textContent=videoMode?t("Conversion failed. Check the video file, destination and included encoder support.","Не удалось преобразовать видео. Проверьте исходный файл, место сохранения и поддержку встроенного кодировщика."):t("Extraction failed. Check that the file contains audio, the destination is new, and the included encoder supports this format.","Не удалось извлечь звук. Проверьте наличие звуковой дорожки, новое имя файла и поддержку формата встроенным кодировщиком.");}finally{busy=false;draw();}};
     close.onclick=()=>{if(!busy)d.close();};d.addEventListener("cancel",e=>{if(busy)e.preventDefault();});
-    openAudioExtractor=()=>{settingsDetails.open=false;draw();if(!d.open)d.show();};
-    bridge.onOpenMediaTool?.(kind=>{if(kind==="audio-extraction")openAudioExtractor();});
+    function openConverter(video){settingsDetails.open=false;if(!busy&&videoMode!==video){videoMode=video;populate(video);message.textContent="";}draw();if(!d.open)d.show();}
+    openAudioExtractor=()=>openConverter(false);openVideoConverter=()=>openConverter(true);
+    bridge.onOpenMediaTool?.(kind=>{if(kind==="audio-extraction")openAudioExtractor();if(kind==="video-conversion")openVideoConverter();});
   }
   let openScreenRecorder=()=>{};
   if(window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"){
@@ -6499,6 +6500,7 @@
         ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
       ]],
       ["Tools",[
+        [window.DKLocale?.get()==="ru"?"Преобразование видео":"Convert Video",()=>openVideoConverter(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Извлечение звука":"Extract Audio",()=>openAudioExtractor(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
         ["Effects and filters",()=>settings("audio"),()=>categoryAvailable("audio")],

@@ -1210,7 +1210,7 @@ html.dk-standalone .dk-resizable-panel>.now-playing{
   position:relative;border-bottom:0;padding-right:32px;
 }
 html.dk-standalone .dk-resizable-panel>.info-status{
-  position:absolute;z-index:48;top:12px;right:12px;left:auto;bottom:auto;
+  position:absolute;z-index:48;top:12px;left:12px;right:auto;bottom:auto;
   width:max-content;max-width:calc(100% - 24px);min-height:0;margin:0;
   padding:8px 12px;border:1px solid var(--dk-antique);border-radius:8px;
   background:#211b18ef;color:#fff;box-shadow:0 4px 16px #0007;

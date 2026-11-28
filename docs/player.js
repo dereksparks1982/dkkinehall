@@ -4873,7 +4873,7 @@
     const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
     const node=(tag,label="")=>{const el=document.createElement(tag);el.textContent=label;return el;};
     const dialog=node("dialog");dialog.className="dk-screen-recorder";
-    const title=node("h2"),hint=node("p"),source=node("select"),rate=node("select"),resolution=node("select"),message=node("p");message.setAttribute("role","status");
+    const title=node("h2"),hint=node("p"),source=node("select"),rate=node("select"),resolution=node("select"),message=node("p"),destination=node("p");destination.className="helper";message.setAttribute("role","status");
     const button=()=>{const b=node("button");b.type="button";b.className="btn";return b;};
     const refresh=button(),start=button(),pause=button(),stop=button(),discard=button(),close=button(),controls=node("div");controls.className="dk-screen-record-actions";controls.append(refresh,start,pause,stop,discard,close);
     const sourceLabel=node("label"),rateLabel=node("label"),sizeLabel=node("label"),sourceText=node("span"),rateText=node("span"),sizeText=node("span");
@@ -4889,7 +4889,7 @@
     const widthInput=numberField(160,7680,1920),heightInput=numberField(120,4320,1080),qualityInput=numberField(0,100,0),videoRate=numberField(0,100000,0),audioRate=numberField(0,320,0);
     const field=(input)=>{const label=node("label"),text=node("span");label.append(text,input);return {label,text};};
     const widthField=field(widthInput),heightField=field(heightInput),qualityField=field(qualityInput),videoRateField=field(videoRate),audioRateField=field(audioRate),customRate=numberField(1,120,24),customRateField=field(customRate);customRate.step="0.001";
-    dialog.append(title,hint,sourceLabel,cameraLabel,rateLabel,customRateField.label,sizeLabel,widthField.label,heightField.label,formatLabel,videoCodecLabel,audioCodecLabel,qualityField.label,videoRateField.label,audioRateField.label,micLabel,audioLabel,systemLabel,message,controls);document.body.append(dialog);
+    dialog.append(title,hint,destination,sourceLabel,cameraLabel,rateLabel,customRateField.label,sizeLabel,widthField.label,heightField.label,formatLabel,videoCodecLabel,audioCodecLabel,qualityField.label,videoRateField.label,audioRateField.label,micLabel,audioLabel,systemLabel,message,controls);document.body.append(dialog);
     let recording=null,opening=false,refreshing=false,notice="";
     function labels(){
       title.textContent=t("Media Recording","Запись медиа");hint.textContent=t("Choose a capture source and output format. MP4 is encoded after recording stops.","Выберите источник и формат записи. Кодирование MP4 выполняется после остановки записи.");
@@ -4923,6 +4923,7 @@
       if(recording||opening||refreshing)return;refreshing=true;labels();message.textContent=t("Finding screens and windows…","Поиск экранов и окон…");
       const old=source.value;source.replaceChildren();const camera=node("option",t("Default camera","Камера по умолчанию"));camera.value="dk-camera";const microphone=node("option",t("Microphone only","Только микрофон"));microphone.value="dk-microphone";source.append(camera,microphone);
       try{
+        if(bridge.recordingsFolder)destination.textContent=t("Recordings folder: ","Папка записей: ")+await bridge.recordingsFolder();
         const rows=await bridge.screenRecordSources();
         for(const row of rows){const o=node("option",row.name||row.id);o.value=row.id;source.append(o);}if(old==="dk-camera"||old==="dk-microphone"||rows.some(r=>r.id===old))source.value=old;else if(rows.length)source.value=rows[0].id;
         message.textContent=rows.length?"":t("No screen or window sources found. Camera recording may still work.","Экраны и окна не найдены. Запись камеры может быть доступна.");
@@ -4938,7 +4939,8 @@
       if(r.mix)await r.mix.close().catch(()=>{});
       await r.writes.catch(()=>{});
       try{
-        if(r.discard||r.failed){await bridge.screenRecordAction("cancel",r.token);message.textContent=r.failed?t("Recording failed and was discarded.","Ошибка записи. Файл удалён."):t("Recording discarded.","Запись удалена.");}
+        if(r.discard){await bridge.screenRecordAction("cancel",r.token);message.textContent=t("Recording discarded.","Запись удалена.");}
+        else if(r.failed){const result=await bridge.screenRecordAction("recover",r.token);message.textContent=t("Recording interrupted: ","Запись прервана: ")+(r.error||"")+(result.bytes?t(" · Partial recording retained: "," · Частичная запись сохранена: ")+result.name:t(" · No recording data saved."," · Данные записи отсутствуют."));}
         else{if(r.format==="mp4")message.textContent=t("Exporting MP4…","Экспорт MP4…");const result=await bridge.screenRecordAction("finish",r.token);message.textContent=(result.exportFailed?t("MP4 export failed. Original WebM retained: ","Ошибка экспорта MP4. Исходный WebM сохранён: "):t("Saved: ","Сохранено: "))+result.name;}
       }catch(_){message.textContent=t("Could not finalize the recording. Check the destination for a partial file.","Не удалось завершить запись. Проверьте папку назначения на наличие частичного файла.");}
       finally{if(recording===r)recording=null;labels();}
@@ -4961,6 +4963,7 @@
         const videoKbps=audioOnly?0:Number(videoRate.value),audioKbps=Number(audioRate.value),quality=format.value==="mp4"?Number(qualityInput.value):0;
         if((!audioOnly&&(!Number.isInteger(width)||width<160||width>7680||!Number.isInteger(height)||height<120||height>4320))||!Number.isInteger(videoKbps)||(videoKbps!==0&&(videoKbps<250||videoKbps>100000))||!Number.isInteger(audioKbps)||(audioKbps!==0&&(audioKbps<32||audioKbps>320))||!Number.isInteger(quality)||quality<0||quality>100){message.textContent=t("Check resolution and bitrate values: video 250–100000 kbps, audio 32–320 kbps, or 0 for automatic.","Проверьте разрешение и битрейт: видео 250–100000 кбит/с, звук 32–320 кбит/с или 0 для автоматического выбора.");return;}
         grant=await bridge.screenRecordBegin(source.value,format.value,videoCodec.value,audioCodec.value,{quality,videoKbps,audioKbps});if(!grant)return;
+        destination.textContent=t("Recordings folder: ","Папка записей: ")+grant.folder;
         const audioConstraint=audioDevice.value?{deviceId:{exact:audioDevice.value}}:true;
         stream=audioOnly?await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}):await navigator.mediaDevices.getUserMedia({audio:false,video:grant.sourceId==="dk-camera"?{...(cameraDevice.value?{deviceId:{exact:cameraDevice.value}}:{}),width:{ideal:width,max:width},height:{ideal:height,max:height},...(fps===null?{}:{frameRate:{ideal:fps,max:fps}})}:{mandatory:{chromeMediaSource:"desktop",chromeMediaSourceId:grant.sourceId,maxWidth:width,maxHeight:height,...(fps===null?{}:{maxFrameRate:fps})}}});
         if(!audioOnly&&mic.checked)audioInputs.push(await navigator.mediaDevices.getUserMedia({audio:audioConstraint,video:false}));
@@ -4981,28 +4984,28 @@
         recorder.ondataavailable=e=>{
           if(!e.data.size||r.discard||r.failed)return;
           r.pending+=e.data.size;
-          if(r.pending>64*1024*1024){r.failed=true;stopNow(r);return;}
+          if(r.pending>64*1024*1024){r.failed=true;r.error=t("Disk write queue overloaded","Очередь записи на диск переполнена");stopNow(r);return;}
           r.writes=r.writes.then(async()=>{
             for(let at=0;at<e.data.size;at+=4*1024*1024){
               if(r.discard||r.failed)return;
               const bytes=new Uint8Array(await e.data.slice(at,at+4*1024*1024).arrayBuffer());
               r.bytes=await bridge.screenRecordAction("append",r.token,bytes);
             }
-          }).catch(()=>{r.failed=true;stopNow(r);}).finally(()=>{r.pending-=e.data.size;});
+          }).catch(error=>{r.failed=true;r.error=String(error?.message||error);stopNow(r);}).finally(()=>{r.pending-=e.data.size;});
         };
         recorder.onpause=()=>{r.pausedAt=Date.now();labels();progress(r);};
         recorder.onresume=()=>{if(r.pausedAt)r.pausedMs+=Date.now()-r.pausedAt;r.pausedAt=0;labels();progress(r);};
-        recorder.onerror=()=>{r.failed=true;stopNow(r);};
+        recorder.onerror=event=>{r.failed=true;r.error=String(event.error?.message||event.error?.name||t("Encoder error","Ошибка кодировщика"));stopNow(r);};
         recorder.onstop=()=>void finalize(r);
-        for(const track of new Set([...stream.getTracks(),...audioInputs.flatMap(input=>input.getAudioTracks())]))track.addEventListener("ended",()=>stopNow(r),{once:true});
+        for(const track of new Set([...stream.getTracks(),...audioInputs.flatMap(input=>input.getAudioTracks())]))track.addEventListener("ended",()=>{if(!r.stopping&&!r.finalizing){r.failed=true;r.error=t("Capture source ended","Источник записи отключился");stopNow(r);}}, {once:true});
         recorder.start(1000);r.timer=setInterval(()=>{if(!r.stopping)progress(r);},1000);progress(r);grant=null;stream=null;mix=null;audioInputs=[];
-      }catch(_){
+      }catch(error){
         if(stream)for(const track of stream.getTracks())track.stop();
         for(const input of audioInputs)for(const track of input.getTracks())track.stop();
         if(mix)await mix.close().catch(()=>{});
         if(grant)try{await bridge.screenRecordAction("cancel",grant.token);}catch(_){}
         if(recording){clearInterval(recording.timer);recording=null;}
-        message.textContent=t("Capture could not start. Check device availability, permissions and output filename.","Не удалось начать запись. Проверьте доступность устройства, разрешения и имя файла.");
+        message.textContent=t("Capture could not start: ","Не удалось начать запись: ")+String(error?.message||error?.name||error);
       }finally{opening=false;labels();}
     }
     refresh.onclick=()=>void sources();source.onchange=mic.onchange=format.onchange=resolution.onchange=rate.onchange=audioCodec.onchange=videoRate.onchange=labels;start.onclick=()=>void begin();stop.onclick=()=>stopNow(recording);

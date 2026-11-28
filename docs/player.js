@@ -4825,6 +4825,25 @@
     finally{if(url)URL.revokeObjectURL(url);if(canvas){canvas.width=0;canvas.height=0;}snapshotBusy=false;}
   };
   // Modeless capture controls remain usable while ordinary playback continues.
+  let openAudioExtractor=()=>{};
+  if(window.DKLibraryBridge?.extractAudio){
+    const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
+    const d=document.createElement("dialog");d.className="dk-screen-recorder";
+    const title=document.createElement("h2"),hint=document.createElement("p"),label=document.createElement("label"),formatText=document.createElement("span"),format=document.createElement("select"),message=document.createElement("p");
+    for(const value of ["mp3","flac","aac","wav"]){const o=document.createElement("option");o.value=value;o.textContent=value.toUpperCase();format.append(o);}
+    const controls=document.createElement("div");controls.className="dk-screen-record-actions";
+    const start=document.createElement("button"),close=document.createElement("button");for(const b of [start,close]){b.type="button";b.className="btn";controls.append(b);}
+    label.append(formatText,format);message.setAttribute("role","status");d.append(title,hint,label,message,controls);document.body.append(d);
+    let busy=false;
+    function draw(){
+      title.textContent=t("Extract Audio","Извлечение звука");hint.textContent=t("Choose an output format, then select a local media file and a new destination. The first audio track is extracted; the original file stays unchanged.","Выберите формат, затем исходный медиафайл и новое место сохранения. Извлекается первая звуковая дорожка; исходный файл не изменяется.");
+      formatText.textContent=t("Audio format","Формат звука");start.textContent=t("Choose file and extract","Выбрать файл и извлечь звук");close.textContent=t("Close","Закрыть");format.disabled=start.disabled=close.disabled=busy;
+    }
+    start.onclick=async()=>{if(busy)return;busy=true;draw();message.textContent=t("Selecting file or extracting audio…","Выбор файла или извлечение звука…");try{const result=await bridge.extractAudio(format.value);message.textContent=result.cancelled?t("Cancelled.","Отменено."):t("Saved: ","Сохранено: ")+result.name;}catch(_){message.textContent=t("Extraction failed. Check that the file contains audio, the destination is new, and the included encoder supports this format.","Не удалось извлечь звук. Проверьте наличие звуковой дорожки, новое имя файла и поддержку формата встроенным кодировщиком.");}finally{busy=false;draw();}};
+    close.onclick=()=>{if(!busy)d.close();};d.addEventListener("cancel",e=>{if(busy)e.preventDefault();});
+    openAudioExtractor=()=>{settingsDetails.open=false;draw();if(!d.open)d.show();};
+    bridge.onOpenMediaTool?.(kind=>{if(kind==="audio-extraction")openAudioExtractor();});
+  }
   let openScreenRecorder=()=>{};
   if(window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"){
     const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
@@ -6480,6 +6499,7 @@
         ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
       ]],
       ["Tools",[
+        [window.DKLocale?.get()==="ru"?"Извлечение звука":"Extract Audio",()=>openAudioExtractor(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
         ["Effects and filters",()=>settings("audio"),()=>categoryAvailable("audio")],
         ["Media information",openMediaInfo,hasMedia],

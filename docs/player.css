@@ -1633,3 +1633,5 @@ html.dk-standalone .queue .item-play .queue-item-labels :is(.item-title,.item-me
 /* Up Next artwork follows the same permanent portrait geometry. */
 .queue .queue-artwork{box-sizing:border-box;aspect-ratio:2/3!important;height:auto!important;min-height:0!important;max-height:none!important;align-self:center;}
 .queue .queue-artwork-image,.queue .queue-hover-video{object-fit:contain!important;object-position:center!important;}
+
+.dk-screen-recorder label[hidden]{display:none!important}.dk-screen-recorder label:has(input[type="checkbox"]){display:flex;align-items:center;gap:8px}.dk-screen-recorder input[type="checkbox"]{width:auto;flex:none}

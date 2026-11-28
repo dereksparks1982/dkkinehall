@@ -3101,10 +3101,10 @@ async function screenRecordBegin(event,sourceId){
  if(screenRecord||screenRecordOpening||typeof sourceId!=="string"||sourceId.length>200)throw Error("Recorder unavailable");
  screenRecordOpening=true;
  try{
-  const sources=await screenRecordSources();
-  if(!sources.some(s=>s.id===sourceId))throw Error("Capture source unavailable");
+  const camera=sourceId==="dk-camera";
+  if(!camera){const sources=await screenRecordSources();if(!sources.some(s=>s.id===sourceId))throw Error("Capture source unavailable");}
   const ru=readInterfaceLanguage("en")==="ru";
-  const picked=await dialog.showSaveDialog(home,{title:ru?"Сохранить запись экрана":"Save screen recording",defaultPath:path.join(app.getPath("videos"),"DK-Kinehall-Screen-"+Date.now()+".webm"),filters:[{name:"WebM",extensions:["webm"]}]});
+  const picked=await dialog.showSaveDialog(home,{title:camera?(ru?"Сохранить запись камеры":"Save camera recording"):(ru?"Сохранить запись экрана":"Save screen recording"),defaultPath:path.join(app.getPath("videos"),"DK-Kinehall-"+(camera?"Camera":"Screen")+"-"+Date.now()+".webm"),filters:[{name:"WebM",extensions:["webm"]}]});
   if(picked.canceled||!picked.filePath)return null;
   if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Capture window changed");
   const dest=path.extname(picked.filePath).toLowerCase()===".webm"?picked.filePath:picked.filePath+".webm";

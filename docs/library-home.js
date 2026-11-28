@@ -2321,16 +2321,52 @@ function connect(){
     }
     async function viewerPreviewAction(){if(nativeBridge.viewerPreview)try{drawViewer(await nativeBridge.viewerPreview("status"));}catch(_){drawViewer(null);}}
     if(nativeBridge.viewerPreview){previewStatus.id="dkViewerAddress";serverPanel.append(openPreview,copyURL,note,previewStatus);serverPanel.updateViewer=drawViewer;}
+    const networkDiagPanel=create("section","dk-server-settings dk-network-diagnostic");networkDiagPanel.hidden=true;dlg.append(networkDiagPanel);
+    const networkDiagFacts=create("dl"),networkDiagMessage=create("p","helper");
+    networkDiagMessage.setAttribute("role","status");
+    const networkDiagRefresh=cinemaButton("Refresh Status","Обновить состояние",()=>void refreshNetworkDiag("status"));
+    const networkDiagRun=cinemaButton("Measure Network Traffic","Измерить сетевой трафик",()=>void refreshNetworkDiag("sample"));
+    networkDiagPanel.append(create("p","helper",say("Wireshark's TShark engine measures Kinehall streaming traffic for five seconds. Play a video on another device for a useful sample.","Модуль анализа пакетов измеряет трафик медиасервера в течение пяти секунд. Для измерения запустите видео на другом устройстве.")),networkDiagRefresh,networkDiagRun,networkDiagFacts,networkDiagMessage);
+    let networkDiagEpoch=0,networkDiagBusy=false;
+    async function refreshNetworkDiag(action){
+     if(!nativeBridge.networkDiagnostics||networkDiagBusy)return;
+     const revision=++networkDiagEpoch;networkDiagBusy=true;networkDiagRun.disabled=true;networkDiagRefresh.disabled=true;
+     networkDiagMessage.textContent=action==="sample"?say("Measuring traffic…","Измерение трафика…"):say("Reading network status…","Получение состояния сети…");
+     try{
+      const r=await nativeBridge.networkDiagnostics(action);if(revision!==networkDiagEpoch||networkDiagPanel.hidden)return;
+      networkDiagFacts.replaceChildren();
+      const add=(en,ru,value)=>networkDiagFacts.append(create("dt",null,say(en,ru)),create("dd",null,String(value)));
+      const yes=v=>v?say("Yes","Да"):say("No","Нет");
+      add("Streaming server running","Медиасервер работает",yes(r.viewerRunning));
+      add("Server port","Порт сервера",r.port);
+      add("Active TCP connections","Активные подключения",r.connections?.established??say("Unavailable","Недоступно"));
+      add("TShark available","Модуль анализа пакетов доступен",yes(r.tsharkAvailable));
+      if(r.status==="complete"){
+       add("Sample duration","Время измерения",r.seconds+say(" s"," с"));
+       add("Packets observed","Наблюдаемые пакеты",r.packets);
+       add("Observed traffic (both directions)","Трафик в обоих направлениях",((r.bytes*8/r.seconds)/1000000).toFixed(2)+say(" Mbps"," Мбит/с"));
+       add("TCP retransmissions observed","Наблюдаемые повторные передачи",r.retransmissions);
+       add("Duplicate acknowledgements","Повторные подтверждения",r.duplicateAcks);
+       add("Zero-window events","Нулевые окна приёма",r.zeroWindows);
+       networkDiagMessage.textContent=r.packets?say("Sample complete. Retransmissions are indicators, not a direct packet-loss measurement.","Измерение завершено. Повторные передачи являются показателем, а не прямым измерением потерь пакетов."):say("No streaming traffic observed. Play a video and measure again.","Трафик не обнаружен. Запустите видео и повторите измерение.");
+      }else{
+       const statuses={missing:["Packet analysis engine not installed.","Модуль анализа пакетов не установлен."],permission:["The operating system denied packet capture. Normal streaming is unaffected.","Операционная система запретила захват пакетов. Воспроизведение не затронуто."],busy:["A measurement is already running.","Измерение уже выполняется."],limited:["Sample exceeded the diagnostic output budget.","Превышен объём данных диагностики."],timeout:["Measurement timed out.","Время измерения истекло."],failed:["Packet measurement failed.","Не удалось измерить пакеты."],unavailable:["Packet analyzer unavailable.","Анализатор пакетов недоступен."]};
+       networkDiagMessage.textContent=r.status?say(...(statuses[r.status]||statuses.failed)):r.tsharkAvailable?"":say("TShark is not installed. Network status still works.","Модуль анализа пакетов не установлен. Состояние сети доступно.");
+      }
+     }catch(_){if(revision===networkDiagEpoch)networkDiagMessage.textContent=say("Network diagnostics unavailable.","Диагностика сети недоступна.");}
+     finally{networkDiagBusy=false;networkDiagRefresh.disabled=false;networkDiagRun.disabled=false;}
+    }
     const chooseCategory=id=>{
       selectedCategory=id;
-      title.textContent=id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
+      title.textContent=id==="network-diagnostics"?say("Network Diagnostics","Диагностика сети"):id==="diagnostics"?say("Server Diagnostics","Диагностика сервера"):id==="server"?say("Server","Сервер"):categories.find(([key])=>key===id)?.[1]||"Settings";
       back.hidden=!id;for(const [key,btn] of categoryButtons)btn.hidden=!!id;
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
-      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";
+      serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";networkDiagPanel.hidden=id!=="network-diagnostics";if(id==="network-diagnostics"){body.hidden=true;void refreshNetworkDiag("status");}else networkDiagEpoch++;
       if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();void viewerPreviewAction();}
       if(id==="diagnostics"){body.hidden=true;enterDiagnostics();}else{reportEpoch++;refreshReport.disabled=false;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
+      if(id==="network"&&nativeBridge.networkDiagnostics)toolButton(say("Network Diagnostics","Диагностика сети"),()=>chooseCategory("network-diagnostics"));
       if(id==="network"||id==="disc"){
         if(nativeBridge.openMediaTool)toolButton(id==="network"?"Network media…":"Open DVD…",async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool(id);dlg.close();}catch(_){setFeedback("Could not open media tool.");}finally{busy=false;}});
         extra.append(create("p","helper",id==="network"?"Discover DLNA servers and open compatible local network streams.":"Open DVD drives, ISO images and DVD folders with a compatible decoder."));
@@ -2345,7 +2381,7 @@ function connect(){
       if(id==="general")extra.hidden=false;
       body.scrollTop=0;window.DKLocale?.apply();
     };
-    back.addEventListener("click",()=>chooseCategory(selectedCategory==="diagnostics"?"server":null));
+    back.addEventListener("click",()=>chooseCategory(selectedCategory==="network-diagnostics"?"network":selectedCategory==="diagnostics"?"server":null));
     for(const [key,label] of categories){const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",()=>chooseCategory(key));nav.append(btn);categoryButtons.set(key,btn);}
     chooseCategory(null);
     const setFeedback=message=>{feedback.textContent=message;window.DKLocale?.apply();};
@@ -2400,7 +2436,7 @@ function connect(){
     });
     close.addEventListener("click",()=>{if(!busy)dlg.close();});
     dlg.addEventListener("cancel",event=>{if(busy)event.preventDefault();});
-    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;body.replaceChildren();button.focus();});
+    dlg.addEventListener("close",()=>{epoch++;reportEpoch++;serverPanel.hidden=true;diagnosticPanel.hidden=true;networkDiagPanel.hidden=true;networkDiagEpoch++;body.replaceChildren();button.focus();});
     openCinemaSettings=async(category=null)=>{
       if(dlg.open){chooseCategory(category);return;}
       const ticket=++epoch;dlg.showModal();chooseCategory(category);setFeedback(category==="server"?"":"Loading settings…");body.inert=true;busy=true;

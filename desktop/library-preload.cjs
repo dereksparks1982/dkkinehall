@@ -36,6 +36,7 @@ const nativeLibrary=Object.freeze({
   liveTvPlay:(kind,value,name,artwork="",alternates=[])=>libIpc.invoke("dk-live-tv:play",String(kind),String(value),String(name),String(artwork),Array.isArray(alternates)?alternates.slice(0,2).map(String):[]),
   liveTvAlternate:token=>libIpc.invoke("dk-live-tv:alternate",String(token)),
   onLiveTvPlay:callback=>subscribe("dk-live-tv:play-channel",callback),
+  networkDiagnostics:action=>libIpc.invoke("dk-network:diagnostics",String(action)),
   networkDiscover:()=>libIpc.invoke("dk-network:discover"),
   networkRegister:value=>libIpc.invoke("dk-network:register",String(value)),
   networkDescription:id=>libIpc.invoke("dk-network:description",String(id)),

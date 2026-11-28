@@ -2285,6 +2285,68 @@ function viewerProcessRecord(){
   return r;
  }catch(_){return null;}
 }
+// Optional Wireshark command-line integration. Only aggregate statistics
+// for Kinehall's streaming port; never retain payloads or addresses.
+const networkDiagPort=8097;
+let networkDiagBusy=false;
+function networkDiagTool(){
+ for(const file of [path.join(app.getAppPath(),"bin","tshark"),"/usr/bin/tshark","/usr/local/bin/tshark"]){
+  try{fs.accessSync(file,fs.constants.X_OK);if(fs.statSync(file).isFile())return file;}catch(_){}
+ }
+ return null;
+}
+function networkDiagConnections(){
+ try{
+  let established=0,listen=false;
+  for(const name of ["/proc/net/tcp","/proc/net/tcp6"]){
+   let content;try{content=fs.readFileSync(name,"utf8");}catch(e){if(name.endsWith("tcp6")&&e.code==="ENOENT")continue;throw e;}
+   for(const line of content.trim().split("\n").slice(1)){
+    const fields=line.trim().split(/\s+/);
+    if(parseInt(fields[1]?.split(":").pop(),16)!==networkDiagPort)continue;
+    if(fields[3]==="0A")listen=true;
+    if(fields[3]==="01")established++;
+   }
+  }
+  return {established,listen};
+ }catch(_){return null;}
+}
+function networkDiagSample(){
+ return {tsharkAvailable:!!networkDiagTool(),viewerRunning:viewerStatus().running,port:networkDiagPort,connections:networkDiagConnections()};
+}
+function networkDiagAggregate(lines){
+ const out={packets:0,bytes:0,retransmissions:0,duplicateAcks:0,zeroWindows:0};
+ for(const line of lines.split("\n")){
+  const [length,retry,fast,dup,zero]=line.replace(/\r$/,"").split("\t");
+  if(!/^\d+$/.test(length||""))continue;
+  const size=Number(length);if(!Number.isSafeInteger(size)||size<1||size>1048576)continue;
+  out.packets++;out.bytes+=size;
+  if(retry==="1"||fast==="1")out.retransmissions++;
+  if(dup==="1")out.duplicateAcks++;
+  if(zero==="1")out.zeroWindows++;
+ }
+ return out;
+}
+async function networkDiagCapture(){
+ const before=networkDiagSample(),tool=networkDiagTool();
+ if(!tool)return {...before,status:"missing"};
+ if(networkDiagBusy)return {...before,status:"busy"};
+ networkDiagBusy=true;
+ try{
+  const seconds=5;
+  const result=await new Promise(resolve=>{
+   const args=["-n","-l","-i","any","-f","tcp port "+networkDiagPort,"-a","duration:"+seconds,"-T","fields","-E","separator=/t","-E","occurrence=f","-e","frame.len","-e","tcp.analysis.retransmission","-e","tcp.analysis.fast_retransmission","-e","tcp.analysis.duplicate_ack","-e","tcp.analysis.zero_window"];
+   let output="",error="",finished=false,limited=false,timer;
+   const child=require("node:child_process").spawn(tool,args,{stdio:["ignore","pipe","pipe"],env:{...process.env,LC_ALL:"C"}});
+   const done=value=>{if(finished)return;finished=true;clearTimeout(timer);resolve(value);};
+   child.stdout.on("data",chunk=>{if(output.length+chunk.length>8*1024*1024){limited=true;child.kill("SIGKILL");return;}output+=chunk.toString("utf8");});
+   child.stderr.on("data",chunk=>{if(error.length<8192)error+=chunk.toString("utf8").slice(0,8192-error.length);});
+   child.once("error",()=>done({status:"unavailable"}));
+   child.once("close",code=>{if(limited)return done({status:"limited"});if(code!==0)return done({status:/permission|not permitted|dumpcap/i.test(error)?"permission":"failed"});done({status:"complete",seconds,...networkDiagAggregate(output)});});
+   timer=setTimeout(()=>{child.kill("SIGKILL");done({status:"timeout"});},12000);
+  });
+  return {...networkDiagSample(),...result};
+ }finally{networkDiagBusy=false;}
+}
 function viewerAddresses(){
  return Object.values(require("node:os").networkInterfaces()).flat().filter(x=>x?.family==="IPv4"&&!x.internal&&/^(?:10\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(x.address)).map(x=>"http://"+x.address+":8097");
 }
@@ -3526,6 +3588,10 @@ function install(originalWindow,originalPlayer){
       grant=null;
       return true;
     }finally{if(grant){const entry=networkGrants.get(grant.token);networkGrants.delete(grant.token);for(const client of entry?.clients||[])client.destroy();}}
+  });
+  ipcMain.handle("dk-network:diagnostics",(event,action)=>{
+    if(!allowed(event)||activePage!=="library"||!["status","sample"].includes(action))throw Error("Network diagnostics request rejected");
+    return action==="sample"?networkDiagCapture():networkDiagSample();
   });
   ipcMain.handle("dk-network:discover",event=>{
     if(!onlyPlayer(event)&&!(allowed(event)&&activePage==="library"))throw Error("Network request rejected");return discoverNetwork();

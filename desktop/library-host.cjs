@@ -2358,7 +2358,7 @@ function viewerStatus(){
 function viewerStart(){
  if(jfClosing||!jfEnabled()||viewerProcessRecord()||viewerChild)return;
  viewerLaunchAt=Date.now();
- const child=require("node:child_process").spawn(process.execPath,[viewerScriptPath(),"--dk-kinehall-viewer",app.getPath("userData")],{detached:true,stdio:"ignore",env:{...process.env,ELECTRON_RUN_AS_NODE:"1"}});
+ const child=require("node:child_process").spawn(process.execPath,[viewerScriptPath(),"--dk-kinehall-viewer",app.getPath("userData"),app.getAppPath()],{detached:true,stdio:"ignore",env:{...process.env,ELECTRON_RUN_AS_NODE:"1"}});
  viewerChild=child;const release=()=>{if(viewerChild===child)viewerChild=null;};child.once("error",release);child.once("exit",release);child.unref();
 }
 function viewerStop(){

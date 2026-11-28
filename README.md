@@ -14,6 +14,8 @@ DK Kinehall aims to match VLC's practical playback and media tools, exceed them 
 
 ## Features
 
+- Video conversion, audio extraction, trimming and joining show processing progress, elapsed media time and encoding speed. Cancel an active job without overwriting source files; completed batch outputs are retained.
+
 - Trim videos by start/end time or join ordered clips through Tools. Accurate re-encoding saves MP4; lossless stream copying saves MKV and requires compatible streams for joining. Re-encoded joins normalize picture size and frame rate. Original files remain unchanged.
 
 - Recordings are automatically saved with dated filenames in the Recordings folder inside Videos. The recording panel displays its actual path; interrupted recordings retain any captured data as a partial WebM file.

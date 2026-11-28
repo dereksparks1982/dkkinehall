@@ -3166,7 +3166,16 @@ async function screenRecordAction(event,action,token,chunk){
 let audioExtractBusy=false,audioExtractChild=null;
 async function extractAudio(event,format){
  const formats={mp3:["libmp3lame","mp3",["-b:a","192k"]],flac:["flac","flac",[]],aac:["aac","adts",["-b:a","192k"]],wav:["pcm_s16le","wav",[]]};
- if(!Object.hasOwn(formats,format)||audioExtractBusy||jfClosing)throw Error("Audio extraction unavailable");
+ const videoFormats={
+ mp4:["mp4",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k","-movflags","+faststart"]],
+ mkv:["matroska",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k"]],
+ webm:["webm",["-c:v","libvpx-vp9","-crf","32","-b:v","0","-c:a","libopus","-b:a","128k"]],
+ avi:["avi",["-c:v","mpeg4","-q:v","4","-c:a","libmp3lame","-b:a","192k"]],
+ mov:["mov",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k","-movflags","+faststart"]],
+ ts:["mpegts",["-c:v","libx264","-preset","fast","-crf","23","-c:a","aac","-b:a","192k"]]
+ };
+ const video=Object.hasOwn(videoFormats,format);
+ if((!video&&!Object.hasOwn(formats,format))||audioExtractBusy||jfClosing)throw Error("Conversion unavailable");
  audioExtractBusy=true;let folder=null;
  try{
   fs.accessSync(tvDecoder(),fs.constants.X_OK);
@@ -3174,16 +3183,19 @@ async function extractAudio(event,format){
   const input=await dialog.showOpenDialog(home,{title:ru?"Выберите исходный медиафайл":"Choose source media",properties:["openFile"]});
   if(input.canceled||!input.filePaths[0])return {cancelled:true};
   const source=fs.realpathSync(input.filePaths[0]);if(!fs.statSync(source).isFile())throw Error("Invalid source");
-  const save=await dialog.showSaveDialog(home,{title:ru?"Сохранить звуковой файл":"Save extracted audio",defaultPath:path.join(path.dirname(source),path.parse(source).name+"-audio."+format),filters:[{name:format.toUpperCase(),extensions:[format]}]});
+  const save=await dialog.showSaveDialog(home,{title:video?(ru?"Сохранить преобразованное видео":"Save converted video"):(ru?"Сохранить звуковой файл":"Save extracted audio"),defaultPath:path.join(path.dirname(source),path.parse(source).name+(video?"-converted.":"-audio.")+format),filters:[{name:format.toUpperCase(),extensions:[format]}]});
   if(save.canceled||!save.filePath)return {cancelled:true};
   if(!onlyPlayer(event)||activePage!=="player"||jfClosing)throw Error("Player unavailable");
   const dest=path.extname(save.filePath).toLowerCase()==="."+format?save.filePath:save.filePath+"."+format;
   if(fs.existsSync(dest))throw Error("Choose a new output filename");
   folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-audio-extract-"));
-  const output=path.join(folder,"output."+format),[codec,muxer,args]=formats[format];
+  const output=path.join(folder,"output."+format);
+  let options;
+  if(video){const [muxer,args]=videoFormats[format];options=["-map","0:V:0","-map","0:a:0?","-sn","-dn","-map_metadata","-1","-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2","-pix_fmt","yuv420p",...args,"-f",muxer];}
+  else{const [codec,muxer,args]=formats[format];options=["-map","0:a:0","-vn","-sn","-dn","-map_metadata","-1","-c:a",codec,...args,"-f",muxer];}
   await new Promise((resolve,reject)=>{
-   const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-i",source,"-map","0:a:0","-vn","-sn","-dn","-map_metadata","-1","-c:a",codec,...args,"-f",muxer,output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
-   audioExtractChild=child;child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Audio extraction failed")));
+   const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-i",source,...options,output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
+   audioExtractChild=child;child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("Media conversion failed")));
   });
   const bytes=fs.statSync(output).size;if(!bytes||jfClosing)throw Error("No audio output");
   fs.linkSync(output,dest);
@@ -3971,7 +3983,7 @@ function install(originalWindow,originalPlayer){
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
   ipcMain.handle("dk-library:extract-audio",(event,format)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Audio extraction request rejected");return extractAudio(event,format);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
-    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording","audio-extraction"].includes(kind))throw Error("Media tool request rejected");
+    if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording","audio-extraction","video-conversion"].includes(kind))throw Error("Media tool request rejected");
     await openPlayer(null,false,true);
     if(!installedWindow()||activePage!=="library")throw Error("Player unavailable");
     showPage("player");

@@ -2318,9 +2318,145 @@ function viewerManage(action,value){
    }else if(action==="password")rows[index]={...rows[index],...await viewerCredential(value.password)};
    else throw Error("Unknown account operation");
   }
-  viewerWrite(rows);return rows.map(viewerPublic);
+  viewerWrite(rows);if(viewerId(id))viewerRevokeAccount(id);return rows.map(viewerPublic);
  });
  viewerAccountQueue=work;return work;
+}
+// Opt-in localhost browser preview. No LAN bind, remote proxy, metadata
+// admin endpoints, raw media paths, or arbitrary file operations.
+const viewerPreviewPage="<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>DK Kinehall Viewer</title><style>body{font:16px system-ui;background:#15100f;color:#eee1cc;margin:0;padding:24px}main{max-width:1000px;margin:auto}h1,strong{color:#e2b956}form,article{display:grid;gap:10px;background:#261d18;padding:18px;border-radius:8px;border:1px solid #806b42}form{max-width:340px}input,button{font:inherit;padding:10px;border:1px solid #806b42;border-radius:5px}button{background:#e2b956;color:#462a25;cursor:pointer}input:not([type=checkbox]){background:#15100f;color:#fff;min-width:0}#catalog{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:20px}#library[hidden],form[hidden]{display:none}#status{min-height:1.5em}p{margin:0}header{display:flex;align-items:center;gap:12px;flex-wrap:wrap}</style><main><h1 id=\"heading\"></h1><p id=\"status\" role=\"status\"></p><form id=\"login\" hidden><label for=\"name\" id=\"nameLabel\"></label><input id=\"name\" required maxlength=\"48\" autocomplete=\"username\"><label for=\"password\" id=\"passLabel\"></label><input id=\"password\" type=\"password\" required maxlength=\"128\" autocomplete=\"current-password\"><button id=\"signIn\" type=\"submit\"></button></form><section id=\"library\" hidden><header><strong id=\"account\"></strong><button id=\"logout\" type=\"button\"></button><input id=\"filter\" type=\"search\"><label><input id=\"saved\" type=\"checkbox\"><span id=\"savedLabel\"></span></label></header><div id=\"catalog\"></div></section></main><script>\nconst $=id=>document.getElementById(id);\nconst ru=navigator.language.toLowerCase().startsWith(\"ru\");\nconst t=(en,r)=>ru?r:en;\ndocument.documentElement.lang=ru?\"ru\":\"en\";\nconst el=(tag,txt)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;return n;};\nconst button=(text,action)=>{const b=el(\"button\",text);b.type=\"button\";b.onclick=action;return b;};\nconst msg=(text)=>{$(\"status\").textContent=text;};\nasync function api(url,data){\n const options={credentials:\"same-origin\",cache:\"no-store\"};\n if(data!==undefined){options.method=\"POST\";options.headers={\"Content-Type\":\"application/json\"};options.body=JSON.stringify(data);}\n const r=await fetch(url,options);if(!r.ok)throw Error(String(r.status));return r.json();\n}\nlet account=null,rows=[],query=\"\",savedOnly=false;\nfunction render(){\n $(\"catalog\").replaceChildren();\n const q=query.toLocaleLowerCase().trim();\n for(const row of rows.filter(r=>(!savedOnly||r.saved)&&(!q||r.title.toLocaleLowerCase().includes(q))).slice(0,500)){\n  const card=el(\"article\"),title=el(\"strong\",row.title),detail=el(\"p\",[row.kind===\"movie\"?t(\"Movie\",\"Фильм\"):t(\"TV\",\"Сериал\"),row.year||\"\",row.episode||\"\"].filter(Boolean).join(\" · \"));\n  const save=button(row.saved?t(\"Remove from watchlist\",\"Убрать из списка\"):t(\"Add to watchlist\",\"Добавить в список\"),async()=>{save.disabled=true;try{await api(\"/api/watchlist\",{id:row.id,saved:!row.saved});row.saved=!row.saved;render();}catch(_){msg(t(\"Could not save.\",\"Не удалось сохранить.\"));save.disabled=false;}});\n  card.append(title,detail,save);if(row.position>0)card.append(el(\"p\",t(\"Resume position: \",\"Позиция просмотра: \")+Math.floor(row.position/60)+t(\" min\",\" мин\")));$(\"catalog\").append(card);\n }\n if(!$(\"catalog\").children.length)$(\"catalog\").append(el(\"p\",t(\"No matching titles.\",\"Нет подходящих наименований.\")));\n}\nasync function load(){\n try{account=await api(\"/api/me\");$(\"login\").hidden=true;$(\"library\").hidden=false;$(\"account\").textContent=account.name;const data=await api(\"/api/catalog\");rows=data.items||[];render();msg(t(\"Local preview. Streaming is not enabled yet.\",\"Локальный просмотр каталога. Воспроизведение пока недоступно.\"));}\n catch(e){if(e.message===\"401\"){$(\"login\").hidden=false;$(\"library\").hidden=true;msg(t(\"Sign in to your viewer account.\",\"Войдите в учётную запись зрителя.\"));}else msg(t(\"Catalog unavailable. Check the private metadata server.\",\"Каталог недоступен. Проверьте сервер метаданных.\"));}\n}\n$(\"heading\").textContent=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\n$(\"nameLabel\").textContent=t(\"Account name\",\"Имя учётной записи\");\n$(\"passLabel\").textContent=t(\"Password\",\"Пароль\");\n$(\"signIn\").textContent=t(\"Sign in\",\"Войти\");\n$(\"logout\").textContent=t(\"Sign out\",\"Выйти\");\n$(\"filter\").placeholder=t(\"Search titles\",\"Поиск наименований\");\n$(\"savedLabel\").textContent=t(\"Watchlist only\",\"Только список просмотра\");\n$(\"login\").onsubmit=async e=>{e.preventDefault();const password=$(\"password\").value;$(\"password\").value=\"\";$(\"signIn\").disabled=true;try{await api(\"/api/login\",{name:$(\"name\").value,password});await load();}catch(_){msg(t(\"Sign-in failed. Check your account or wait before retrying.\",\"Не удалось войти. Проверьте учётную запись или подождите.\"));}finally{$(\"signIn\").disabled=false;}};\n$(\"logout\").onclick=async()=>{try{await api(\"/api/logout\",{});}catch(_){}rows=[];await load();};\n$(\"filter\").oninput=()=>{query=$(\"filter\").value;render();};\n$(\"saved\").onchange=()=>{savedOnly=$(\"saved\").checked;render();};\nvoid load();\n</script></html>";
+let viewerServer=null,viewerOpening=null,viewerAuthBusy=false,viewerFailed=[];
+const viewerSessions=new Map();
+const viewerSessionTTL=8*60*60*1000;
+function viewerRevokeAccount(id){for(const [token,session] of viewerSessions)if(session.id===id)viewerSessions.delete(token);}
+function viewerSession(req){
+ const cookie=String(req.headers.cookie||"").split(";").map(x=>x.trim()).find(x=>/^dkviewer=[a-f0-9]{64}$/.test(x));
+ const token=cookie?.slice(9),session=viewerSessions.get(token);
+ if(!session)return null;
+ const row=viewerRead().find(x=>x.id===session.id);
+ if(!row?.enabled||Date.now()>=session.expires||row.hash!==session.hash){viewerSessions.delete(token);return null;}
+ return {token,account:viewerPublic(row)};
+}
+function viewerJson(res,status,value,headers={}){
+ const body=JSON.stringify(value);
+ res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Content-Length":Buffer.byteLength(body),"Cache-Control":"no-store","X-Content-Type-Options":"nosniff",...headers});res.end(body);
+}
+async function viewerBody(req){
+ if(!/^application\/json(?:;|$)/i.test(req.headers["content-type"]||""))throw Error("Invalid body type");
+ let bytes=0;const chunks=[];
+ for await(const chunk of req){bytes+=chunk.length;if(bytes>4096)throw Error("Oversized body");chunks.push(chunk);}
+ const body=JSON.parse(Buffer.concat(chunks).toString("utf8"));
+ if(!body||typeof body!=="object"||Array.isArray(body))throw Error("Invalid body");
+ return body;
+}
+const viewerDataFile=id=>path.join(app.getPath("userData"),"viewer-data",id+".json");
+function viewerData(id){
+ if(!viewerId(id))throw Error("Invalid viewer");
+ try{const file=viewerDataFile(id),st=fs.lstatSync(file);if(!st.isFile()||st.uid!==process.getuid()||(st.mode&0o077)||st.size>4*1024*1024)throw Error("Unsafe viewer history");
+  const value=JSON.parse(fs.readFileSync(file,"utf8"));if(value.schema!==1||!Array.isArray(value.saved)||!value.progress||typeof value.progress!=="object")throw Error("Invalid viewer history");return value;
+ }catch(error){if(error.code==="ENOENT")return {schema:1,saved:[],progress:{}};throw error;}
+}
+function viewerSaveData(id,data){
+ jfDirectory(path.join(app.getPath("userData"),"viewer-data"));
+ const content=JSON.stringify(data);if(Buffer.byteLength(content)>4*1024*1024)throw Error("Viewer history full");
+ jfWrite(viewerDataFile(id),content);
+}
+function viewerItemAllowed(item,account,roots){
+ if(!item||!jellyfinId(item.Id)||typeof item.Path!=="string"||!path.isAbsolute(item.Path))return false;
+ const kind=item.Type==="Movie"?"movie":item.Type==="Episode"?"tv":null;
+ return !!kind&&account.permissions[kind==="movie"?"movies":"tv"]===true&&roots.some(root=>root.kind===kind&&inSource(root.path,item.Path));
+}
+async function viewerCatalog(account){
+ const cfg=jfConfig;if(!cfg||jellyfinConfig())throw Error("Private catalog unavailable");
+ const index=await jellyfinIndex(cfg),roots=getLibrarySources(),items=new Map();
+ for(const row of index.values()){
+  if(!viewerItemAllowed(row,account,roots))continue;
+  if(items.has(row.Id))items.set(row.Id,null);else items.set(row.Id,row);
+ }
+ return items;
+}
+async function serveViewer(req,res){
+ const no=()=>viewerJson(res,404,{error:"Not found"});
+ try{
+  const port=viewerServer?.address()?.port,origin="http://127.0.0.1:"+port;
+  if(!port||req.socket.remoteAddress!=="127.0.0.1"||req.headers.host!=="127.0.0.1:"+port||typeof req.url!=="string"||req.url.length>250||!req.url.startsWith("/")||req.url.startsWith("//"))return no();
+  const url=new URL(req.url,origin);if(url.origin!==origin||url.search||url.hash)return no();
+  const method=req.method;
+  if(method==="POST"&&req.headers.origin!==origin)return viewerJson(res,403,{error:"Forbidden"});
+  if(method==="GET"&&url.pathname==="/"){
+   res.writeHead(200,{"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","Content-Security-Policy":"default-src 'none'; script-src 'sha256-"+require("node:crypto").createHash("sha256").update("\nconst $=id=>document.getElementById(id);\nconst ru=navigator.language.toLowerCase().startsWith(\"ru\");\nconst t=(en,r)=>ru?r:en;\ndocument.documentElement.lang=ru?\"ru\":\"en\";\nconst el=(tag,txt)=>{const n=document.createElement(tag);if(txt)n.textContent=txt;return n;};\nconst button=(text,action)=>{const b=el(\"button\",text);b.type=\"button\";b.onclick=action;return b;};\nconst msg=(text)=>{$(\"status\").textContent=text;};\nasync function api(url,data){\n const options={credentials:\"same-origin\",cache:\"no-store\"};\n if(data!==undefined){options.method=\"POST\";options.headers={\"Content-Type\":\"application/json\"};options.body=JSON.stringify(data);}\n const r=await fetch(url,options);if(!r.ok)throw Error(String(r.status));return r.json();\n}\nlet account=null,rows=[],query=\"\",savedOnly=false;\nfunction render(){\n $(\"catalog\").replaceChildren();\n const q=query.toLocaleLowerCase().trim();\n for(const row of rows.filter(r=>(!savedOnly||r.saved)&&(!q||r.title.toLocaleLowerCase().includes(q))).slice(0,500)){\n  const card=el(\"article\"),title=el(\"strong\",row.title),detail=el(\"p\",[row.kind===\"movie\"?t(\"Movie\",\"Фильм\"):t(\"TV\",\"Сериал\"),row.year||\"\",row.episode||\"\"].filter(Boolean).join(\" · \"));\n  const save=button(row.saved?t(\"Remove from watchlist\",\"Убрать из списка\"):t(\"Add to watchlist\",\"Добавить в список\"),async()=>{save.disabled=true;try{await api(\"/api/watchlist\",{id:row.id,saved:!row.saved});row.saved=!row.saved;render();}catch(_){msg(t(\"Could not save.\",\"Не удалось сохранить.\"));save.disabled=false;}});\n  card.append(title,detail,save);if(row.position>0)card.append(el(\"p\",t(\"Resume position: \",\"Позиция просмотра: \")+Math.floor(row.position/60)+t(\" min\",\" мин\")));$(\"catalog\").append(card);\n }\n if(!$(\"catalog\").children.length)$(\"catalog\").append(el(\"p\",t(\"No matching titles.\",\"Нет подходящих наименований.\")));\n}\nasync function load(){\n try{account=await api(\"/api/me\");$(\"login\").hidden=true;$(\"library\").hidden=false;$(\"account\").textContent=account.name;const data=await api(\"/api/catalog\");rows=data.items||[];render();msg(t(\"Local preview. Streaming is not enabled yet.\",\"Локальный просмотр каталога. Воспроизведение пока недоступно.\"));}\n catch(e){if(e.message===\"401\"){$(\"login\").hidden=false;$(\"library\").hidden=true;msg(t(\"Sign in to your viewer account.\",\"Войдите в учётную запись зрителя.\"));}else msg(t(\"Catalog unavailable. Check the private metadata server.\",\"Каталог недоступен. Проверьте сервер метаданных.\"));}\n}\n$(\"heading\").textContent=t(\"DK Kinehall Viewer\",\"ДК Кинехолл\");\n$(\"nameLabel\").textContent=t(\"Account name\",\"Имя учётной записи\");\n$(\"passLabel\").textContent=t(\"Password\",\"Пароль\");\n$(\"signIn\").textContent=t(\"Sign in\",\"Войти\");\n$(\"logout\").textContent=t(\"Sign out\",\"Выйти\");\n$(\"filter\").placeholder=t(\"Search titles\",\"Поиск наименований\");\n$(\"savedLabel\").textContent=t(\"Watchlist only\",\"Только список просмотра\");\n$(\"login\").onsubmit=async e=>{e.preventDefault();const password=$(\"password\").value;$(\"password\").value=\"\";$(\"signIn\").disabled=true;try{await api(\"/api/login\",{name:$(\"name\").value,password});await load();}catch(_){msg(t(\"Sign-in failed. Check your account or wait before retrying.\",\"Не удалось войти. Проверьте учётную запись или подождите.\"));}finally{$(\"signIn\").disabled=false;}};\n$(\"logout\").onclick=async()=>{try{await api(\"/api/logout\",{});}catch(_){}rows=[];await load();};\n$(\"filter\").oninput=()=>{query=$(\"filter\").value;render();};\n$(\"saved\").onchange=()=>{savedOnly=$(\"saved\").checked;render();};\nvoid load();\n").digest("base64") +"'; style-src 'unsafe-inline'; connect-src 'self'; media-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'","X-Content-Type-Options":"nosniff","Referrer-Policy":"no-referrer"});return res.end(viewerPreviewPage);
+  }
+  if(method==="POST"&&url.pathname==="/api/login"){
+   viewerFailed=viewerFailed.filter(t=>Date.now()-t<60000);
+   if(viewerAuthBusy||viewerFailed.length>=5)return viewerJson(res,429,{error:"Retry later"});
+   viewerAuthBusy=true;
+   try{
+    const body=await viewerBody(req);
+    const account=await viewerAuthenticate(body.name,body.password);
+    if(!account){viewerFailed.push(Date.now());return viewerJson(res,401,{error:"Invalid credentials"});}
+    const row=viewerRead().find(x=>x.id===account.id);if(!row?.enabled)return viewerJson(res,401,{error:"Invalid credentials"});
+    for(const [token,s] of viewerSessions)if(s.expires<Date.now())viewerSessions.delete(token);
+    if(viewerSessions.size>=100)return viewerJson(res,429,{error:"Too many sessions"});
+    const token=randomBytes(32).toString("hex");
+    viewerSessions.set(token,{id:row.id,hash:row.hash,expires:Date.now()+viewerSessionTTL});
+    return viewerJson(res,200,{ok:true},{"Set-Cookie":"dkviewer="+token+"; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800"});
+   }finally{viewerAuthBusy=false;}
+  }
+  const session=viewerSession(req);if(!session)return viewerJson(res,401,{error:"Sign in required"});
+  const account=session.account;
+  if(method==="GET"&&url.pathname==="/api/me")return viewerJson(res,200,account);
+  if(method==="POST"&&url.pathname==="/api/logout"){
+   viewerSessions.delete(session.token);return viewerJson(res,200,{ok:true},{"Set-Cookie":"dkviewer=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0"});
+  }
+  if(method==="GET"&&url.pathname==="/api/catalog"){
+   const items=await viewerCatalog(account),data=viewerData(account.id),saved=new Set(data.saved),rows=[];
+   for(const item of items.values()){
+    if(!item)continue;
+    const tv=item.Type==="Episode",title=tv?String(item.SeriesName||item.Name)+" · "+String(item.Name):String(item.Name);
+    rows.push({id:item.Id,title:title.slice(0,360),kind:tv?"tv":"movie",year:Number(item.ProductionYear)||null,episode:tv?"S"+String(item.ParentIndexNumber??0).padStart(2,"0")+"E"+String(item.IndexNumber??0).padStart(2,"0"):null,saved:saved.has(item.Id),position:Number(data.progress[item.Id]?.position)||0});
+   }
+   rows.sort((a,b)=>a.title.localeCompare(b.title,undefined,{numeric:true}));return viewerJson(res,200,{items:rows.slice(0,25000)});
+  }
+  if(method==="POST"&&["/api/watchlist","/api/progress"].includes(url.pathname)){
+   const body=await viewerBody(req);if(!jellyfinId(body.id))return no();
+   const items=await viewerCatalog(account);
+   const current=viewerSession(req);if(!current||!items.get(body.id)||!viewerItemAllowed(items.get(body.id),current.account,getLibrarySources()))return no();
+   const data=viewerData(account.id);
+   if(url.pathname==="/api/watchlist"){
+    if(typeof body.saved!=="boolean")return viewerJson(res,400,{error:"Invalid watchlist request"});
+    const ids=new Set(data.saved);if(body.saved)ids.add(body.id);else ids.delete(body.id);
+    if(ids.size>25000)return viewerJson(res,409,{error:"Watchlist full"});data.saved=[...ids];
+   }else{
+    const position=body.position,duration=body.duration;
+    if(!Number.isFinite(position)||!Number.isFinite(duration)||position<0||duration<=0||position>duration||duration>86400)return viewerJson(res,400,{error:"Invalid progress"});
+    if(!data.progress[body.id]&&Object.keys(data.progress).length>=25000)return viewerJson(res,409,{error:"History full"});
+    data.progress[body.id]={position,duration,updatedAt:Date.now()};
+   }
+   viewerSaveData(account.id,data);return viewerJson(res,200,{ok:true});
+  }
+  return no();
+ }catch(_){if(!res.headersSent)viewerJson(res,503,{error:"Viewer unavailable"});else res.destroy();}
+}
+function viewerStop(){
+ const server=viewerServer;viewerServer=null;viewerSessions.clear();
+ if(server){server.close();server.closeAllConnections?.();}
+}
+async function viewerPreview(action){
+ if(action==="stop"){viewerStop();return {running:false};}
+ if(action==="status")return {running:!!viewerServer?.listening};
+ if(action!=="open")throw Error("Invalid viewer action");
+ if(!viewerServer?.listening){
+  if(!viewerOpening)viewerOpening=new Promise((resolve,reject)=>{
+   const server=netHTTP.createServer({maxHeaderSize:8192,requestTimeout:10000,headersTimeout:5000},(req,res)=>void serveViewer(req,res));
+   viewerServer=server;server.maxConnections=32;server.keepAliveTimeout=3000;
+   server.once("error",error=>{if(viewerServer===server)viewerServer=null;reject(error);});
+   server.listen(0,"127.0.0.1",()=>resolve());
+  }).finally(()=>{viewerOpening=null;});
+  await viewerOpening;
+ }
+ if(!viewerServer?.listening)throw Error("Viewer unavailable");
+ await shell.openExternal("http://127.0.0.1:"+viewerServer.address().port+"/");
+ return {running:true};
 }
 function jfDirectory(dir){
   fs.mkdirSync(dir,{recursive:true,mode:0o700});
@@ -3385,7 +3521,7 @@ function install(originalWindow,originalPlayer){
   // Every new desktop session requests the private server by default.
   // A deliberate Stop remains effective until the next app launch.
   if(!jellyfinConfig()){try{jfWrite(jfPowerFile(),JSON.stringify({enabled:true}));}catch(_){}}
-  void jfStart();app.once("before-quit",()=>{jfClosing=true;});
+  void jfStart();app.once("before-quit",()=>{jfClosing=true;viewerStop();});
   // Chromium owns the PNG transfer; only this Player view's named Blob
   // snapshots receive the localized native save prompt. No arbitrary paths
   // or filesystem API are exposed to the renderer.
@@ -3783,6 +3919,7 @@ function install(originalWindow,originalPlayer){
     if(!allowed(event))throw new Error("Library command rejected");
     return openPlayer(id);
   });
+  ipcMain.handle("dk-library:viewer-preview",(event,action)=>{if(!allowed(event)||activePage!=="library")throw Error("Viewer request rejected");return viewerPreview(action);});
   ipcMain.handle("dk-library:viewer-accounts",(event,action,value)=>{
     if(!allowed(event)||activePage!=="library"||!["list","create","update","password","remove"].includes(action))throw Error("Account request rejected");
     return viewerManage(action,value);

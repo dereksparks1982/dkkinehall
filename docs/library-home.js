@@ -2301,10 +2301,15 @@ function connect(){
     }
     const accountPanel=create("section","dk-server-settings dk-viewer-accounts");accountPanel.hidden=true;dlg.append(accountPanel);
     const accountButton=cinemaButton("Viewer Accounts","Учётные записи зрителей",()=>chooseCategory("accounts"));accountButton.hidden=!nativeBridge.viewerAccounts;serverPanel.append(accountButton);
+    const previewStatus=create("p","helper");
+    const openPreview=cinemaButton("Open Local Viewer","Открыть локальный просмотр",()=>void viewerPreviewAction("open"));
+    const stopPreview=cinemaButton("Stop Local Viewer","Остановить локальный просмотр",()=>void viewerPreviewAction("stop"));
+    async function viewerPreviewAction(action){if(!nativeBridge.viewerPreview)return;try{const r=await nativeBridge.viewerPreview(action);stopPreview.disabled=!r.running;previewStatus.textContent=r.running?say("Local browser viewer running. LAN and internet access are disabled.","Локальный просмотр запущен. Доступ по сети и интернету отключён."):say("Local viewer stopped.","Локальный просмотр остановлен.");}catch(_){previewStatus.textContent=say("Local viewer unavailable.","Локальный просмотр недоступен.");}}
+    if(nativeBridge.viewerPreview)serverPanel.append(openPreview,stopPreview,previewStatus);
     let accountsEpoch=0,accountsBusy=false;
     const drawAccounts=async()=>{
      if(!nativeBridge.viewerAccounts)return;
-     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Network sign-in and separate playback history will be enabled by later builds. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Сетевой вход и отдельная история просмотра будут добавлены позже. Права владельца приложения не изменяются.")));
+     const revision=++accountsEpoch;accountPanel.replaceChildren(create("p","helper",say("Create separate non-administrator viewer accounts. Local browser sign-in and separate watchlists are available in the preview; network streaming remains planned. The desktop owner is unchanged.","Создавайте отдельные учётные записи зрителей без прав администратора. Локальный вход и отдельные списки просмотра доступны в предварительной версии; сетевое воспроизведение будет добавлено позже. Права владельца приложения не изменяются.")));
      const note=create("p","helper");note.setAttribute("role","status");accountPanel.append(note);
      const valid=()=>revision===accountsEpoch&&!accountPanel.hidden;
      const input=(parent,label,type="text",value="")=>{const wrap=create("label",null,label),node=create("input");node.type=type;node.value=value;node.required=true;node.maxLength=type==="password"?128:48;if(type==="password"){node.minLength=12;node.autocomplete="new-password";}wrap.append(node);parent.append(wrap);return node;};
@@ -2333,7 +2338,7 @@ function connect(){
       body.hidden=!id;for(const section of body.children)section.hidden=section.dataset.settingsCategory!==id;
       extra.replaceChildren();extra.hidden=true;
       serverPanel.hidden=id!=="server";diagnosticPanel.hidden=id!=="diagnostics";accountPanel.hidden=id!=="accounts";if(id==="accounts"){body.hidden=true;void drawAccounts();}else accountsEpoch++;
-      if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();}
+      if(id==="server"){body.hidden=true;updateServerLabels();void pollJellyfin();void viewerPreviewAction("status");}
       if(id==="diagnostics"){body.hidden=true;enterDiagnostics();}else{reportEpoch++;refreshReport.disabled=false;}
       const toolButton=(label,handler)=>{const btn=create("button","btn",label);btn.type="button";btn.addEventListener("click",handler);extra.append(btn);extra.hidden=false;};
       if(id==="network"||id==="disc"){

@@ -235,3 +235,6 @@ Server → Diagnostic Centre: explicit checks with Passed, Needs attention, Prob
 
 
 Viewer Accounts (Settings → Server): local owner-managed non-admin account registry with separate Movies/TV access permissions, enable/disable, password reset and removal. Passwords use unique salts and scrypt verifiers in owner-only native storage; no plaintext credentials or verifier material returned to the UI. This is a serving-mode foundation only: network sign-in, actual permission enforcement on streams, separate viewer watchlists/history and remote sessions are not yet exposed. Private Jellyfin metadata server remains loopback-only.
+
+
+Local Viewer preview: explicitly open a localhost-only browser viewer from Server Settings. Accounts authenticate through the separate Kinehall account registry; session cookies are HTTP-only/SameSite Strict with expiration, login throttling and revocation on account changes. Catalog results are permission-filtered against selected local Jellyfin roots and omit paths and tokens. Watchlists and progress records are separately persisted per viewer; the preview currently browses and edits watchlists, with progress storage reserved for playback. No media streaming, LAN bind, WAN exposure or private metadata-admin UI. The preview stops on application exit. Installed security and functional testing pending.

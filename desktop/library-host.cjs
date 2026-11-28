@@ -3251,7 +3251,7 @@ async function extractAudio(event,format,profile={},id){
     folder=fs.mkdtempSync(path.join(path.dirname(dest),".dk-media-convert-"));
     const output=path.join(folder,"output."+format);
     const duration=await conversionDuration(source);conversionCheck();conversionJob.duration=duration>0?duration:0;
-    await conversionRun(["-protocol_whitelist","file","-format_whitelist",editInputFormats,"-i",source,...options,output]);
+    await conversionRun(["-protocol_whitelist","file","-i",source,...options,output]);
     conversionCheck();const bytes=fs.statSync(output).size;if(!bytes)throw Error("No media output");
     fs.linkSync(output,dest);results.push({name:path.basename(dest),bytes,ok:true});
    }catch(error){if(conversionJob.cancelled)break;if(!batch)throw error;results.push({name:path.basename(job.source),ok:false});}

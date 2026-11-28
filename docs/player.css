@@ -1584,7 +1584,7 @@ html body :is(button:not(.library-card):not(.dk-library-open-card):not(.dk-chapt
   a.btn,summary[role="button"],summary.icon-btn,.playback-settings summary):not(:disabled):is(:hover,:focus-visible) {
   background:var(--dk-action-gold)!important;
   color:var(--dk-action-ink)!important;
-  outline:2px solid var(--dk-action-ink)!important;
+  outline:2px solid var(--dk-russian-red,#D52B1E)!important;
   outline-offset:-3px!important;
   filter:none!important;
 }
@@ -1594,7 +1594,7 @@ html body details[open]>summary:is([role="button"],.icon-btn),
 html body .playback-settings[open]>summary {
   outline:2px solid var(--dk-action-active)!important;
   outline-offset:1px!important;
-  box-shadow:inset 0 0 0 2px var(--dk-action-ink)!important;
+  box-shadow:none!important;
 }
 html body :is(button:not(.library-card):not(.dk-library-open-card):not(.dk-chapter-marker),
   input[type="button"],input[type="submit"],input[type="reset"]):disabled {
@@ -1635,3 +1635,25 @@ html.dk-standalone .queue .item-play .queue-item-labels :is(.item-title,.item-me
 .queue .queue-artwork-image,.queue .queue-hover-video{object-fit:contain!important;object-position:center!important;}
 
 .dk-screen-recorder label[hidden]{display:none!important}.dk-screen-recorder label:has(input[type="checkbox"]){display:flex;align-items:center;gap:8px}.dk-screen-recorder input[type="checkbox"]{width:auto;flex:none}
+
+/* Owner-approved exceptions to the antique-gold action palette. */
+html.dk-standalone body :is(#playPause,#mute,#returnToLibrary,#addQueueFiles,button.dk-player-reset):not(:disabled),
+html.dk-standalone body :is(#playPause,#mute,#returnToLibrary,#addQueueFiles,button.dk-player-reset):not(:disabled):is(:hover,:focus-visible,:active){
+  background:var(--dk-russian-red,#D52B1E)!important;
+  color:#fff!important;
+  border-color:var(--dk-russian-red,#D52B1E)!important;
+}
+html.dk-standalone body :is(#playPause,#mute,#returnToLibrary,#addQueueFiles,button.dk-player-reset):not(:disabled):is(:hover,:focus-visible){
+  outline:2px solid var(--dk-russian-red,#D52B1E)!important;outline-offset:2px!important;box-shadow:none!important;
+}
+html.dk-standalone body :is(#scanLibrary,#playerScanLibrary).btn:not(:disabled),
+html.dk-standalone body :is(#scanLibrary,#playerScanLibrary).btn:not(:disabled):is(:hover,:focus-visible,:active){
+  background:var(--dk-action-gold)!important;color:var(--dk-action-ink)!important;border-color:var(--dk-action-border)!important;
+}
+html.dk-standalone body :is(#scanLibrary,#playerScanLibrary).btn:not(:disabled):is(:hover,:focus-visible){
+  outline:2px solid var(--dk-russian-red,#D52B1E)!important;outline-offset:-3px!important;
+}
+html.dk-standalone body .screen .controls #seek{accent-color:var(--dk-russian-red,#D52B1E)!important}
+html.dk-standalone body :is(button:not(.library-card):not(.dk-library-open-card):not(.dk-chapter-marker):not(.dk-cinema-shelf-toggle),a.btn,summary[role="button"],summary.icon-btn,.playback-settings summary):not(:disabled):is(:hover,:focus-visible){
+  outline-color:var(--dk-russian-red,#D52B1E)!important;
+}

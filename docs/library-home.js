@@ -2370,6 +2370,7 @@ function connect(){
         if(nativeBridge.openMediaTool)toolButton(id==="network"?"Network media…":"Open DVD…",async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool(id);dlg.close();}catch(_){setFeedback("Could not open media tool.");}finally{busy=false;}});
         extra.append(create("p","helper",id==="network"?"Discover DLNA servers and open compatible local network streams.":"Open DVD drives, ISO images and DVD folders with a compatible decoder."));
       }
+      if(id==="tools"&&nativeBridge.extractAudio)toolButton(say("Extract Audio","Извлечение звука"),async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool("audio-extraction");dlg.close();}catch(_){setFeedback(say("Could not open audio extraction.","Не удалось открыть извлечение звука."));}finally{busy=false;}});
       if(id==="tools"&&nativeBridge.screenRecordSources)toolButton(say("Media Recording","Запись медиа"),async()=>{if(busy)return;busy=true;try{await nativeBridge.openMediaTool("screen-recording");dlg.close();}catch(_){setFeedback(say("Could not open media recording.","Не удалось открыть запись медиа."));}finally{busy=false;}});
       if(id==="library"){
         if(nativeBridge.librarySources)toolButton(say("Library Management","Управление медиатекой"),()=>{dlg.close();void openLibraryManagement();});

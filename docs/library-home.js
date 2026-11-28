@@ -2312,7 +2312,7 @@ function connect(){
     let viewerAddressURL=null;
     const openPreview=cinemaButton("Open Viewer","Открыть просмотр",()=>void nativeBridge.viewerPreview("open").catch(()=>{}));
     const copyURL=cinemaButton("Copy Viewer Address","Копировать адрес просмотра",async()=>{if(viewerAddressURL)try{await navigator.clipboard.writeText(viewerAddressURL);}catch(_){previewStatus.textContent=viewerAddressURL;}});
-    const note=create("p","helper",say("Open this address on another device on your home network. Streaming starts automatically with the server.","Откройте этот адрес на другом устройстве домашней сети. Просмотр запускается автоматически вместе с сервером."));
+    const note=create("p","helper",say("Open the displayed address on your home network. Away from home, use your public IPv4 address and port 8097; your router must forward TCP port 8097 to this computer. Streaming starts automatically. Anyone who can reach this address can watch the shared library.","В домашней сети откройте указанный адрес. Вне дома используйте публичный адрес IPv4 и порт 8097; маршрутизатор должен перенаправлять порт TCP 8097 на этот компьютер. Просмотр запускается автоматически. Любой, кому доступен этот адрес, может смотреть общую медиатеку."));
     function drawViewer(r){
      viewerAddressURL=r?.url||null;
      openPreview.disabled=!viewerAddressURL;copyURL.disabled=!viewerAddressURL;

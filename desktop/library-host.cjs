@@ -3097,7 +3097,7 @@ function screenRecordDispose(remove=false){
  try{fs.closeSync(r.fd);}catch(_){}
  if(remove)try{fs.unlinkSync(r.temp);}catch(_){}
 }
-async function screenRecordBegin(event,sourceId,format="webm",videoCodec="h264",audioCodec="aac"){
+async function screenRecordBegin(event,sourceId,format="webm",videoCodec="h264",audioCodec="aac",encoding={}){
  if(!["webm","mp4"].includes(format))throw Error("Invalid recording format");
  if(screenRecord||screenRecordOpening||screenRecordExport||typeof sourceId!=="string"||sourceId.length>200)throw Error("Recorder unavailable");
  screenRecordOpening=true;
@@ -3106,6 +3106,8 @@ async function screenRecordBegin(event,sourceId,format="webm",videoCodec="h264",
   if(!camera&&!microphone){const sources=await screenRecordSources();if(!sources.some(s=>s.id===sourceId))throw Error("Capture source unavailable");}
   const ru=readInterfaceLanguage("en")==="ru";
   if(microphone)format="webm";
+  const quality=Number(encoding?.quality??0),videoKbps=Number(encoding?.videoKbps??0),audioKbps=Number(encoding?.audioKbps??0);
+  if(!Number.isInteger(quality)||quality<0||quality>100||!Number.isInteger(videoKbps)||(videoKbps!==0&&(videoKbps<250||videoKbps>100000))||!Number.isInteger(audioKbps)||(audioKbps!==0&&(audioKbps<32||audioKbps>320)))throw Error("Invalid encoding settings");
   if(format==="mp4"){
    if(!["h264","hevc","mpeg4"].includes(videoCodec)||!["aac","alac","none"].includes(audioCodec))throw Error("Invalid export codec");
    fs.accessSync(tvDecoder(),fs.constants.X_OK);
@@ -3117,7 +3119,7 @@ async function screenRecordBegin(event,sourceId,format="webm",videoCodec="h264",
   if(fs.existsSync(dest))throw Error("Choose a new output filename");
   const token=randomBytes(24).toString("hex"),temp=dest+".partial-"+token.slice(0,10)+(format==="mp4"?".webm":"");
   const fd=fs.openSync(temp,"wx",0o600);
-  screenRecord={fd,temp,dest,format,videoCodec,audioCodec,token,owner:event.sender.id,bytes:0};
+  screenRecord={fd,temp,dest,format,videoCodec,audioCodec,quality,videoKbps,audioKbps,token,owner:event.sender.id,bytes:0};
   return {token,sourceId,name:path.basename(dest)};
  }finally{screenRecordOpening=false;}
 }
@@ -3141,8 +3143,12 @@ async function screenRecordAction(event,action,token,chunk){
   const folder=fs.mkdtempSync(path.join(path.dirname(r.dest),".dk-record-export-")),output=path.join(folder,"output.mp4");
   try{
    await new Promise((resolve,reject)=>{
-    const videoArgs=r.videoCodec==="hevc"?["-c:v","libx265","-preset","fast","-crf","28","-tag:v","hvc1"]:r.videoCodec==="mpeg4"?["-c:v","mpeg4","-q:v","4"]:["-c:v","libx264","-preset","fast","-crf","23"];
-    const audioArgs=r.audioCodec==="none"?["-an"]:r.audioCodec==="alac"?["-map","0:a:0?","-c:a","alac"]:["-map","0:a:0?","-c:a","aac","-b:a","192k"];
+    const hevc=r.videoCodec==="hevc",mpeg4=r.videoCodec==="mpeg4";
+    const crf=r.quality?Math.round(40-(r.quality-1)*30/99):hevc?28:23;
+    const quantizer=r.quality?Math.round(20-(r.quality-1)*18/99):4;
+    const videoArgs=hevc?["-c:v","libx265","-preset","fast","-tag:v","hvc1"]:mpeg4?["-c:v","mpeg4"]:["-c:v","libx264","-preset","fast"];
+    videoArgs.push(...(r.videoKbps?["-b:v",r.videoKbps+"k"]:mpeg4?["-q:v",String(quantizer)]:["-crf",String(crf)]));
+    const audioArgs=r.audioCodec==="none"?["-an"]:r.audioCodec==="alac"?["-map","0:a:0?","-c:a","alac"]:["-map","0:a:0?","-c:a","aac","-b:a",(r.audioKbps||192)+"k"];
     const child=spawn(tvDecoder(),["-hide_banner","-loglevel","error","-nostdin","-n","-protocol_whitelist","file","-f","matroska","-i",r.temp,"-map","0:v:0","-vf","pad=ceil(iw/2)*2:ceil(ih/2)*2",...videoArgs,"-pix_fmt","yuv420p",...audioArgs,"-movflags","+faststart","-f","mp4",output],{env:tvCodecEnv(),stdio:"ignore",shell:false});
     screenRecordExport=child;
     child.once("error",reject);child.once("close",code=>code===0?resolve():reject(Error("MP4 export failed")));
@@ -3934,7 +3940,7 @@ function install(originalWindow,originalPlayer){
   // Library requests are limited to its explicit shared settings API, never
   // renderer-provided JavaScript, selectors or localStorage keys.
   ipcMain.handle("dk-library:screen-record-sources",event=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordSources();});
-  ipcMain.handle("dk-library:screen-record-begin",(event,id,format,videoCodec,audioCodec)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format,videoCodec,audioCodec);});
+  ipcMain.handle("dk-library:screen-record-begin",(event,id,format,videoCodec,audioCodec,encoding)=>{if(!onlyPlayer(event)||activePage!=="player")throw Error("Capture request rejected");return screenRecordBegin(event,id,format,videoCodec,audioCodec,encoding);});
   ipcMain.handle("dk-library:screen-record-action",(event,action,token,chunk)=>{if(!onlyPlayer(event))throw Error("Capture request rejected");return screenRecordAction(event,action,token,chunk);});
   ipcMain.handle("dk-library:open-media-tool",async(event,kind)=>{
     if(!allowed(event)||activePage!=="library"||!["network","disc","live-tv","screen-recording"].includes(kind))throw Error("Media tool request rejected");

@@ -4825,6 +4825,40 @@
     finally{if(url)URL.revokeObjectURL(url);if(canvas){canvas.width=0;canvas.height=0;}snapshotBusy=false;}
   };
   // Modeless capture controls remain usable while ordinary playback continues.
+  let openTrimVideo=()=>{},openJoinVideos=()=>{};
+  if(window.DKLibraryBridge?.editMedia){
+    const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
+    const el=(tag,text="")=>{const x=document.createElement(tag);x.textContent=text;return x;};
+    const d=el("dialog"),title=el("h2"),hint=el("p"),message=el("p"),list=el("ol"),controls=el("div");d.className="dk-screen-recorder";controls.className="dk-screen-record-actions";message.setAttribute("role","status");
+    const button=()=>{const b=el("button");b.type="button";b.className="btn";return b;};
+    const pick=button(),run=button(),close=button();controls.append(pick,run,close);
+    const field=input=>{const label=el("label"),text=el("span");label.append(text,input);return {label,text,input};};
+    const start=field(el("input")),end=field(el("input")),method=field(el("select")),height=field(el("select")),fps=field(el("select"));
+    for(const x of [start,end]){x.input.type="text";x.input.inputMode="decimal";x.input.placeholder="00:00:00";}
+    const fill=(select,rows)=>{const old=select.value;select.replaceChildren();for(const [v,label] of rows){const o=el("option",label);o.value=String(v);select.append(o);}if([...select.options].some(o=>o.value===old))select.value=old;};
+    fill(height.input,[480,720,1080,2160].map(v=>[v,v+"p"]));height.input.value="1080";fill(fps.input,[24,25,30,50,60].map(v=>[v,v+" FPS"]));fps.input.value="24";
+    d.append(title,hint,list,start.label,end.label,method.label,height.label,fps.label,message,controls);document.body.append(d);
+    let mode="trim",selection=null,rows=[],busy=false;
+    const parse=value=>{const v=String(value).trim();if(!/^\d+(?::\d{1,2}){0,2}(?:\.\d{1,3})?$/.test(v))return NaN;const parts=v.split(":").map(Number);if(parts.slice(1).some(x=>x>=60))return NaN;return parts.reduce((total,x)=>total*60+x,0);};
+    function draw(){
+      const trim=mode==="trim",copy=method.input.value==="copy";
+      title.textContent=trim?t("Trim Video","Обрезка видео"):t("Join Videos","Объединение видео");
+      hint.textContent=trim?t("Choose a file and enter start and end times. Accurate mode re-encodes; lossless mode cuts near keyframes.","Выберите файл и введите начало и конец. Точная обрезка перекодирует видео; без потерь обрезает около ключевых кадров."):t("Choose clips and arrange their order. Lossless joining requires matching stream layouts. Re-encoding makes a common video size and frame rate.","Выберите клипы и настройте порядок. Объединение без потерь требует одинаковых потоков. Перекодирование приводит размер и частоту кадров к общим значениям.");
+      start.text.textContent=t("Start time","Начало");end.text.textContent=t("End time","Конец");method.text.textContent=t("Editing mode","Режим обработки");height.text.textContent=t("Output resolution","Разрешение файла");fps.text.textContent=t("Output frame rate","Частота кадров");
+      fill(method.input,[["encode",t("Accurate re-encoding · MP4","Точное перекодирование · MP4")],["copy",t("Lossless stream copy · MKV","Копирование без потерь · MKV")]]);
+      start.label.hidden=end.label.hidden=!trim;height.label.hidden=fps.label.hidden=trim||copy;
+      pick.textContent=trim?t("Choose video","Выбрать видео"):t("Choose clips","Выбрать клипы");run.textContent=trim?t("Trim and save","Обрезать и сохранить"):t("Join and save","Объединить и сохранить");close.textContent=t("Close","Закрыть");
+      pick.disabled=close.disabled=busy;run.disabled=busy||!selection||(trim?rows.length!==1:rows.length<2);
+      for(const f of [start,end,method,height,fps])f.input.disabled=busy;
+      list.replaceChildren();rows.forEach((row,i)=>{const li=el("li",row.name+" ");if(!trim){for(const [delta,caption] of [[-1,"↑"],[1,"↓"]]){const b=button();b.textContent=caption;b.setAttribute("aria-label",delta<0?t("Move up","Переместить вверх"):t("Move down","Переместить вниз"));b.disabled=busy||i+delta<0||i+delta>=rows.length;b.onclick=()=>{[rows[i],rows[i+delta]]=[rows[i+delta],rows[i]];draw();};li.append(b);}}list.append(li);});
+    }
+    method.input.onchange=draw;
+    pick.onclick=async()=>{if(busy)return;busy=true;draw();try{const result=await bridge.pickEditFiles(mode);if(result){selection=result.token;rows=result.files;message.textContent="";}}catch(error){message.textContent=t("Could not select files: ","Не удалось выбрать файлы: ")+String(error?.message||error);}finally{busy=false;draw();}};
+    run.onclick=async()=>{if(busy||!selection)return;const a=parse(start.input.value),b=parse(end.input.value);if(mode==="trim"&&(!Number.isFinite(a)||!Number.isFinite(b)||b<=a)){message.textContent=t("Enter valid start and end times, with end after start.","Введите верные начало и конец; конец должен быть позже начала.");return;}busy=true;draw();message.textContent=t("Processing video…","Обработка видео…");try{const result=await bridge.editMedia(selection,rows.map(x=>x.id),{copy:method.input.value==="copy",start:a,end:b,height:Number(height.input.value),fps:Number(fps.input.value)});message.textContent=result.cancelled?t("Cancelled.","Отменено."):t("Saved: ","Сохранено: ")+result.name;}catch(error){message.textContent=t("Editing failed: ","Ошибка обработки: ")+String(error?.message||error);}finally{busy=false;draw();}};
+    close.onclick=()=>{if(!busy)d.close();};d.addEventListener("cancel",e=>{if(busy)e.preventDefault();});
+    function openEdit(next){settingsDetails.open=false;if(!busy&&mode!==next){mode=next;selection=null;rows=[];message.textContent="";}draw();if(!d.open)d.show();}
+    openTrimVideo=()=>openEdit("trim");openJoinVideos=()=>openEdit("join");bridge.onOpenMediaTool?.(kind=>{if(kind==="trim-video")openTrimVideo();if(kind==="join-videos")openJoinVideos();});
+  }
   let openAudioExtractor=()=>{},openVideoConverter=()=>{};
   if(window.DKLibraryBridge?.extractAudio){
     const bridge=window.DKLibraryBridge,t=(en,ru)=>window.DKLocale?.get()==="ru"?ru:en;
@@ -6522,6 +6556,8 @@
         ["Load subtitle file",()=>click("addSubtitles"),()=>enabled("addSubtitles")]
       ]],
       ["Tools",[
+        [window.DKLocale?.get()==="ru"?"Обрезка видео":"Trim Video",()=>openTrimVideo(),()=>!!window.DKLibraryBridge?.editMedia],
+        [window.DKLocale?.get()==="ru"?"Объединение видео":"Join Videos",()=>openJoinVideos(),()=>!!window.DKLibraryBridge?.editMedia],
         [window.DKLocale?.get()==="ru"?"Преобразование видео":"Convert Video",()=>openVideoConverter(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Извлечение звука":"Extract Audio",()=>openAudioExtractor(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],

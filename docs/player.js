@@ -6483,8 +6483,7 @@
         ["Choose folder",()=>click("selectFolder"),()=>enabled("selectFolder")],
         ["Import local playlist…",()=>click("addQueuePlaylist"),()=>enabled("addQueuePlaylist")],
         ["Open DVD…",()=>click("dkOpenDVD"),()=>enabled("dkOpenDVD")],
-        ["Network media…",()=>click("dkOpenNetwork"),()=>enabled("dkOpenNetwork")],
-        ["Convert / export",()=>click("nativeExportVideo"),()=>enabled("nativeExportVideo")&&hasMedia()]
+        ["Network media…",()=>click("dkOpenNetwork"),()=>enabled("dkOpenNetwork")]
       ]],
       ["Playback",[
         ["Play or pause",togglePlayback,()=>Boolean(current())],
@@ -6510,37 +6509,32 @@
         ["Audio settings",()=>settings("audio"),()=>categoryAvailable("audio")],
         ["Mute",()=>click("mute"),()=>enabled("mute")],
         ["Increase volume",()=>setVolume(volumePercent+5)],
-        ["Decrease volume",()=>setVolume(volumePercent-5)]
+        ["Decrease volume",()=>setVolume(volumePercent-5)],
+        ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
       ]],
       ["Video",[
         ["Take video snapshot",()=>void takeVideoSnapshot(),canTakeSnapshot],
-        [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
-        ["Picture Settings",()=>settings("picture"),()=>categoryAvailable("picture")],
-        ["Fullscreen",()=>void toggleFullscreen()],
-        ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
-        ["Float player",()=>click("floatPlayer"),()=>enabled("floatPlayer")],
-        ["Picture in picture",()=>click("pip"),()=>enabled("pip")&&!byId("pip").hidden]
+        ["Picture Settings",()=>settings("picture"),()=>categoryAvailable("picture")]
       ]],
       ["Subtitle",[
         ["Subtitles",()=>settings("subtitles"),()=>categoryAvailable("subtitles")],
         ["Toggle subtitles",()=>click("subtitleToggle"),()=>enabled("subtitleToggle")],
-        ["Load subtitle file",()=>click("addSubtitles"),()=>enabled("addSubtitles")],
-        ["Voiceover",()=>settings("voiceover"),()=>categoryAvailable("voiceover")]
+        ["Load subtitle file",()=>click("addSubtitles"),()=>enabled("addSubtitles")]
       ]],
       ["Tools",[
         [window.DKLocale?.get()==="ru"?"Преобразование видео":"Convert Video",()=>openVideoConverter(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Извлечение звука":"Extract Audio",()=>openAudioExtractor(),()=>!!window.DKLibraryBridge?.extractAudio],
         [window.DKLocale?.get()==="ru"?"Запись медиа":"Media Recording",()=>openScreenRecorder(),()=>!!window.DKLibraryBridge?.screenRecordSources&&typeof MediaRecorder==="function"],
-        ["Effects and filters",()=>settings("audio"),()=>categoryAvailable("audio")],
         ["Media information",openMediaInfo,hasMedia],
         ["Settings",()=>settings(null)],
-        ["Network",()=>settings("network"),()=>categoryAvailable("network")],
-        ["Scan Library",()=>click("playerScanLibrary"),()=>enabled("playerScanLibrary")],
-        ["Refresh Metadata",()=>click("playerRefreshMetadata"),()=>enabled("playerRefreshMetadata")]
+        ["Network",()=>settings("network"),()=>categoryAvailable("network")]
       ]],
       ["View",[
         ["Library",()=>click("returnToLibrary"),()=>enabled("returnToLibrary")],
+        ["Fullscreen",()=>void toggleFullscreen()],
         ["Theater Mode",()=>playerWindow?.toggleTheater(),canLayout],
+        ["Float player",()=>click("floatPlayer"),()=>enabled("floatPlayer")],
+        ["Picture in picture",()=>click("pip"),()=>enabled("pip")&&!byId("pip").hidden],
         ["Reset player size",()=>playerWindow?.reset()]
       ]]
     ];

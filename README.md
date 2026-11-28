@@ -14,6 +14,8 @@ DK Kinehall aims to match VLC's practical playback and media tools, exceed them 
 
 ## Features
 
+- Player colour accents: red Play/Pause, Volume, Reset, Library and Add Files buttons, red seek bar and red button hover outlines; Scan Library is gold. Other button backgrounds are unchanged.
+
 - Video conversion, audio extraction, trimming and joining show processing progress, elapsed media time and encoding speed. Cancel an active job without overwriting source files; completed batch outputs are retained.
 
 - Trim videos by start/end time or join ordered clips through Tools. Accurate re-encoding saves MP4; lossless stream copying saves MKV and requires compatible streams for joining. Re-encoded joins normalize picture size and frame rate. Original files remain unchanged.
